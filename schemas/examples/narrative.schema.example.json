@@ -1,0 +1,17 @@
+{
+  "id": "quiet-horizons", "name": "Quiet Horizons", "version": "0.1.0", "approvalState": "draft",
+  "description": "A narrative example with prompts, tags, and a shared clock rather than tactical statistics.",
+  "entityTypes": [
+    { "identity": { "id": "participant", "name": "Participant" }, "properties": [
+      { "identity": { "id": "name", "name": "Name" }, "valueType": { "kind": "primitive", "name": "string" }, "required": true },
+      { "identity": { "id": "tags", "name": "Tags" }, "valueType": { "kind": "collection", "itemType": { "kind": "primitive", "name": "string" }, "ordered": false }, "required": false }
+    ] },
+    { "identity": { "id": "clock", "name": "Clock" }, "properties": [
+      { "identity": { "id": "segments-filled", "name": "Segments Filled" }, "valueType": { "kind": "primitive", "name": "integer" }, "required": true },
+      { "identity": { "id": "prompt", "name": "Prompt" }, "valueType": { "kind": "primitive", "name": "string" }, "required": true }
+    ] }
+  ],
+  "procedures": [
+    { "identity": { "id": "reveal-truth", "name": "Reveal a Truth" }, "authoritativeText": "When a participant reveals an uncomfortable truth, add one segment to the shared clock and ask another participant what it changes.", "participants": ["participant", "clock"], "provenance": { "approvalState": "approved" } }
+  ]
+}

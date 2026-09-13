@@ -1,0 +1,13 @@
+{
+  "id": "the-last-lantern", "name": "The Last Lantern", "version": "0.1.0", "approvalState": "draft",
+  "description": "An experimental example whose central mechanic deliberately remains prose-first.",
+  "entityTypes": [
+    { "identity": { "id": "memory", "name": "Memory" }, "properties": [
+      { "identity": { "id": "image", "name": "Image" }, "valueType": { "kind": "primitive", "name": "string" }, "required": true },
+      { "identity": { "id": "faded", "name": "Faded" }, "valueType": { "kind": "primitive", "name": "boolean" }, "required": true, "defaultValue": false }
+    ] }
+  ],
+  "rules": [
+    { "identity": { "id": "lantern-consumption", "name": "Lantern Consumption" }, "authoritativeText": "When the lantern is named after a memory, that memory fades in a way the table decides together. A faded memory may still be invoked, but it must contradict an earlier description.", "appliesTo": ["memory"], "structuredSupport": { "automationStatus": "none", "limitations": ["The table decides when the triggering narration is sufficient.", "Contradiction is intentionally interpreted by humans."] }, "provenance": { "approvalState": "approved" } }
+  ]
+}

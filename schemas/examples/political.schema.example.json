@@ -1,0 +1,16 @@
+{
+  "id": "council-of-ashes", "name": "Council of Ashes", "version": "0.1.0", "approvalState": "draft",
+  "description": "A faction-focused example where a meaningful relationship carries attributes.",
+  "entityTypes": [
+    { "identity": { "id": "faction", "name": "Faction" }, "properties": [
+      { "identity": { "id": "name", "name": "Name" }, "valueType": { "kind": "primitive", "name": "string" }, "required": true },
+      { "identity": { "id": "influence", "name": "Influence" }, "valueType": { "kind": "primitive", "name": "integer" }, "required": true }
+    ] }
+  ],
+  "relationships": [
+    { "identity": { "id": "treaty", "name": "Treaty" }, "from": { "roleName": "firstSignatory", "entityType": "faction", "minimumOccurrences": 0, "maximumOccurrences": "unbounded" }, "to": { "roleName": "secondSignatory", "entityType": "faction", "minimumOccurrences": 0, "maximumOccurrences": "unbounded" }, "directed": false, "attributes": [
+      { "identity": { "id": "treaty-terms", "name": "Terms" }, "valueType": { "kind": "primitive", "name": "string" }, "required": true },
+      { "identity": { "id": "treaty-status", "name": "Status" }, "valueType": { "kind": "primitive", "name": "string" }, "required": true }
+    ] }
+  ]
+}

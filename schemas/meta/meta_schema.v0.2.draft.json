@@ -1,0 +1,155 @@
+{
+  "metaSchema": {
+    "name": "TTRPG Design System Meta-Schema",
+    "version": "0.2.0-draft",
+    "status": "designDraft",
+    "description": "A human-readable universal vocabulary for describing an individual tabletop role-playing game's schema. It defines how a game may describe itself; it does not prescribe game concepts.",
+    "principles": [
+      "Game-specific concepts belong in a game schema, not the universal meta-schema.",
+      "Approved natural-language text is authoritative when structured interpretation is incomplete or absent.",
+      "LLM interpretations are proposals until a human approves them.",
+      "Structural validation is universal; game-mechanical validation is game-specific.",
+      "A game may contain mechanics that are not machine-verifiable."
+    ],
+    "sharedStructures": {
+      "identity": {
+        "description": "Stable identity fields shared by game-schema definitions.",
+        "fields": {
+          "id": { "type": "string", "required": true, "notes": "Unique within a game schema version and stable across non-breaking revisions where possible." },
+          "name": { "type": "string", "required": true },
+          "description": { "type": "string", "required": false }
+        }
+      },
+      "provenance": {
+        "description": "Links an approved artifact to the source material and proposal from which it was derived.",
+        "fields": {
+          "sourceMaterialIds": { "type": "string", "collection": true, "required": false },
+          "proposalIds": { "type": "string", "collection": true, "required": false },
+          "approvalState": { "type": "enum", "values": ["draft", "proposed", "reviewed", "approved", "rejected", "superseded"], "required": true },
+          "approvedBy": { "type": "string", "required": false },
+          "approvedAt": { "type": "dateTime", "required": false }
+        }
+      },
+      "typeExpression": {
+        "description": "Describes the shape of a property value. It is intentionally extensible without requiring a new universal game concept.",
+        "forms": {
+          "primitive": { "fields": { "kind": { "constant": "primitive" }, "name": { "enum": ["string", "integer", "decimal", "boolean", "date", "dateTime", "any"] } } },
+          "definedValueType": { "fields": { "kind": { "constant": "definedValueType" }, "valueType": { "type": "reference", "target": "valueTypeDefinition" } } },
+          "reference": { "fields": { "kind": { "constant": "reference" }, "targets": { "type": "reference", "target": "entityType", "collection": true } } },
+          "collection": { "fields": { "kind": { "constant": "collection" }, "itemType": { "type": "typeExpression" }, "minimumItems": { "type": "integer", "required": false }, "maximumItems": { "type": "integer", "required": false }, "ordered": { "type": "boolean", "required": false } } }
+        }
+      },
+      "structuredSupport": {
+        "description": "Optional derived structure that assists automation but does not replace approved natural-language text.",
+        "fields": {
+          "automationStatus": { "type": "enum", "values": ["none", "proposed", "partial", "reviewed", "executable"], "required": true },
+          "representation": { "type": "object", "required": false },
+          "limitations": { "type": "string", "collection": true, "required": false }
+        }
+      }
+    },
+    "definitionTypes": {
+      "entityType": {
+        "description": "Defines a game-specific type of identifiable thing. A game decides what qualifies as a thing.",
+        "fields": {
+          "identity": { "type": "identity", "required": true },
+          "properties": { "type": "propertyDefinition", "collection": true, "required": false },
+          "rules": { "type": "reference", "target": "ruleDefinition", "collection": true, "required": false },
+          "procedures": { "type": "reference", "target": "procedureDefinition", "collection": true, "required": false }
+        }
+      },
+      "propertyDefinition": {
+        "description": "Defines a value held by an instance of an entity type or a reusable record value type.",
+        "fields": {
+          "identity": { "type": "identity", "required": true },
+          "valueType": { "type": "typeExpression", "required": true },
+          "required": { "type": "boolean", "required": true },
+          "defaultValue": { "type": "any", "required": false },
+          "uniqueWithinOwner": { "type": "boolean", "required": false },
+          "structuredConstraints": { "type": "object", "required": false },
+          "rules": { "type": "reference", "target": "ruleDefinition", "collection": true, "required": false }
+        }
+      },
+      "valueTypeDefinition": {
+        "description": "Defines a reusable non-entity value shape.",
+        "fields": {
+          "identity": { "type": "identity", "required": true },
+          "kind": { "type": "enum", "values": ["enumeration", "record", "alias"], "required": true },
+          "values": { "type": "string", "collection": true, "required": false, "notes": "Used by enumeration." },
+          "properties": { "type": "propertyDefinition", "collection": true, "required": false, "notes": "Used by record." },
+          "targetType": { "type": "typeExpression", "required": false, "notes": "Used by alias." }
+        }
+      },
+      "relationshipDefinition": {
+        "description": "Defines a meaningful connection between instances of two game-defined entity types.",
+        "fields": {
+          "identity": { "type": "identity", "required": true },
+          "from": { "type": "relationshipEnd", "required": true },
+          "to": { "type": "relationshipEnd", "required": true },
+          "directed": { "type": "boolean", "required": true },
+          "attributes": { "type": "propertyDefinition", "collection": true, "required": false },
+          "rules": { "type": "reference", "target": "ruleDefinition", "collection": true, "required": false }
+        }
+      },
+      "relationshipEnd": {
+        "description": "Defines one role and its occurrence bounds in a relationship.",
+        "fields": {
+          "roleName": { "type": "string", "required": true },
+          "entityType": { "type": "reference", "target": "entityType", "required": true },
+          "minimumOccurrences": { "type": "integer", "required": true },
+          "maximumOccurrences": { "type": "integerOrUnbounded", "required": true }
+        }
+      },
+      "ruleDefinition": {
+        "description": "Defines authoritative game intent. A rule may be prose-only or supported by structured interpretation.",
+        "fields": {
+          "identity": { "type": "identity", "required": true },
+          "authoritativeText": { "type": "string", "required": true },
+          "appliesTo": { "type": "reference", "target": "entityType", "collection": true, "required": false },
+          "structuredSupport": { "type": "structuredSupport", "required": false },
+          "provenance": { "type": "provenance", "required": true }
+        }
+      },
+      "procedureDefinition": {
+        "description": "Defines a game-specific process, action, move, phase, ritual, or other procedure without assuming a particular genre convention.",
+        "fields": {
+          "identity": { "type": "identity", "required": true },
+          "authoritativeText": { "type": "string", "required": true },
+          "participants": { "type": "reference", "target": "entityType", "collection": true, "required": false },
+          "rules": { "type": "reference", "target": "ruleDefinition", "collection": true, "required": false },
+          "structuredSupport": { "type": "structuredSupport", "required": false },
+          "provenance": { "type": "provenance", "required": true }
+        }
+      },
+      "validationDefinition": {
+        "description": "Defines a check over a game schema or game data. A validation is executable only when its structured support is marked executable.",
+        "fields": {
+          "identity": { "type": "identity", "required": true },
+          "scope": { "type": "enum", "values": ["schema", "instance", "crossInstance", "procedure"], "required": true },
+          "severity": { "type": "enum", "values": ["information", "warning", "error"], "required": true },
+          "authoritativeText": { "type": "string", "required": true },
+          "derivedFromRules": { "type": "reference", "target": "ruleDefinition", "collection": true, "required": false },
+          "structuredSupport": { "type": "structuredSupport", "required": false },
+          "provenance": { "type": "provenance", "required": true }
+        }
+      }
+    },
+    "gameSchema": {
+      "description": "An immutable, approved version of one TTRPG's schema.",
+      "fields": {
+        "id": { "type": "string", "required": true },
+        "name": { "type": "string", "required": true },
+        "version": { "type": "string", "required": true },
+        "previousVersion": { "type": "reference", "target": "gameSchema", "required": false },
+        "description": { "type": "string", "required": false },
+        "approvalState": { "type": "enum", "values": ["draft", "approved", "superseded"], "required": true },
+        "entityTypes": { "type": "entityType", "collection": true, "required": true },
+        "valueTypes": { "type": "valueTypeDefinition", "collection": true, "required": false },
+        "relationships": { "type": "relationshipDefinition", "collection": true, "required": false },
+        "rules": { "type": "ruleDefinition", "collection": true, "required": false },
+        "procedures": { "type": "procedureDefinition", "collection": true, "required": false },
+        "validations": { "type": "validationDefinition", "collection": true, "required": false }
+      }
+    }
+  }
+}

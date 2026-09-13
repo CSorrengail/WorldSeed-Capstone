@@ -1,0 +1,20 @@
+{
+  "id": "emberbound", "name": "Emberbound", "version": "0.1.0", "approvalState": "draft",
+  "description": "A tactical fantasy example used only to test the meta-schema.",
+  "valueTypes": [
+    { "identity": { "id": "damage-type", "name": "Damage Type" }, "kind": "enumeration", "values": ["flame", "frost", "steel"] }
+  ],
+  "entityTypes": [
+    { "identity": { "id": "creature", "name": "Creature" }, "properties": [
+      { "identity": { "id": "creature-name", "name": "Name" }, "valueType": { "kind": "primitive", "name": "string" }, "required": true },
+      { "identity": { "id": "vitality", "name": "Vitality" }, "valueType": { "kind": "primitive", "name": "integer" }, "required": true, "structuredConstraints": { "minimum": 1 } }
+    ] },
+    { "identity": { "id": "technique", "name": "Technique" }, "properties": [
+      { "identity": { "id": "damage", "name": "Damage" }, "valueType": { "kind": "primitive", "name": "integer" }, "required": true },
+      { "identity": { "id": "damage-type", "name": "Damage Type" }, "valueType": { "kind": "definedValueType", "valueType": "damage-type" }, "required": true }
+    ] }
+  ],
+  "relationships": [
+    { "identity": { "id": "knows-technique", "name": "Knows Technique" }, "from": { "roleName": "user", "entityType": "creature", "minimumOccurrences": 0, "maximumOccurrences": "unbounded" }, "to": { "roleName": "knownTechnique", "entityType": "technique", "minimumOccurrences": 0, "maximumOccurrences": "unbounded" }, "directed": true }
+  ]
+}
