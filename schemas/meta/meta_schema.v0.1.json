@@ -1,0 +1,342 @@
+{
+  "metaSchema": {
+    "name": "TTRPG Design System Meta-Schema",
+    "version": "0.1.0",
+    "description": "Universal schema used to define the structure of an individual TTRPG.",
+
+    "definitionTypes": {
+      "entityType": {
+        "description": "Defines a type of game entity that can exist within a TTRPG.",
+        "fields": {
+          "id": {
+            "type": "string",
+            "required": true
+          },
+          "name": {
+            "type": "string",
+            "required": true
+          },
+          "description": {
+            "type": "string",
+            "required": false
+          },
+          "properties": {
+            "type": "reference",
+            "target": "propertyDefinition",
+            "collection": true,
+            "required": false
+          },
+          "relationships": {
+            "type": "reference",
+            "target": "relationshipDefinition",
+            "collection": true,
+            "required": false
+          },
+          "rules": {
+            "type": "reference",
+            "target": "ruleDefinition",
+            "collection": true,
+            "required": false
+          },
+          "behaviors": {
+            "type": "reference",
+            "target": "behaviorDefinition",
+            "collection": true,
+            "required": false
+          }
+        }
+      },
+
+      "propertyDefinition": {
+        "description": "Defines a property that can exist on an entity type.",
+        "fields": {
+          "id": {
+            "type": "string",
+            "required": true
+          },
+          "name": {
+            "type": "string",
+            "required": true
+          },
+          "description": {
+            "type": "string",
+            "required": false
+          },
+          "dataType": {
+            "type": "reference",
+            "target": "dataTypeDefinition",
+            "required": true
+          },
+          "required": {
+            "type": "boolean",
+            "required": true
+          },
+          "collection": {
+            "type": "boolean",
+            "required": true
+          },
+          "defaultValue": {
+            "type": "any",
+            "required": false
+          },
+          "rules": {
+            "type": "reference",
+            "target": "ruleDefinition",
+            "collection": true,
+            "required": false
+          }
+        }
+      },
+
+      "dataTypeDefinition": {
+        "description": "Defines the type of value that a property may contain.",
+        "fields": {
+          "id": {
+            "type": "string",
+            "required": true
+          },
+          "name": {
+            "type": "string",
+            "required": true
+          },
+          "baseType": {
+            "type": "enum",
+            "values": [
+              "string",
+              "integer",
+              "decimal",
+              "boolean",
+              "date",
+              "reference",
+              "object",
+              "any"
+            ],
+            "required": true
+          },
+          "referenceTarget": {
+            "type": "reference",
+            "target": "entityType",
+            "required": false
+          }
+        }
+      },
+
+      "relationshipDefinition": {
+        "description": "Defines a relationship between two entity types.",
+        "fields": {
+          "id": {
+            "type": "string",
+            "required": true
+          },
+          "name": {
+            "type": "string",
+            "required": true
+          },
+          "description": {
+            "type": "string",
+            "required": false
+          },
+          "source": {
+            "type": "reference",
+            "target": "entityType",
+            "required": true
+          },
+          "target": {
+            "type": "reference",
+            "target": "entityType",
+            "required": true
+          },
+          "cardinality": {
+            "type": "enum",
+            "values": [
+              "oneToOne",
+              "oneToMany",
+              "manyToOne",
+              "manyToMany"
+            ],
+            "required": true
+          },
+          "bidirectional": {
+            "type": "boolean",
+            "required": true
+          }
+        }
+      },
+
+      "ruleDefinition": {
+        "description": "Defines a game rule. A rule may be fully structured, partially structured, or primarily natural language.",
+        "fields": {
+          "id": {
+            "type": "string",
+            "required": true
+          },
+          "name": {
+            "type": "string",
+            "required": true
+          },
+          "description": {
+            "type": "string",
+            "required": true
+          },
+          "structured": {
+            "type": "boolean",
+            "required": true
+          },
+          "conditions": {
+            "type": "object",
+            "required": false
+          },
+          "effects": {
+            "type": "object",
+            "required": false
+          },
+          "naturalLanguageRule": {
+            "type": "string",
+            "required": false
+          },
+          "appliesTo": {
+            "type": "reference",
+            "target": "entityType",
+            "collection": true,
+            "required": false
+          }
+        }
+      },
+
+      "behaviorDefinition": {
+        "description": "Defines an action, ability, procedure, or other behavior an entity can perform or possess.",
+        "fields": {
+          "id": {
+            "type": "string",
+            "required": true
+          },
+          "name": {
+            "type": "string",
+            "required": true
+          },
+          "description": {
+            "type": "string",
+            "required": true
+          },
+          "activation": {
+            "type": "object",
+            "required": false
+          },
+          "conditions": {
+            "type": "object",
+            "required": false
+          },
+          "effects": {
+            "type": "object",
+            "required": false
+          },
+          "rules": {
+            "type": "reference",
+            "target": "ruleDefinition",
+            "collection": true,
+            "required": false
+          }
+        }
+      }
+    },
+
+    "validation": {
+      "validationDefinition": {
+        "description": "Defines a constraint that can be applied to a game structure or game data.",
+        "fields": {
+          "id": {
+            "type": "string",
+            "required": true
+          },
+          "name": {
+            "type": "string",
+            "required": true
+          },
+          "description": {
+            "type": "string",
+            "required": false
+          },
+          "target": {
+            "type": "string",
+            "required": true
+          },
+          "expression": {
+            "type": "object",
+            "required": false
+          },
+          "naturalLanguageRule": {
+            "type": "string",
+            "required": false
+          },
+          "severity": {
+            "type": "enum",
+            "values": [
+              "information",
+              "warning",
+              "error"
+            ],
+            "required": true
+          }
+        }
+      }
+    },
+
+    "gameSchema": {
+      "description": "A TTRPG-specific schema constructed using the meta-schema.",
+      "fields": {
+        "id": {
+          "type": "string",
+          "required": true
+        },
+        "name": {
+          "type": "string",
+          "required": true
+        },
+        "version": {
+          "type": "string",
+          "required": true
+        },
+        "description": {
+          "type": "string",
+          "required": false
+        },
+        "entityTypes": {
+          "type": "reference",
+          "target": "entityType",
+          "collection": true,
+          "required": true
+        },
+        "dataTypes": {
+          "type": "reference",
+          "target": "dataTypeDefinition",
+          "collection": true,
+          "required": false
+        },
+        "relationships": {
+          "type": "reference",
+          "target": "relationshipDefinition",
+          "collection": true,
+          "required": false
+        },
+        "rules": {
+          "type": "reference",
+          "target": "ruleDefinition",
+          "collection": true,
+          "required": false
+        },
+        "behaviors": {
+          "type": "reference",
+          "target": "behaviorDefinition",
+          "collection": true,
+          "required": false
+        },
+        "validations": {
+          "type": "reference",
+          "target": "validationDefinition",
+          "collection": true,
+          "required": false
+        }
+      }
+    }
+  }
+}
