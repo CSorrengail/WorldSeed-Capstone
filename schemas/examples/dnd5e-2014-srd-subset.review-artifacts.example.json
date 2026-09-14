@@ -1,0 +1,19 @@
+{
+  "sourceMaterials": [
+    {
+      "id": "srd-5.1",
+      "sourceLocation": "https://media.wizards.com/2023/downloads/dnd/SRD_CC_v5.1.pdf",
+      "capturedAt": "2026-09-14T00:00:00-06:00",
+      "attribution": "See docs/references/srd-5.1-source.md for source and required attribution."
+    }
+  ],
+  "interpretationProposals": [
+    {
+      "id": "dnd5e-subset-proposal-001",
+      "sourceMaterialIds": ["srd-5.1"],
+      "summary": "A deliberately limited stress-test schema for common 2014 5e mechanical patterns; it is not a complete rules implementation.",
+      "confidence": 0.8,
+      "state": "accepted"
+    }
+  ]
+}

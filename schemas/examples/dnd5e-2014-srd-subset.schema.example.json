@@ -1,0 +1,105 @@
+{
+  "id": "dnd5e-2014-srd-subset",
+  "name": "2014 5e SRD Stress-Test Subset",
+  "version": "0.1.0-draft",
+  "approvalState": "draft",
+  "valueTypes": [
+    {
+      "metadata": { "id": "dice-expression", "name": "Dice Expression", "approvalState": "approved" },
+      "kind": "record",
+      "properties": [
+        { "metadata": { "id": "dice-expression.count", "name": "Count", "approvalState": "approved" }, "valueType": { "kind": "primitive", "name": "integer" }, "required": true, "nullable": false, "constraints": { "minimum": 1 } },
+        { "metadata": { "id": "dice-expression.sides", "name": "Sides", "approvalState": "approved" }, "valueType": { "kind": "primitive", "name": "integer" }, "required": true, "nullable": false, "constraints": { "minimum": 2 } },
+        { "metadata": { "id": "dice-expression.modifier", "name": "Modifier", "approvalState": "approved" }, "valueType": { "kind": "primitive", "name": "integer" }, "required": true, "nullable": false, "defaultValue": 0 }
+      ]
+    },
+    {
+      "metadata": { "id": "ability-name", "name": "Ability Name", "approvalState": "approved" },
+      "kind": "enumeration",
+      "entries": [
+        { "id": "strength", "name": "Strength" }, { "id": "dexterity", "name": "Dexterity" }, { "id": "constitution", "name": "Constitution" }, { "id": "intelligence", "name": "Intelligence" }, { "id": "wisdom", "name": "Wisdom" }, { "id": "charisma", "name": "Charisma" }
+      ]
+    }
+  ],
+  "entityTypes": [
+    {
+      "metadata": { "id": "creature", "name": "Creature", "approvalState": "approved" },
+      "properties": [
+        { "metadata": { "id": "creature.name", "name": "Name", "approvalState": "approved" }, "valueType": { "kind": "primitive", "name": "string" }, "required": true, "nullable": false },
+        { "metadata": { "id": "creature.armor-class", "name": "Armor Class", "approvalState": "approved" }, "valueType": { "kind": "primitive", "name": "integer" }, "required": true, "nullable": false, "constraints": { "minimum": 0 } },
+        { "metadata": { "id": "creature.hit-points", "name": "Hit Points", "approvalState": "approved" }, "valueType": { "kind": "primitive", "name": "integer" }, "required": true, "nullable": false, "constraints": { "minimum": 0 } }
+      ]
+    },
+    {
+      "metadata": { "id": "class", "name": "Class", "approvalState": "approved" },
+      "properties": [
+        { "metadata": { "id": "class.name", "name": "Name", "approvalState": "approved" }, "valueType": { "kind": "primitive", "name": "string" }, "required": true, "nullable": false },
+        { "metadata": { "id": "class.hit-die", "name": "Hit Die", "approvalState": "approved" }, "valueType": { "kind": "definedValueType", "valueTypeId": "dice-expression" }, "required": true, "nullable": false }
+      ]
+    },
+    {
+      "metadata": { "id": "feature", "name": "Feature", "approvalState": "approved" },
+      "properties": [
+        { "metadata": { "id": "feature.name", "name": "Name", "approvalState": "approved" }, "valueType": { "kind": "primitive", "name": "string" }, "required": true, "nullable": false },
+        { "metadata": { "id": "feature.description", "name": "Description", "approvalState": "approved" }, "valueType": { "kind": "primitive", "name": "string" }, "required": true, "nullable": false }
+      ]
+    },
+    {
+      "metadata": { "id": "spell", "name": "Spell", "approvalState": "approved" },
+      "properties": [
+        { "metadata": { "id": "spell.name", "name": "Name", "approvalState": "approved" }, "valueType": { "kind": "primitive", "name": "string" }, "required": true, "nullable": false },
+        { "metadata": { "id": "spell.level", "name": "Level", "approvalState": "approved" }, "valueType": { "kind": "primitive", "name": "integer" }, "required": true, "nullable": false, "constraints": { "minimum": 0, "maximum": 9 } }
+      ]
+    },
+    {
+      "metadata": { "id": "condition", "name": "Condition", "approvalState": "approved" },
+      "properties": [
+        { "metadata": { "id": "condition.name", "name": "Name", "approvalState": "approved" }, "valueType": { "kind": "primitive", "name": "string" }, "required": true, "nullable": false },
+        { "metadata": { "id": "condition.effects", "name": "Effects", "approvalState": "approved" }, "valueType": { "kind": "collection", "itemType": { "kind": "primitive", "name": "string" }, "ordered": true }, "required": true, "nullable": false }
+      ]
+    }
+  ],
+  "relationships": [
+    {
+      "metadata": { "id": "class-grants-feature", "name": "Class Grants Feature", "approvalState": "approved" },
+      "from": { "roleName": "grantingClass", "entityTypeId": "class", "minimumPerOppositeInstance": 0, "maximumPerOppositeInstance": "unbounded" },
+      "to": { "roleName": "grantedFeature", "entityTypeId": "feature", "minimumPerOppositeInstance": 0, "maximumPerOppositeInstance": "unbounded" },
+      "directed": true,
+      "attributes": [
+        { "metadata": { "id": "class-grants-feature.level", "name": "Level", "approvalState": "approved" }, "valueType": { "kind": "primitive", "name": "integer" }, "required": true, "nullable": false, "constraints": { "minimum": 1, "maximum": 20 } }
+      ]
+    }
+  ],
+  "rules": [
+    {
+      "metadata": { "id": "ability-modifier", "name": "Ability Modifier", "approvalState": "approved", "sourceMaterialIds": ["srd-5.1"] },
+      "authoritativeText": "An ability score produces a modifier using the game's stated calculation.",
+      "targets": [ { "definitionIds": ["ability-name"], "notes": "The exact expression language is intentionally deferred." } ],
+      "structuredSupport": { "automationStatus": "partial", "limitations": ["No approved expression language exists yet."] }
+    },
+    {
+      "metadata": { "id": "condition-effect-interpretation", "name": "Condition Effect Interpretation", "approvalState": "approved", "sourceMaterialIds": ["srd-5.1"] },
+      "authoritativeText": "A condition's effect text remains authoritative when it cannot be represented as deterministic validation.",
+      "targets": [ { "definitionIds": ["condition"], "propertyIds": ["condition.effects"] } ],
+      "structuredSupport": { "automationStatus": "none" }
+    }
+  ],
+  "procedures": [
+    {
+      "metadata": { "id": "attack-resolution", "name": "Attack Resolution", "approvalState": "approved", "sourceMaterialIds": ["srd-5.1"] },
+      "authoritativeText": "An attack procedure compares a result against a target defense and applies its stated outcome.",
+      "participantEntityTypeIds": ["creature"],
+      "structuredSupport": { "automationStatus": "partial", "limitations": ["Action economy and special-case effects are deliberately outside this subset."] }
+    }
+  ],
+  "validations": [
+    {
+      "metadata": { "id": "spell-level-range", "name": "Spell Level Range", "approvalState": "approved", "sourceMaterialIds": ["srd-5.1"] },
+      "scope": "instance",
+      "severity": "error",
+      "authoritativeText": "A spell level must be an integer from zero through nine.",
+      "targets": [ { "definitionIds": ["spell"], "propertyIds": ["spell.level"] } ],
+      "structuredSupport": { "automationStatus": "reviewed", "payload": { "minimum": 0, "maximum": 9 } }
+    }
+  ]
+}
