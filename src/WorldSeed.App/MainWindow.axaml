@@ -1,0 +1,29 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="WorldSeed.App.MainWindow"
+        Title="WorldSeed" Width="980" Height="640" MinWidth="720" MinHeight="480">
+  <Grid RowDefinitions="Auto,*,Auto" Margin="24">
+    <StackPanel Spacing="4">
+      <TextBlock Text="WorldSeed" FontSize="30" FontWeight="SemiBold" />
+      <TextBlock Text="Turn game ideas into traceable, structured rules." Opacity="0.7" />
+    </StackPanel>
+    <Grid Grid.Row="1" ColumnDefinitions="220,*" ColumnSpacing="24" Margin="0,28,0,16">
+      <Border Background="{DynamicResource SystemControlBackgroundAltHighBrush}" Padding="12" CornerRadius="8">
+        <StackPanel Spacing="8">
+          <TextBlock Text="Workspace" FontWeight="SemiBold" />
+          <Button Content="Design sessions" HorizontalAlignment="Stretch" />
+          <Button Content="Schema proposals" HorizontalAlignment="Stretch" />
+          <Button Content="Model settings" HorizontalAlignment="Stretch" />
+        </StackPanel>
+      </Border>
+      <Border Grid.Column="1" BorderBrush="{DynamicResource SystemControlForegroundBaseMediumBrush}" BorderThickness="1" Padding="24" CornerRadius="8">
+        <StackPanel Spacing="12" VerticalAlignment="Center">
+          <TextBlock Text="Start with an idea" FontSize="22" FontWeight="SemiBold" />
+          <TextBlock Text="The first usable screen will create a design session, preserve your original note, and guide a conversation with your selected model." TextWrapping="Wrap" Opacity="0.75" />
+          <Button Content="Create design session" HorizontalAlignment="Left" Margin="0,8,0,0" />
+        </StackPanel>
+      </Border>
+    </Grid>
+    <TextBlock Grid.Row="2" Text="Local-first desktop shell — model configuration and session actions will be connected next." Opacity="0.6" />
+  </Grid>
+</Window>
