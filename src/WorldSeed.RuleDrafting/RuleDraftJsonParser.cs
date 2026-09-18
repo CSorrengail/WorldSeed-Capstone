@@ -7,8 +7,9 @@ public sealed class RuleDraftJsonParser
 {
     private readonly StructuredRuleDraftValidator _validator = new();
 
-    public RuleDraftTurn Parse(string content)
+    public RuleDraftTurn Parse(string content, IReadOnlySet<string> allowedSourceNoteIds)
     {
+        if (allowedSourceNoteIds is null || allowedSourceNoteIds.Count == 0) throw new ArgumentException("At least one allowed source note id is required.", nameof(allowedSourceNoteIds));
         JsonObject root;
         try { root = JsonNode.Parse(content)?.AsObject() ?? throw new RuleDraftFormatException("The model did not return a JSON object."); }
         catch (JsonException) { throw new RuleDraftFormatException("The model did not return valid JSON."); }
@@ -26,7 +27,7 @@ public sealed class RuleDraftJsonParser
         if (action == RuleDraftAction.PresentDraft && draft is null) throw new RuleDraftFormatException("A draft response requires a structured draft.");
         if (draft is not null)
         {
-            var issues = _validator.Validate(draft, action == RuleDraftAction.PresentDraft);
+            var issues = _validator.Validate(draft, action == RuleDraftAction.PresentDraft, allowedSourceNoteIds);
             if (issues.Count > 0) throw new RuleDraftFormatException(string.Join(" ", issues));
         }
         return new RuleDraftTurn(action, question, draft);

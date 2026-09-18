@@ -2,7 +2,7 @@ namespace WorldSeed.RuleDrafting;
 
 public sealed class StructuredRuleDraftValidator
 {
-    public IReadOnlyList<string> Validate(StructuredRuleDraft draft, bool requireRules)
+    public IReadOnlyList<string> Validate(StructuredRuleDraft draft, bool requireRules, IReadOnlySet<string> allowedSourceNoteIds)
     {
         var issues = new List<string>();
         if (string.IsNullOrWhiteSpace(draft.Title)) issues.Add("Draft title is required.");
@@ -14,6 +14,7 @@ public sealed class StructuredRuleDraftValidator
         {
             if (string.IsNullOrWhiteSpace(rule.Id) || string.IsNullOrWhiteSpace(rule.Name) || string.IsNullOrWhiteSpace(rule.Text)) issues.Add("Each rule statement requires an id, name, and text.");
             if (rule.SourceNoteIds.Count == 0) issues.Add($"Rule statement '{rule.Id}' requires at least one source note id.");
+            foreach (var sourceNoteId in rule.SourceNoteIds.Where(sourceNoteId => !allowedSourceNoteIds.Contains(sourceNoteId))) issues.Add($"Rule statement '{rule.Id}' cites source note '{sourceNoteId}', which is not available in this conversation.");
         }
         foreach (var concept in draft.Concepts) if (string.IsNullOrWhiteSpace(concept.Id) || string.IsNullOrWhiteSpace(concept.Name) || string.IsNullOrWhiteSpace(concept.Description)) issues.Add("Each concept requires an id, name, and description.");
         return issues;

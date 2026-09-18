@@ -19,7 +19,7 @@ The drafting service sends conversation history and source IDs through `ILanguag
 - `askClarifyingQuestion` — exactly one focused question, used only when an answer materially changes a rule.
 - `presentDraft` — a structured draft with rules, concepts, assumptions, open questions, and exclusions.
 
-Every proposed rule must cite at least one source-note ID. This preserves traceability before the change-management ledger begins recording a canonical change.
+Every proposed rule must cite at least one source-note ID, and every cited ID must be one supplied with that exact conversation. The drafting service rejects invented, missing, or unrelated citations. This preserves traceability before the change-management ledger begins recording a canonical change.
 
 ## Draft shape
 

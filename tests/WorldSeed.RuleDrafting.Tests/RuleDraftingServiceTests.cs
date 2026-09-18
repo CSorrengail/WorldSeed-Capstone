@@ -39,10 +39,24 @@ public class RuleDraftingServiceTests
     public void Rejects_non_json_or_untraceable_rule_text()
     {
         var parser = new RuleDraftJsonParser();
-        Assert.Throws<RuleDraftFormatException>(() => parser.Parse("Here is your draft: magic is dangerous."));
+        var sources = new HashSet<string>(["source-001"], StringComparer.Ordinal);
+        Assert.Throws<RuleDraftFormatException>(() => parser.Parse("Here is your draft: magic is dangerous.", sources));
         Assert.Throws<RuleDraftFormatException>(() => parser.Parse("""
         {"action":"presentDraft","draft":{"title":"Draft","intent":"Intent","rules":[{"id":"rule","name":"Rule","kind":"rule","text":"Text","sourceNoteIds":[]}],"concepts":[],"assumptions":[],"openQuestions":[],"exclusions":[]}}
-        """));
+        """, sources));
+    }
+
+    [Fact]
+    public async Task Rejects_a_model_rule_that_cites_an_unavailable_source()
+    {
+        var model = new FakeModel("""
+        {"action":"presentDraft","draft":{"title":"Draft","intent":"Intent","rules":[{"id":"rule","name":"Rule","kind":"rule","text":"Text","sourceNoteIds":["invented-source"]}],"concepts":[],"assumptions":[],"openQuestions":[],"exclusions":[]}}
+        """);
+        var service = new RuleDraftingService(model);
+
+        var exception = await Assert.ThrowsAsync<RuleDraftFormatException>(() => service.AdvanceAsync(new RuleDraftConversation("project-001", ["source-001"], [new(LlmMessageRole.User, "Idea")])));
+
+        Assert.Contains("not available in this conversation", exception.Message);
     }
 
     private sealed class FakeModel(string content) : ILanguageModelClient
