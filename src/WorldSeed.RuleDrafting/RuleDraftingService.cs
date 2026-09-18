@@ -40,7 +40,11 @@ public sealed class RuleDraftingService
         if (conversation.Messages.Count == 0) throw new ArgumentException("At least one conversation message is required.", nameof(conversation));
         var messages = new List<LlmMessage> { new(LlmMessageRole.System, SystemPrompt), new(LlmMessageRole.System, "Source material IDs for this turn: " + string.Join(", ", conversation.SourceMaterialIds)) };
         messages.AddRange(conversation.Messages);
-        var response = await _client.CompleteAsync(new LlmChatRequest(messages, Temperature: 0.2, MaxOutputTokens: 1200, RequireJsonObject: true), cancellationToken);
+        var response = await _client.CompleteAsync(new LlmChatRequest(
+            messages,
+            Temperature: 0.2,
+            MaxOutputTokens: 1200,
+            ResponseSchema: RuleDraftResponseSchema.Create(allowedSourceNoteIds)), cancellationToken);
         return new RuleDraftingResult(_parser.Parse(response.Content, allowedSourceNoteIds), response.Content);
     }
 }

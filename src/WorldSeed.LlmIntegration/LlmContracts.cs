@@ -25,7 +25,8 @@ public sealed record LlmChatRequest(
     IReadOnlyList<LlmMessage> Messages,
     double? Temperature = null,
     int? MaxOutputTokens = null,
-    bool RequireJsonObject = false);
+    bool RequireJsonObject = false,
+    System.Text.Json.Nodes.JsonNode? ResponseSchema = null);
 public sealed record LlmUsage(int? InputTokens, int? OutputTokens);
 public sealed record LlmChatResponse(string Content, string Model, LlmUsage? Usage);
 

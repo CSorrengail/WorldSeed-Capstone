@@ -37,7 +37,7 @@ try
         Console.WriteLine($"Assumptions: {draft.Assumptions.Count}; open questions: {draft.OpenQuestions.Count}; exclusions: {draft.Exclusions.Count}.");
     }
 }
-catch (Exception exception) when (exception is RuleDraftFormatException or LlmClientException or HttpRequestException)
+catch (Exception exception) when (exception is RuleDraftFormatException or LlmClientException or HttpRequestException or OperationCanceledException)
 {
     Console.Error.WriteLine("WorldSeed rejected or could not obtain the model response: " + exception.Message);
     if (recordingClient.LastResponse is not null)

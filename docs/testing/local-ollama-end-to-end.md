@@ -16,7 +16,7 @@ Run it from the repository root after starting Ollama:
 dotnet run --project tools/WorldSeed.EndToEnd -- qwen3:8b
 ```
 
-The tool prints both the raw response and the accepted structured result. If the model returns malformed JSON or an invalid source citation, the tool exits with an error and prints the raw response for diagnosis. This is expected useful feedback about prompt/model compatibility; it never silently accepts malformed output.
+The tool prints both the raw response and the accepted structured result. If the model returns malformed JSON or an invalid source citation, or exceeds its three-minute local response window, the tool exits with an error and prints the available diagnostics. This is expected useful feedback about prompt/model compatibility; it never silently accepts malformed output.
 
 The default local profile disables optional model-thinking output and the drafting service requests at most 1,200 generated tokens. These guardrails keep the first interactive workflow from spending several minutes producing internal reasoning or an unnecessarily long JSON artifact.
 

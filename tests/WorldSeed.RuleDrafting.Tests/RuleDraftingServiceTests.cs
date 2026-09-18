@@ -20,6 +20,8 @@ public class RuleDraftingServiceTests
         Assert.Equal("Dangerous Magic", turn.Draft!.Title);
         Assert.Contains(model.Request!.Messages, message => message.Content.Contains("Source material IDs for this turn: source-001"));
         Assert.Contains(model.Request.Messages, message => message.Content.Contains("Return JSON only"));
+        Assert.NotNull(model.Request.ResponseSchema);
+        Assert.Equal("source-001", model.Request.ResponseSchema!["properties"]!["draft"]!["properties"]!["rules"]!["items"]!["properties"]!["sourceNoteIds"]!["items"]!["enum"]![0]!.GetValue<string>());
     }
 
     [Fact]
