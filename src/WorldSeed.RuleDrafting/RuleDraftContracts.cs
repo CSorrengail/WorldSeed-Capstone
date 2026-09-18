@@ -18,6 +18,7 @@ public sealed record StructuredRuleDraft(
 public sealed record RuleStatement(string Id, string Name, RuleStatementKind Kind, string Text, IReadOnlyList<string> SourceNoteIds);
 public sealed record RuleConcept(string Id, string Name, string Description);
 public sealed record RuleDraftTurn(RuleDraftAction Action, string? ClarifyingQuestion, StructuredRuleDraft? Draft);
+public sealed record RuleDraftingResult(RuleDraftTurn Turn, string RawModelResponse);
 
 /// <summary>Conversation context supplied by GUI or service code. Source IDs connect later to the change ledger.</summary>
 public sealed record RuleDraftConversation(

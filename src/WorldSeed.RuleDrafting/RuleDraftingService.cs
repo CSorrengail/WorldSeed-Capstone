@@ -25,6 +25,9 @@ public sealed class RuleDraftingService
     }
 
     public async Task<RuleDraftTurn> AdvanceAsync(RuleDraftConversation conversation, CancellationToken cancellationToken = default)
+        => (await AdvanceWithTranscriptAsync(conversation, cancellationToken)).Turn;
+
+    public async Task<RuleDraftingResult> AdvanceWithTranscriptAsync(RuleDraftConversation conversation, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(conversation.ProjectId)) throw new ArgumentException("A project id is required.", nameof(conversation));
         var allowedSourceNoteIds = conversation.SourceMaterialIds.ToHashSet(StringComparer.Ordinal);
@@ -33,6 +36,6 @@ public sealed class RuleDraftingService
         var messages = new List<LlmMessage> { new(LlmMessageRole.System, SystemPrompt), new(LlmMessageRole.System, "Source material IDs for this turn: " + string.Join(", ", conversation.SourceMaterialIds)) };
         messages.AddRange(conversation.Messages);
         var response = await _client.CompleteAsync(new LlmChatRequest(messages, Temperature: 0.2), cancellationToken);
-        return _parser.Parse(response.Content, allowedSourceNoteIds);
+        return new RuleDraftingResult(_parser.Parse(response.Content, allowedSourceNoteIds), response.Content);
     }
 }
