@@ -1,0 +1,14 @@
+{
+  "id": "dnd5e-subset-data",
+  "gameSchemaId": "dnd5e-2014-srd-subset",
+  "gameSchemaVersion": "0.1.0",
+  "entityInstances": [
+    { "id": "sample-creature", "entityTypeId": "creature", "values": { "creature.name": "Sample Creature", "creature.armor-class": 12, "creature.hit-points": 8 } },
+    { "id": "sample-class", "entityTypeId": "class", "values": { "class.name": "Sample Class", "class.hit-die": { "dice-expression.count": 1, "dice-expression.sides": 8, "dice-expression.modifier": 0 } } },
+    { "id": "sample-feature", "entityTypeId": "feature", "values": { "named-thing.name": "Sample Feature" } },
+    { "id": "sample-spell", "entityTypeId": "spell", "values": { "spell.name": "Sample Spell", "spell.level": 1 } }
+  ],
+  "relationshipInstances": [
+    { "id": "sample-class-feature", "relationshipDefinitionId": "class-grants-feature", "fromEntityInstanceId": "sample-class", "toEntityInstanceId": "sample-feature", "attributeValues": { "class-grants-feature.level": 1 } }
+  ]
+}

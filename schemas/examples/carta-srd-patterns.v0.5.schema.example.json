@@ -1,0 +1,37 @@
+{
+  "id": "carta-patterns", "name": "Carta SRD Pattern Stress Test", "version": "0.1.0",
+  "valueTypes": [
+    { "metadata": { "id": "card-suit", "name": "Card Suit" }, "kind": "enumeration", "entries": [{"id":"clubs","name":"Clubs"},{"id":"diamonds","name":"Diamonds"},{"id":"hearts","name":"Hearts"},{"id":"spades","name":"Spades"}] },
+    { "metadata": { "id": "card-rank", "name": "Card Rank" }, "kind": "enumeration", "entries": [{"id":"ace","name":"Ace"},{"id":"number","name":"Number"},{"id":"face","name":"Face"}] },
+    { "metadata": { "id": "playing-card", "name": "Playing Card" }, "kind": "record", "properties": [
+      { "metadata": { "id": "playing-card.suit", "name": "Suit" }, "valueType": { "kind": "definedValueType", "valueTypeId": "card-suit" }, "required": true, "nullable": false },
+      { "metadata": { "id": "playing-card.rank", "name": "Rank" }, "valueType": { "kind": "definedValueType", "valueTypeId": "card-rank" }, "required": true, "nullable": false }
+    ] },
+    { "metadata": { "id": "grid-coordinate", "name": "Grid Coordinate" }, "kind": "record", "properties": [
+      { "metadata": { "id": "grid-coordinate.x", "name": "X" }, "valueType": { "kind": "primitive", "name": "integer" }, "required": true, "nullable": false },
+      { "metadata": { "id": "grid-coordinate.y", "name": "Y" }, "valueType": { "kind": "primitive", "name": "integer" }, "required": true, "nullable": false }
+    ] }
+  ],
+  "schemaFragments": [
+    { "metadata": { "id": "named-prompt", "name": "Named Prompt" }, "properties": [
+      { "metadata": { "id": "named-prompt.text", "name": "Text" }, "valueType": { "kind": "primitive", "name": "string" }, "required": true, "nullable": false }
+    ] }
+  ],
+  "entityTypes": [
+    { "metadata": { "id": "map-card", "name": "Map Card" }, "properties": [
+      { "metadata": { "id": "map-card.card", "name": "Card" }, "valueType": { "kind": "definedValueType", "valueTypeId": "playing-card" }, "required": true, "nullable": false },
+      { "metadata": { "id": "map-card.position", "name": "Position" }, "valueType": { "kind": "definedValueType", "valueTypeId": "grid-coordinate" }, "required": true, "nullable": false },
+      { "metadata": { "id": "map-card.revealed", "name": "Revealed" }, "valueType": { "kind": "primitive", "name": "boolean" }, "required": true, "nullable": false, "defaultValue": false }
+    ] },
+    { "metadata": { "id": "prompt", "name": "Prompt" }, "fragmentIds": ["named-prompt"] },
+    { "metadata": { "id": "exploration-session", "name": "Exploration Session" }, "properties": [
+      { "metadata": { "id": "exploration-session.marker", "name": "Marker Position" }, "valueType": { "kind": "definedValueType", "valueTypeId": "grid-coordinate" }, "required": true, "nullable": false }
+    ] }
+  ],
+  "relationships": [
+    { "metadata": { "id": "map-card-reveals-prompt", "name": "Map Card Reveals Prompt" }, "from": { "roleName": "card", "entityTypeId": "map-card", "minimumPerOppositeInstance": 0, "maximumPerOppositeInstance": 1 }, "to": { "roleName": "prompt", "entityTypeId": "prompt", "minimumPerOppositeInstance": 0, "maximumPerOppositeInstance": "unbounded" }, "directed": true }
+  ],
+  "procedures": [
+    { "metadata": { "id": "explore-card", "name": "Explore Card" }, "authoritativeText": "Reveal a neighboring map card, move the session marker to it, and follow its associated prompt.", "participantEntityTypeIds": ["exploration-session", "map-card", "prompt"], "structuredSupport": { "automationStatus": "partial", "limitations": ["Prompt interpretation and physical layout remain player-directed."] } }
+  ]
+}

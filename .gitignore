@@ -1,0 +1,12 @@
+# .NET build and restore outputs
+[Bb]in/
+[Oo]bj/
+
+# User-specific IDE settings
+.vs/
+*.user
+*.suo
+
+# Local credentials and machine-specific application configuration
+appsettings.Local.json
+*.secrets.json

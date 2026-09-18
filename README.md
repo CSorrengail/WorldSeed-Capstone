@@ -1,8 +1,10 @@
-# AI-Assisted TTRPG Design System
+# WorldSeed
 
 This repository is being organized around an architecture-first capstone project. The immediate focus is testing and refining the universal meta-schema before application code is introduced.
 
 ## Repository layout
+
+`src/` now contains reusable .NET validation and LLM-integration services; a future GUI will compose those services rather than reimplement them.
 
 - `docs/architecture/` — architecture notes and diagrams.
 - `docs/decisions/` — concise records of decisions and open questions.

@@ -1,6 +1,6 @@
 # AGENTS.md
 
-## Project: AI-Assisted Tabletop Role-Playing Game Design System
+## Project: WorldSeed — AI-Assisted Tabletop Role-Playing Game Design System
 
 ### Project Purpose
 

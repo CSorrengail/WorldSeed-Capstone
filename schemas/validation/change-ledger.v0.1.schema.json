@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://worldseed.invalid/change-ledger.v0.1.schema.json",
+  "title": "WorldSeed Change Ledger v0.1",
+  "type": "object",
+  "required": ["id", "projectId", "sourceMaterials", "interpretationProposals", "revisions", "changeSets", "decisions"],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "projectId": { "type": "string", "minLength": 1 },
+    "sourceMaterials": { "type": "array", "items": { "$ref": "#/$defs/sourceMaterial" } },
+    "interpretationProposals": { "type": "array", "items": { "$ref": "#/$defs/proposal" } },
+    "revisions": { "type": "array", "items": { "$ref": "#/$defs/revision" } },
+    "changeSets": { "type": "array", "items": { "$ref": "#/$defs/changeSet" } },
+    "decisions": { "type": "array", "items": { "$ref": "#/$defs/decision" } }
+  },
+  "$defs": {
+    "actor": { "type": "object", "required": ["kind", "id"], "properties": { "kind": { "enum": ["human", "model", "service"] }, "id": { "type": "string", "minLength": 1 }, "displayName": { "type": "string" }, "model": { "type": "string" } } },
+    "sourceMaterial": { "type": "object", "required": ["id", "kind", "capturedAt", "capturedBy"], "properties": { "id": { "type": "string", "minLength": 1 }, "kind": { "enum": ["designerInput", "externalReference", "import"] }, "content": { "type": "string" }, "location": { "type": "string", "minLength": 1 }, "capturedAt": { "type": "string", "format": "date-time" }, "capturedBy": { "$ref": "#/$defs/actor" }, "attribution": { "type": "string" } }, "allOf": [{ "if": { "properties": { "kind": { "const": "designerInput" } } }, "then": { "required": ["content"] } }, { "if": { "not": { "required": ["content"] } }, "then": { "required": ["location"] } }] },
+    "proposalChange": { "type": "object", "required": ["operation", "explanation"], "properties": { "operation": { "enum": ["create", "replace", "remove", "retire"] }, "targetPath": { "type": "string" }, "value": true, "explanation": { "type": "string", "minLength": 1 } } },
+    "proposal": { "type": "object", "required": ["id", "sourceMaterialIds", "proposedAt", "proposedBy", "summary", "proposedText", "proposedChanges", "state"], "properties": { "id": { "type": "string", "minLength": 1 }, "sourceMaterialIds": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }, "proposedAt": { "type": "string", "format": "date-time" }, "proposedBy": { "$ref": "#/$defs/actor" }, "summary": { "type": "string", "minLength": 1 }, "proposedText": { "type": "string", "minLength": 1 }, "proposedChanges": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/proposalChange" } }, "rationale": { "type": "string" }, "state": { "enum": ["proposed", "accepted", "rejected", "superseded"] } } },
+    "revision": { "type": "object", "required": ["id", "artifactKind", "artifactId", "createdAt", "createdBy", "snapshot"], "properties": { "id": { "type": "string", "minLength": 1 }, "artifactKind": { "type": "string", "minLength": 1 }, "artifactId": { "type": "string", "minLength": 1 }, "previousRevisionId": { "type": "string", "minLength": 1 }, "createdAt": { "type": "string", "format": "date-time" }, "createdBy": { "$ref": "#/$defs/actor" }, "snapshot": true } },
+    "changeSet": { "type": "object", "required": ["id", "artifactKind", "artifactId", "operation", "createdAt", "createdBy", "state"], "properties": { "id": { "type": "string", "minLength": 1 }, "artifactKind": { "type": "string", "minLength": 1 }, "artifactId": { "type": "string", "minLength": 1 }, "operation": { "enum": ["create", "update", "retire"] }, "baseRevisionId": { "type": "string", "minLength": 1 }, "resultRevisionId": { "type": "string", "minLength": 1 }, "sourceMaterialIds": { "type": "array", "items": { "type": "string", "minLength": 1 } }, "proposalIds": { "type": "array", "items": { "type": "string", "minLength": 1 } }, "createdAt": { "type": "string", "format": "date-time" }, "createdBy": { "$ref": "#/$defs/actor" }, "state": { "enum": ["draft", "underReview", "applied", "rejected", "withdrawn", "superseded"] } }, "allOf": [{ "if": { "properties": { "state": { "const": "applied" } } }, "then": { "required": ["resultRevisionId"] } }, { "if": { "properties": { "operation": { "const": "update" } } }, "then": { "required": ["baseRevisionId"] } }] },
+    "decision": { "type": "object", "required": ["id", "changeSetId", "outcome", "decidedAt", "decidedBy"], "properties": { "id": { "type": "string", "minLength": 1 }, "changeSetId": { "type": "string", "minLength": 1 }, "outcome": { "enum": ["apply", "reject", "requestRevision", "withdraw"] }, "decidedAt": { "type": "string", "format": "date-time" }, "decidedBy": { "$ref": "#/$defs/actor" }, "notes": { "type": "string" } } }
+  }
+}

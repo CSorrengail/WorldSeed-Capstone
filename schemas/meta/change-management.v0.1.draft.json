@@ -1,0 +1,24 @@
+{
+  "changeManagement": {
+    "name": "WorldSeed Change-Management Ledger",
+    "version": "0.1.0-draft",
+    "status": "designDraft",
+    "description": "An append-only provenance and revision model separate from canonical game schemas and game data.",
+    "principles": [
+      "Original source material is preserved without being rewritten.",
+      "Interpretations are proposals, never automatic authority.",
+      "Human decisions and resulting revisions are recorded explicitly.",
+      "Applied revisions are immutable snapshots; a later change creates a new revision.",
+      "The model permits different workflows and does not prescribe a user interface."
+    ],
+    "structures": {
+      "actor": { "fields": { "kind": { "enum": ["human", "model", "service"], "required": true }, "id": { "type": "string", "required": true }, "displayName": { "type": "string", "required": false }, "model": { "type": "string", "required": false } } },
+      "sourceMaterial": { "fields": { "id": { "type": "string", "required": true }, "kind": { "enum": ["designerInput", "externalReference", "import"], "required": true }, "content": { "type": "string", "required": false, "notes": "Required for designerInput." }, "location": { "type": "string", "required": false, "notes": "Required when content is not stored." }, "capturedAt": { "type": "dateTime", "required": true }, "capturedBy": { "type": "actor", "required": true }, "attribution": { "type": "string", "required": false } } },
+      "interpretationProposal": { "fields": { "id": { "type": "string", "required": true }, "sourceMaterialIds": { "type": "reference", "target": "sourceMaterial", "collection": true, "required": true }, "proposedAt": { "type": "dateTime", "required": true }, "proposedBy": { "type": "actor", "required": true }, "summary": { "type": "string", "required": true }, "proposedText": { "type": "string", "required": true, "notes": "The human-readable, actionable rewrite presented for a decision." }, "proposedChanges": { "type": "proposalChange", "collection": true, "required": true }, "rationale": { "type": "string", "required": false }, "state": { "enum": ["proposed", "accepted", "rejected", "superseded"], "required": true } } },
+      "proposalChange": { "fields": { "operation": { "enum": ["create", "replace", "remove", "retire"], "required": true }, "targetPath": { "type": "string", "required": false }, "value": { "type": "any", "required": false }, "explanation": { "type": "string", "required": true } } },
+      "artifactRevision": { "fields": { "id": { "type": "string", "required": true }, "artifactKind": { "type": "string", "required": true }, "artifactId": { "type": "string", "required": true }, "previousRevisionId": { "type": "reference", "target": "artifactRevision", "required": false }, "createdAt": { "type": "dateTime", "required": true }, "createdBy": { "type": "actor", "required": true }, "snapshot": { "type": "any", "required": true } } },
+      "changeSet": { "fields": { "id": { "type": "string", "required": true }, "artifactKind": { "type": "string", "required": true }, "artifactId": { "type": "string", "required": true }, "operation": { "enum": ["create", "update", "retire"], "required": true }, "baseRevisionId": { "type": "reference", "target": "artifactRevision", "required": false }, "resultRevisionId": { "type": "reference", "target": "artifactRevision", "required": false }, "sourceMaterialIds": { "type": "reference", "target": "sourceMaterial", "collection": true, "required": false }, "proposalIds": { "type": "reference", "target": "interpretationProposal", "collection": true, "required": false }, "createdAt": { "type": "dateTime", "required": true }, "createdBy": { "type": "actor", "required": true }, "state": { "enum": ["draft", "underReview", "applied", "rejected", "withdrawn", "superseded"], "required": true } } },
+      "decision": { "fields": { "id": { "type": "string", "required": true }, "changeSetId": { "type": "reference", "target": "changeSet", "required": true }, "outcome": { "enum": ["apply", "reject", "requestRevision", "withdraw"], "required": true }, "decidedAt": { "type": "dateTime", "required": true }, "decidedBy": { "type": "actor", "required": true }, "notes": { "type": "string", "required": false } } }
+    }
+  }
+}

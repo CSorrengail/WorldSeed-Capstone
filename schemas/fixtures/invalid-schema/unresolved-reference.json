@@ -1,0 +1,1 @@
+{ "id": "broken", "name": "Broken", "version": "1.0.0", "entityTypes": [ { "metadata": { "id": "thing", "name": "Thing" }, "properties": [ { "metadata": { "id": "thing.owner", "name": "Owner" }, "valueType": { "kind": "reference", "allowedEntityTypeIds": ["missing"] }, "required": true, "nullable": false } ] } ] }

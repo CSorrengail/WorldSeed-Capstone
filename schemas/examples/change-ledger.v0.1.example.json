@@ -1,0 +1,70 @@
+{
+  "id": "lantern-demo-ledger",
+  "projectId": "lantern-demo",
+  "sourceMaterials": [
+    {
+      "id": "source-001",
+      "kind": "designerInput",
+      "content": "I want a solo game about rebuilding a lighthouse after a storm. Keep the rules focused on difficult choices, not combat.",
+      "capturedAt": "2026-09-16T10:00:00-06:00",
+      "capturedBy": { "kind": "human", "id": "designer-001", "displayName": "Designer" }
+    }
+  ],
+  "interpretationProposals": [
+    {
+      "id": "proposal-001",
+      "sourceMaterialIds": ["source-001"],
+      "proposedAt": "2026-09-16T10:02:00-06:00",
+      "proposedBy": { "kind": "model", "id": "worldseed-assistant", "displayName": "WorldSeed Assistant", "model": "unspecified" },
+      "summary": "Create a solo-session schema with repair tasks and a journal; do not introduce combat concepts.",
+      "proposedText": "Create a solo game loop in which the player chooses and records repair tasks for the lighthouse. Each task should create a difficult practical or emotional choice. Do not add combat rules unless a later source explicitly requests them.",
+      "proposedChanges": [
+        { "operation": "create", "targetPath": "/entityTypes", "value": { "id": "repair-task" }, "explanation": "A repair task gives difficult choices a game-defined home." }
+      ],
+      "rationale": "This makes the source input actionable while preserving its original wording.",
+      "state": "accepted"
+    }
+  ],
+  "revisions": [
+    {
+      "id": "revision-001",
+      "artifactKind": "gameSchema",
+      "artifactId": "lantern-demo",
+      "createdAt": "2026-09-16T10:10:00-06:00",
+      "createdBy": { "kind": "human", "id": "designer-001", "displayName": "Designer" },
+      "snapshot": {
+        "id": "lantern-demo",
+        "name": "Lantern Demo",
+        "version": "0.1.0",
+        "entityTypes": [
+          { "metadata": { "id": "repair-task", "name": "Repair Task" } },
+          { "metadata": { "id": "solo-session", "name": "Solo Session" } }
+        ]
+      }
+    }
+  ],
+  "changeSets": [
+    {
+      "id": "change-001",
+      "artifactKind": "gameSchema",
+      "artifactId": "lantern-demo",
+      "operation": "create",
+      "resultRevisionId": "revision-001",
+      "sourceMaterialIds": ["source-001"],
+      "proposalIds": ["proposal-001"],
+      "createdAt": "2026-09-16T10:05:00-06:00",
+      "createdBy": { "kind": "human", "id": "designer-001", "displayName": "Designer" },
+      "state": "applied"
+    }
+  ],
+  "decisions": [
+    {
+      "id": "decision-001",
+      "changeSetId": "change-001",
+      "outcome": "apply",
+      "decidedAt": "2026-09-16T10:09:00-06:00",
+      "decidedBy": { "kind": "human", "id": "designer-001", "displayName": "Designer" },
+      "notes": "The proposal reflects the intended direction."
+    }
+  ]
+}

@@ -1,0 +1,36 @@
+{
+  "id": "wretched-and-alone-patterns", "name": "Wretched & Alone SRD Pattern Stress Test", "version": "0.1.0",
+  "valueTypes": [
+    { "metadata": { "id": "oracle-suit", "name": "Oracle Suit" }, "kind": "enumeration", "entries": [{"id":"clubs","name":"Clubs"},{"id":"diamonds","name":"Diamonds"},{"id":"hearts","name":"Hearts"},{"id":"spades","name":"Spades"}] },
+    { "metadata": { "id": "session-outcome", "name": "Session Outcome" }, "kind": "enumeration", "entries": [{"id":"ongoing","name":"Ongoing"},{"id":"salvation","name":"Salvation"},{"id":"failure","name":"Failure"}] },
+    { "metadata": { "id": "oracle-card", "name": "Oracle Card" }, "kind": "record", "properties": [
+      { "metadata": { "id": "oracle-card.suit", "name": "Suit" }, "valueType": { "kind": "definedValueType", "valueTypeId": "oracle-suit" }, "required": true, "nullable": false },
+      { "metadata": { "id": "oracle-card.value", "name": "Value" }, "valueType": { "kind": "primitive", "name": "integer" }, "required": true, "nullable": false, "constraints": { "minimum": 1, "maximum": 13 } }
+    ] },
+    { "metadata": { "id": "failure-countdown", "name": "Failure Countdown" }, "kind": "record", "properties": [
+      { "metadata": { "id": "failure-countdown.suit", "name": "Suit" }, "valueType": { "kind": "definedValueType", "valueTypeId": "oracle-suit" }, "required": true, "nullable": false },
+      { "metadata": { "id": "failure-countdown.king-revealed", "name": "King Revealed" }, "valueType": { "kind": "primitive", "name": "boolean" }, "required": true, "nullable": false }
+    ] }
+  ],
+  "entityTypes": [
+    { "metadata": { "id": "survival-session", "name": "Survival Session" }, "properties": [
+      { "metadata": { "id": "survival-session.outcome", "name": "Outcome" }, "valueType": { "kind": "definedValueType", "valueTypeId": "session-outcome" }, "required": true, "nullable": false },
+      { "metadata": { "id": "survival-session.salvation-tokens", "name": "Salvation Tokens Remaining" }, "valueType": { "kind": "primitive", "name": "integer" }, "required": true, "nullable": false, "constraints": { "minimum": 0, "maximum": 10 } },
+      { "metadata": { "id": "survival-session.failure-countdowns", "name": "Failure Countdowns" }, "valueType": { "kind": "collection", "itemType": { "kind": "definedValueType", "valueTypeId": "failure-countdown" }, "minimumItems": 4, "maximumItems": 4, "ordered": false }, "required": true, "nullable": false },
+      { "metadata": { "id": "survival-session.tower-intact", "name": "Tower Intact" }, "valueType": { "kind": "primitive", "name": "boolean" }, "required": false, "nullable": true, "description": "Used only when this game chooses a physical tower rather than an alternative resolution method." },
+      { "metadata": { "id": "survival-session.journal", "name": "Journal Entries" }, "valueType": { "kind": "collection", "itemType": { "kind": "primitive", "name": "string" }, "ordered": true }, "required": true, "nullable": false }
+    ] },
+    { "metadata": { "id": "oracle-prompt", "name": "Oracle Prompt" }, "properties": [
+      { "metadata": { "id": "oracle-prompt.text", "name": "Text" }, "valueType": { "kind": "primitive", "name": "string" }, "required": true, "nullable": false },
+      { "metadata": { "id": "oracle-prompt.card", "name": "Card" }, "valueType": { "kind": "definedValueType", "valueTypeId": "oracle-card" }, "required": true, "nullable": false }
+    ] }
+  ],
+  "procedures": [
+    { "metadata": { "id": "resolve-day", "name": "Resolve Day" }, "authoritativeText": "Determine the session's tasks, draw oracle cards, record responses, and apply any prompt effects. A game may use a die to determine task count and may use a tower or an alternative resolution method.", "participantEntityTypeIds": ["survival-session", "oracle-prompt"], "structuredSupport": { "automationStatus": "partial", "limitations": ["Physical tower interaction, alternative resolution methods, and narrative response remain outside deterministic execution."] } },
+    { "metadata": { "id": "resolve-salvation", "name": "Resolve Salvation" }, "authoritativeText": "When the Ace of Hearts introduces salvation, resolve the game's progress check. If all ten salvation tokens are removed, set the outcome to salvation unless the game-specific ending rule prevents it.", "participantEntityTypeIds": ["survival-session"], "structuredSupport": { "automationStatus": "none" } }
+  ],
+  "rules": [
+    { "metadata": { "id": "tower-collapse", "name": "Tower Collapse" }, "authoritativeText": "If the game uses a tower, its collapse ends the session according to the game-specific failure rule.", "targets": [{ "definitionIds": ["survival-session"], "propertyIds": ["survival-session.tower-intact", "survival-session.outcome"] }], "structuredSupport": { "automationStatus": "none" } },
+    { "metadata": { "id": "king-countdown", "name": "King Countdown" }, "authoritativeText": "Each suit's King is a failure countdown. When all four Kings have been revealed, set the outcome to failure according to the setting's consequence.", "targets": [{ "definitionIds": ["survival-session"], "propertyIds": ["survival-session.failure-countdowns", "survival-session.outcome"] }], "structuredSupport": { "automationStatus": "none" } }
+  ]
+}

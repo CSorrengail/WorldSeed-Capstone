@@ -1,0 +1,22 @@
+{
+  "id": "wretched-and-alone-patterns-data",
+  "gameSchemaId": "wretched-and-alone-patterns",
+  "gameSchemaVersion": "0.1.0",
+  "entityInstances": [
+    {
+      "id": "sample-session",
+      "entityTypeId": "survival-session",
+      "values": {
+        "survival-session.outcome": "ongoing",
+        "survival-session.salvation-tokens": 10,
+        "survival-session.failure-countdowns": [
+          { "failure-countdown.suit": "clubs", "failure-countdown.king-revealed": false },
+          { "failure-countdown.suit": "diamonds", "failure-countdown.king-revealed": false },
+          { "failure-countdown.suit": "hearts", "failure-countdown.king-revealed": false },
+          { "failure-countdown.suit": "spades", "failure-countdown.king-revealed": false }
+        ],
+        "survival-session.journal": ["The first day begins."]
+      }
+    }
+  ]
+}

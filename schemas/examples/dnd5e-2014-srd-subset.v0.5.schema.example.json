@@ -1,0 +1,47 @@
+{
+  "id": "dnd5e-2014-srd-subset",
+  "name": "2014 5e SRD Stress-Test Subset",
+  "version": "0.1.0",
+  "schemaFragments": [
+    { "metadata": { "id": "named-thing", "name": "Named Thing" }, "properties": [
+      { "metadata": { "id": "named-thing.name", "name": "Name" }, "valueType": { "kind": "primitive", "name": "string" }, "required": true, "nullable": false }
+    ] }
+  ],
+  "valueTypes": [
+    { "metadata": { "id": "dice-expression", "name": "Dice Expression" }, "kind": "record", "properties": [
+      { "metadata": { "id": "dice-expression.count", "name": "Count" }, "valueType": { "kind": "primitive", "name": "integer" }, "required": true, "nullable": false, "constraints": { "minimum": 1 } },
+      { "metadata": { "id": "dice-expression.sides", "name": "Sides" }, "valueType": { "kind": "primitive", "name": "integer" }, "required": true, "nullable": false, "constraints": { "minimum": 2 } },
+      { "metadata": { "id": "dice-expression.modifier", "name": "Modifier" }, "valueType": { "kind": "primitive", "name": "integer" }, "required": true, "nullable": false, "defaultValue": 0 }
+    ] },
+    { "metadata": { "id": "ability-name", "name": "Ability Name" }, "kind": "enumeration", "entries": [
+      { "id": "strength", "name": "Strength" }, { "id": "dexterity", "name": "Dexterity" }, { "id": "constitution", "name": "Constitution" }, { "id": "intelligence", "name": "Intelligence" }, { "id": "wisdom", "name": "Wisdom" }, { "id": "charisma", "name": "Charisma" }
+    ] }
+  ],
+  "entityTypes": [
+    { "metadata": { "id": "creature", "name": "Creature" }, "properties": [
+      { "metadata": { "id": "creature.name", "name": "Name" }, "valueType": { "kind": "primitive", "name": "string" }, "required": true, "nullable": false },
+      { "metadata": { "id": "creature.armor-class", "name": "Armor Class" }, "valueType": { "kind": "primitive", "name": "integer" }, "required": true, "nullable": false, "constraints": { "minimum": 0 } },
+      { "metadata": { "id": "creature.hit-points", "name": "Hit Points" }, "valueType": { "kind": "primitive", "name": "integer" }, "required": true, "nullable": false, "constraints": { "minimum": 0 } }
+    ] },
+    { "metadata": { "id": "class", "name": "Class" }, "properties": [
+      { "metadata": { "id": "class.name", "name": "Name" }, "valueType": { "kind": "primitive", "name": "string" }, "required": true, "nullable": false },
+      { "metadata": { "id": "class.hit-die", "name": "Hit Die" }, "valueType": { "kind": "definedValueType", "valueTypeId": "dice-expression" }, "required": true, "nullable": false }
+    ] },
+    { "metadata": { "id": "feature", "name": "Feature" }, "fragmentIds": ["named-thing"] },
+    { "metadata": { "id": "spell", "name": "Spell" }, "properties": [
+      { "metadata": { "id": "spell.name", "name": "Name" }, "valueType": { "kind": "primitive", "name": "string" }, "required": true, "nullable": false },
+      { "metadata": { "id": "spell.level", "name": "Level" }, "valueType": { "kind": "primitive", "name": "integer" }, "required": true, "nullable": false, "constraints": { "minimum": 0, "maximum": 9 } }
+    ] }
+  ],
+  "relationships": [
+    { "metadata": { "id": "class-grants-feature", "name": "Class Grants Feature" }, "from": { "roleName": "grantingClass", "entityTypeId": "class", "minimumPerOppositeInstance": 0, "maximumPerOppositeInstance": "unbounded" }, "to": { "roleName": "grantedFeature", "entityTypeId": "feature", "minimumPerOppositeInstance": 0, "maximumPerOppositeInstance": "unbounded" }, "directed": true, "attributes": [
+      { "metadata": { "id": "class-grants-feature.level", "name": "Level" }, "valueType": { "kind": "primitive", "name": "integer" }, "required": true, "nullable": false, "constraints": { "minimum": 1, "maximum": 20 } }
+    ] }
+  ],
+  "rules": [
+    { "metadata": { "id": "ability-modifier", "name": "Ability Modifier" }, "authoritativeText": "An ability score produces a modifier using the game's stated calculation.", "targets": [ { "definitionIds": ["ability-name"], "notes": "The exact expression language is intentionally deferred." } ], "structuredSupport": { "automationStatus": "partial", "limitations": ["No approved expression language exists yet."] } }
+  ],
+  "validations": [
+    { "metadata": { "id": "spell-level-range", "name": "Spell Level Range" }, "scope": "instance", "severity": "error", "authoritativeText": "A spell level must be an integer from zero through nine.", "targets": [ { "definitionIds": ["spell"], "propertyIds": ["spell.level"] } ], "structuredSupport": { "automationStatus": "reviewed", "payload": { "minimum": 0, "maximum": 9 } } }
+  ]
+}

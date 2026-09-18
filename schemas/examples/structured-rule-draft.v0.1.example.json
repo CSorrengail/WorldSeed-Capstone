@@ -1,0 +1,18 @@
+{
+  "action": "presentDraft",
+  "draft": {
+    "title": "Dangerous Magic",
+    "intent": "Magic creates persistent consequences for the caster.",
+    "rules": [
+      { "id": "casting-adds-mark", "name": "Casting Adds a Mark", "kind": "rule", "text": "When a character casts magic, the game may give that character a lasting mark according to the casting procedure.", "sourceNoteIds": ["source-001"] },
+      { "id": "marks-persist", "name": "Marks Persist", "kind": "constraint", "text": "A lasting mark remains on its caster until a game-specific rule removes or transforms it.", "sourceNoteIds": ["source-001"] }
+    ],
+    "concepts": [
+      { "id": "caster", "name": "Caster", "description": "A character capable of casting magic." },
+      { "id": "lasting-mark", "name": "Lasting Mark", "description": "A persistent consequence associated with a caster." }
+    ],
+    "assumptions": ["Not every casting event necessarily creates a mark."],
+    "openQuestions": ["What determines when a mark is gained?", "What effects do accumulated marks have?"],
+    "exclusions": ["This draft does not define a dice system, spell list, or combat rule."]
+  }
+}

@@ -1,0 +1,1 @@
+{ "id": "broken", "name": "Broken", "version": "1.0.0", "entityTypes": [ { "metadata": { "id": "thing", "name": "Thing" } }, { "metadata": { "id": "thing", "name": "Other Thing" } } ] }
