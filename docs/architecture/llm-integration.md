@@ -1,39 +1,29 @@
 # LLM Integration
 
-WorldSeed’s natural-language features use a model selected by the designer. The integration is a GUI-ready service layer: it accepts a safe model profile and resolves a credential only at request time. It has no dependency on a command-line interface, file storage, the canonical meta-schema, or the change ledger.
+WorldSeed's natural-language features use a model selected by the designer. The integration is a GUI-ready service layer: it accepts a safe model profile, sends a conversation to the selected runtime, and returns assistant text. It has no dependency on a command-line interface, file storage, the canonical meta-schema, or the change ledger.
 
-## Initial adapter
+## Local-first runtime
 
-v0.1 implements the widely supported OpenAI-compatible Chat Completions HTTP contract. This allows one adapter to communicate with compatible hosted services and many local model servers. Additional provider-specific adapters can implement `ILanguageModelClient` later without changing conversation, proposal, or GUI code.
+v0.2 supports the native local [Ollama API](https://docs.ollama.com/api). A standard installation needs no API key and no user-facing endpoint setup: WorldSeed uses `http://127.0.0.1:11434/` by default. It can safely list models already installed in Ollama through `GET /api/tags`; it never downloads, imports, creates, changes, or deletes a model.
 
 ```text
-GUI profile selection
-        +
-secure credential lookup
-        ↓
-LlmClientFactory
-        ↓
+Avalonia model settings
+        |
+local Ollama model library
+        |
+OllamaModelCatalog + LlmClientFactory
+        |
 ILanguageModelClient
-        ↓
-hosted provider or local model endpoint
+        |
+Ollama /api/chat
 ```
 
-## Configuration and secrets
+An Ollama request contains the ordered system, user, and assistant messages, has streaming disabled, and returns one complete assistant response. WorldSeed maps a requested temperature and output limit to Ollama's `temperature` and `num_predict` options. The adapter does not decide the prompt, interpret rules, persist conversations, or alter game data; the rule-drafting and translation layers own those jobs.
 
-`LlmModelProfile` contains only information that can safely be stored in user preferences:
+## Profile safety
 
-- profile identifier and display name;
-- provider kind;
-- base endpoint URI;
-- selected model name; and
-- whether a bearer credential is needed.
+`LlmModelProfile` is safe to place in application preferences: it contains only an identifier, display name, provider kind, local endpoint, and selected model name. The normal local profile needs no secret. Provider failures intentionally expose only a safe status-oriented message, never raw response bodies.
 
-`ILlmCredentialProvider` supplies the API key only when the selected profile is used. A future GUI should store it in an operating-system secret store or another secure secret mechanism. It must not place keys in game files, ledgers, Git, logs, or error messages.
+## Deferred hosted-provider work
 
-A normal hosted setup should need only a provider choice, model selection, and one stored key. A local model profile can disable bearer authentication and point to its local endpoint. Docker is therefore optional: a containerized local model is simply another OpenAI-compatible endpoint from WorldSeed’s point of view.
-
-## Present boundary
-
-The adapter sends an ordered list of system, user, and assistant messages and returns assistant text plus available token usage. It does not yet construct prompts, ask clarifying questions, persist transcripts, or write rule drafts. Those are the next application-level workflow and should use the provider-neutral interface rather than call HTTP directly.
-
-Provider failures intentionally return a safe status-only error. Response bodies are not surfaced, preventing accidental exposure of credentials or provider-side details.
+The existing OpenAI-compatible adapter and credential abstraction are retained as technical debt for a later hosted-provider feature. They are deliberately not surfaced by the current application workflow. Before enabling them, the project needs secure operating-system credential storage, saved-profile management, clear privacy/cost disclosures, provider-specific tests, and a GUI configuration experience. Secrets must never be written to game files, ledgers, Git, logs, or error messages.

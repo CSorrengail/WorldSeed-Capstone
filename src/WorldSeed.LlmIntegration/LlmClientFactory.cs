@@ -14,10 +14,13 @@ public sealed class LlmClientFactory
 
     public async Task<ILanguageModelClient> CreateAsync(LlmModelProfile profile, CancellationToken cancellationToken = default)
     {
-        var apiKey = await _credentialProvider.GetApiKeyAsync(profile.Id, cancellationToken);
         return profile.Provider switch
         {
-            LlmProviderKind.OpenAiCompatible => new OpenAiCompatibleChatClient(_httpClient, profile, apiKey),
+            LlmProviderKind.Ollama => new OllamaChatClient(_httpClient, profile),
+            LlmProviderKind.OpenAiCompatible => new OpenAiCompatibleChatClient(
+                _httpClient,
+                profile,
+                await _credentialProvider.GetApiKeyAsync(profile.Id, cancellationToken)),
             _ => throw new NotSupportedException($"Unsupported model provider '{profile.Provider}'.")
         };
     }

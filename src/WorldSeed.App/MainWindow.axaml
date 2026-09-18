@@ -13,13 +13,13 @@
           <TextBlock Text="Workspace" FontWeight="SemiBold" />
           <Button Content="Design sessions" HorizontalAlignment="Stretch" />
           <Button Content="Schema proposals" HorizontalAlignment="Stretch" />
-          <Button Content="Model settings" HorizontalAlignment="Stretch" />
+          <Button Content="Check local models" HorizontalAlignment="Stretch" Click="CheckLocalModels_Click" />
         </StackPanel>
       </Border>
       <Border Grid.Column="1" BorderBrush="{DynamicResource SystemControlForegroundBaseMediumBrush}" BorderThickness="1" Padding="24" CornerRadius="8">
         <StackPanel Spacing="12" VerticalAlignment="Center">
-          <TextBlock Text="Start with an idea" FontSize="22" FontWeight="SemiBold" />
-          <TextBlock Text="The first usable screen will create a design session, preserve your original note, and guide a conversation with your selected model." TextWrapping="Wrap" Opacity="0.75" />
+          <TextBlock Text="Local models" FontSize="22" FontWeight="SemiBold" />
+          <TextBlock Name="LocalModelStatus" Text="Check which models are already installed in local Ollama. WorldSeed will not download or change them." TextWrapping="Wrap" Opacity="0.75" />
           <Button Content="Create design session" HorizontalAlignment="Left" Margin="0,8,0,0" />
         </StackPanel>
       </Border>

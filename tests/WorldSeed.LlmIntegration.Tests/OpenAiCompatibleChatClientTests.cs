@@ -12,7 +12,7 @@ public class OpenAiCompatibleChatClientTests
     {
         var handler = new RecordingHandler("""{"model":"user-selected-model","choices":[{"message":{"content":"Proposed rule text."}}],"usage":{"prompt_tokens":12,"completion_tokens":7}}""");
         using var httpClient = new HttpClient(handler);
-        var profile = new LlmModelProfile("primary", "Primary", new Uri("https://provider.example/v1"), "user-selected-model");
+        var profile = new LlmModelProfile("primary", "Primary", new Uri("https://provider.example/v1"), "user-selected-model", LlmProviderKind.OpenAiCompatible, UseBearerAuthentication: true);
         var client = new OpenAiCompatibleChatClient(httpClient, profile, "secret-value");
 
         var response = await client.CompleteAsync(new LlmChatRequest([new(LlmMessageRole.System, "Be concise."), new(LlmMessageRole.User, "My idea")], Temperature: 0.2, MaxOutputTokens: 500));
@@ -33,7 +33,7 @@ public class OpenAiCompatibleChatClientTests
     {
         var handler = new RecordingHandler("""{"choices":[{"message":{"content":"Local response"}}]}""");
         using var httpClient = new HttpClient(handler);
-        var profile = new LlmModelProfile("local", "Local", new Uri("http://localhost:1234/v1/"), "local-model", UseBearerAuthentication: false);
+        var profile = new LlmModelProfile("local", "Local", new Uri("http://localhost:1234/v1/"), "local-model", LlmProviderKind.OpenAiCompatible, UseBearerAuthentication: false);
         var client = new OpenAiCompatibleChatClient(httpClient, profile, null);
 
         var response = await client.CompleteAsync(new LlmChatRequest([new(LlmMessageRole.User, "Hello")]));
@@ -47,7 +47,7 @@ public class OpenAiCompatibleChatClientTests
     {
         var handler = new RecordingHandler("sensitive provider detail", HttpStatusCode.Unauthorized);
         using var httpClient = new HttpClient(handler);
-        var profile = new LlmModelProfile("primary", "Primary", new Uri("https://provider.example/v1/"), "model");
+        var profile = new LlmModelProfile("primary", "Primary", new Uri("https://provider.example/v1/"), "model", LlmProviderKind.OpenAiCompatible, UseBearerAuthentication: true);
         var client = new OpenAiCompatibleChatClient(httpClient, profile, "secret-value");
 
         var exception = await Assert.ThrowsAsync<LlmClientException>(() => client.CompleteAsync(new LlmChatRequest([new(LlmMessageRole.User, "Hello")])));

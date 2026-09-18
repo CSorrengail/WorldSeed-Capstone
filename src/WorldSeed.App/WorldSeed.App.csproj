@@ -12,4 +12,7 @@
     <PackageReference Include="Avalonia.Fonts.Inter" Version="12.1.2" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.2" />
   </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\WorldSeed.LlmIntegration\WorldSeed.LlmIntegration.csproj" />
+  </ItemGroup>
 </Project>
