@@ -7,7 +7,8 @@ public sealed record LlmModelProfile(
     Uri BaseUri,
     string Model,
     LlmProviderKind Provider = LlmProviderKind.Ollama,
-    bool UseBearerAuthentication = false);
+    bool UseBearerAuthentication = false,
+    bool? EnableThinking = null);
 
 public enum LlmProviderKind
 {
@@ -20,7 +21,11 @@ public enum LlmProviderKind
 public enum LlmMessageRole { System, User, Assistant }
 
 public sealed record LlmMessage(LlmMessageRole Role, string Content);
-public sealed record LlmChatRequest(IReadOnlyList<LlmMessage> Messages, double? Temperature = null, int? MaxOutputTokens = null);
+public sealed record LlmChatRequest(
+    IReadOnlyList<LlmMessage> Messages,
+    double? Temperature = null,
+    int? MaxOutputTokens = null,
+    bool RequireJsonObject = false);
 public sealed record LlmUsage(int? InputTokens, int? OutputTokens);
 public sealed record LlmChatResponse(string Content, string Model, LlmUsage? Usage);
 
@@ -47,7 +52,7 @@ public static class OllamaDefaults
     public static readonly Uri BaseUri = new("http://127.0.0.1:11434/");
 
     public static LlmModelProfile CreateProfile(string id, string displayName, string model) =>
-        new(id, displayName, BaseUri, model, LlmProviderKind.Ollama, UseBearerAuthentication: false);
+        new(id, displayName, BaseUri, model, LlmProviderKind.Ollama, UseBearerAuthentication: false, EnableThinking: false);
 }
 
 /// <summary>Metadata for a model already installed in a local Ollama library.</summary>

@@ -14,4 +14,7 @@
     <Project Path="tests/WorldSeed.SchemaValidation.Tests/WorldSeed.SchemaValidation.Tests.csproj" />
     <Project Path="tests/WorldSeed.SchemaTranslation.Tests/WorldSeed.SchemaTranslation.Tests.csproj" />
   </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/WorldSeed.EndToEnd/WorldSeed.EndToEnd.csproj" />
+  </Folder>
 </Solution>

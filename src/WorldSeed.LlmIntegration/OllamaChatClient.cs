@@ -34,6 +34,8 @@ public sealed class OllamaChatClient : ILanguageModelClient
                 ["content"] = message.Content
             }).ToArray())
         };
+        if (_profile.EnableThinking is { } enableThinking) body["think"] = enableThinking;
+        if (request.RequireJsonObject) body["format"] = "json";
         if (request.Temperature is { } temperature || request.MaxOutputTokens is { })
         {
             var options = new JsonObject();

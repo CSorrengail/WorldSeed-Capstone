@@ -18,7 +18,7 @@ ILanguageModelClient
 Ollama /api/chat
 ```
 
-An Ollama request contains the ordered system, user, and assistant messages, has streaming disabled, and returns one complete assistant response. WorldSeed maps a requested temperature and output limit to Ollama's `temperature` and `num_predict` options. The adapter does not decide the prompt, interpret rules, persist conversations, or alter game data; the rule-drafting and translation layers own those jobs.
+An Ollama request contains the ordered system, user, and assistant messages, has streaming disabled, and returns one complete assistant response. WorldSeed disables optional model thinking for its default local profile, keeping the structured answer focused and responsive. The adapter maps a requested temperature and output limit to Ollama's `temperature` and `num_predict` options. Rule drafting and schema translation ask Ollama for a JSON object; their separate validators still enforce the required WorldSeed shape and provenance. Rule drafting currently requests at most 1,200 generated tokens. The adapter does not decide the prompt, interpret rules, persist conversations, or alter game data; the rule-drafting and translation layers own those jobs.
 
 ## Profile safety
 

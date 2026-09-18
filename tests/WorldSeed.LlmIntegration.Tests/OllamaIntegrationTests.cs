@@ -14,7 +14,7 @@ public class OllamaIntegrationTests
         using var httpClient = new HttpClient(handler);
         var client = new OllamaChatClient(httpClient, OllamaDefaults.CreateProfile("local", "My local model", "qwen3:8b"));
 
-        var response = await client.CompleteAsync(new LlmChatRequest([new(LlmMessageRole.System, "Use JSON."), new(LlmMessageRole.User, "An idea")], Temperature: 0.1, MaxOutputTokens: 400));
+        var response = await client.CompleteAsync(new LlmChatRequest([new(LlmMessageRole.System, "Use JSON."), new(LlmMessageRole.User, "An idea")], Temperature: 0.1, MaxOutputTokens: 400, RequireJsonObject: true));
 
         Assert.Equal("A structured answer.", response.Content);
         Assert.Equal("qwen3:8b", response.Model);
@@ -24,6 +24,8 @@ public class OllamaIntegrationTests
         Assert.Null(handler.Request.Headers.Authorization);
         var body = JsonNode.Parse(handler.Body!)!.AsObject();
         Assert.False(body["stream"]!.GetValue<bool>());
+        Assert.False(body["think"]!.GetValue<bool>());
+        Assert.Equal("json", body["format"]!.GetValue<string>());
         Assert.Equal("user", body["messages"]![1]!["role"]!.GetValue<string>());
         Assert.Equal(0.1, body["options"]!["temperature"]!.GetValue<double>());
         Assert.Equal(400, body["options"]!["num_predict"]!.GetValue<int>());

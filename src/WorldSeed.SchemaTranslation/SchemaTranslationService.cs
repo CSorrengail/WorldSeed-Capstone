@@ -24,7 +24,7 @@ public sealed class SchemaTranslationService
     {
         ArgumentNullException.ThrowIfNull(request); if (request.Draft.Rules.Count == 0) throw new ArgumentException("A rule draft requires at least one rule.", nameof(request));
         var input = new { draft = request.Draft, baseSchema = request.BaseSchema };
-        var response = await _client.CompleteAsync(new LlmChatRequest([new(LlmMessageRole.System, SystemPrompt), new(LlmMessageRole.User, JsonSerializer.Serialize(input, JsonOptions))], Temperature: 0.1), cancellationToken);
+        var response = await _client.CompleteAsync(new LlmChatRequest([new(LlmMessageRole.System, SystemPrompt), new(LlmMessageRole.User, JsonSerializer.Serialize(input, JsonOptions))], Temperature: 0.1, RequireJsonObject: true), cancellationToken);
         return _parser.Parse(response.Content, request.Draft);
     }
 }

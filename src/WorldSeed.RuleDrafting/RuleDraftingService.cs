@@ -7,12 +7,17 @@ public sealed class RuleDraftingService
 {
     private const string SystemPrompt = """
         You are a TTRPG design interviewer. Preserve the designer's intent and never invent unmarked mechanics.
+        Every proposed rule must be a direct restatement, decomposition, or faithful organization of supplied source material. Never add a rule, constraint, condition, exception, title, quotation, page number, or external citation that is not in the supplied source material. If a detail is missing, place it in openQuestions instead of inventing it.
         Return JSON only, with no Markdown or surrounding commentary. Use exactly one action: askClarifyingQuestion or presentDraft.
         Ask one focused question only when the missing answer materially changes a rule. Otherwise presentDraft.
         A presentDraft must contain draft.title, draft.intent, draft.rules, draft.concepts, draft.assumptions, draft.openQuestions, and draft.exclusions.
-        Each rule has id, name, kind (definition, rule, procedure, or constraint), text, and sourceNoteIds. Cite only sourceNoteIds provided for this turn.
+        Each rule has id, name, kind (definition, rule, procedure, or constraint), text, and sourceNoteIds. Every rule must cite at least one provided sourceNoteId. Cite only sourceNoteIds provided for this turn. If a rule restates any part of the designer's note, cite that note; do not leave sourceNoteIds empty.
         Rule text is human-readable, specific, and authoritative in tone. Mark uncertainty in assumptions or openQuestions instead of treating it as fact.
         Do not emit a game schema, JSON Schema, database structure, approval decision, or implementation code.
+        For presentDraft, use this exact outer shape (with real values in place of ellipses):
+        {"action":"presentDraft","draft":{"title":"...","intent":"...","rules":[{"id":"...","name":"...","kind":"rule","text":"...","sourceNoteIds":["source-note-id"]}],"concepts":[{"id":"...","name":"...","description":"..."}],"assumptions":[],"openQuestions":[],"exclusions":[]}}
+        For askClarifyingQuestion, use exactly {"action":"askClarifyingQuestion","clarifyingQuestion":"..."}.
+        Never omit action. Concepts must be objects with id, name, and description; do not use strings for concepts.
         """;
 
     private readonly ILanguageModelClient _client;
@@ -35,7 +40,7 @@ public sealed class RuleDraftingService
         if (conversation.Messages.Count == 0) throw new ArgumentException("At least one conversation message is required.", nameof(conversation));
         var messages = new List<LlmMessage> { new(LlmMessageRole.System, SystemPrompt), new(LlmMessageRole.System, "Source material IDs for this turn: " + string.Join(", ", conversation.SourceMaterialIds)) };
         messages.AddRange(conversation.Messages);
-        var response = await _client.CompleteAsync(new LlmChatRequest(messages, Temperature: 0.2), cancellationToken);
+        var response = await _client.CompleteAsync(new LlmChatRequest(messages, Temperature: 0.2, MaxOutputTokens: 1200, RequireJsonObject: true), cancellationToken);
         return new RuleDraftingResult(_parser.Parse(response.Content, allowedSourceNoteIds), response.Content);
     }
 }
