@@ -48,6 +48,8 @@ After refining the clarification policy, `gemma3:12b` passed the three controlle
 
 This establishes a useful controlled baseline for the rule-drafting layer. It does not yet authorize testing on real designer notes: the next readiness work is source-support review and a deliberate multi-note ingestion workflow.
 
+Source-support review is now implemented and was rerun against the same suite. Gemma supplied exact excerpts for every drafted rule, and WorldSeed verified each excerpt against the original note. The next remaining readiness work is multi-note ingestion.
+
 ## Next benchmark decision
 
 The 35B comparison has now shown that a 23 GB model is too large for the test machine's 12 GB GPU. The next candidate should be a model that fits primarily in GPU memory. A 9–12B model is the reasonable size range for a quality comparison. The first comparison should use this exact runner and scenario, then evaluate response time, format validity, source citations, completeness, and fidelity to the original note.

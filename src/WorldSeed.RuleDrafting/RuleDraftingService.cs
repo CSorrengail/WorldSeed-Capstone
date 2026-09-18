@@ -11,7 +11,7 @@ public sealed class RuleDraftingService
         Return JSON only, with no Markdown or surrounding commentary. Use exactly one action: askClarifyingQuestion or presentDraft.
         Ask one focused question only when an undefined effect, trigger, or procedure must be decided before the stated rule can be faithfully represented. Do not replace that required clarification with openQuestions. For example, if a source says an outcome is "harder" but does not define what that changes, ask what "harder" means before presenting a draft. Do not ask for clarification about direct wording that can be restated faithfully: choosing "the same route" means choosing the same revealed option, not a similar option. Do not ask for a missing procedure when the source explicitly gives the facilitator narrative discretion or says no fixed mechanical procedure exists; present that rule as natural language. Otherwise presentDraft.
         A presentDraft must contain draft.title, draft.intent, draft.rules, draft.concepts, draft.assumptions, draft.openQuestions, and draft.exclusions.
-        Each rule has id, name, kind (definition, rule, procedure, or constraint), text, and sourceNoteIds. Every rule must cite at least one provided sourceNoteId. Cite only sourceNoteIds provided for this turn. If a rule restates any part of the designer's note, cite that note; do not leave sourceNoteIds empty.
+        Each rule has id, name, kind (definition, rule, procedure, or constraint), text, sourceNoteIds, and sourceSupport. Every rule must cite at least one provided sourceNoteId and provide at least one sourceSupport object with sourceNoteId and excerpt. An excerpt must be an exact, continuous quote from that source note. Cite only sourceNoteIds provided for this turn. If a rule restates any part of the designer's note, cite that note; do not leave sourceNoteIds or sourceSupport empty.
         Rule text is human-readable, specific, and authoritative in tone. Mark uncertainty in assumptions or openQuestions instead of treating it as fact.
         Do not emit a game schema, JSON Schema, database structure, approval decision, or implementation code.
         For presentDraft, use this exact outer shape (with real values in place of ellipses):
@@ -37,14 +37,17 @@ public sealed class RuleDraftingService
         if (string.IsNullOrWhiteSpace(conversation.ProjectId)) throw new ArgumentException("A project id is required.", nameof(conversation));
         var allowedSourceNoteIds = conversation.SourceMaterialIds.ToHashSet(StringComparer.Ordinal);
         if (allowedSourceNoteIds.Count == 0 || allowedSourceNoteIds.Any(string.IsNullOrWhiteSpace) || allowedSourceNoteIds.Count != conversation.SourceMaterialIds.Count) throw new ArgumentException("Source material ids must be unique, non-empty values.", nameof(conversation));
+        var sourceTextById = conversation.SourceTextById ?? new Dictionary<string, string>();
+        if (sourceTextById.Count > 0 && (!sourceTextById.Keys.ToHashSet(StringComparer.Ordinal).SetEquals(allowedSourceNoteIds) || sourceTextById.Any(source => string.IsNullOrWhiteSpace(source.Value)))) throw new ArgumentException("Source text must be supplied for every source material id.", nameof(conversation));
         if (conversation.Messages.Count == 0) throw new ArgumentException("At least one conversation message is required.", nameof(conversation));
         var messages = new List<LlmMessage> { new(LlmMessageRole.System, SystemPrompt), new(LlmMessageRole.System, "Source material IDs for this turn: " + string.Join(", ", conversation.SourceMaterialIds)) };
+        if (sourceTextById.Count > 0) messages.Add(new LlmMessage(LlmMessageRole.System, "Source notes for exact quotation:\n" + string.Join("\n\n", sourceTextById.OrderBy(source => source.Key, StringComparer.Ordinal).Select(source => $"[{source.Key}]\n{source.Value}"))));
         messages.AddRange(conversation.Messages);
         var response = await _client.CompleteAsync(new LlmChatRequest(
             messages,
             Temperature: 0.2,
             MaxOutputTokens: 1200,
             ResponseSchema: RuleDraftResponseSchema.Create(allowedSourceNoteIds)), cancellationToken);
-        return new RuleDraftingResult(_parser.Parse(response.Content, allowedSourceNoteIds), response.Content);
+        return new RuleDraftingResult(_parser.Parse(response.Content, allowedSourceNoteIds, sourceTextById), response.Content);
     }
 }

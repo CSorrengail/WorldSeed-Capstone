@@ -51,6 +51,22 @@ public class RuleDraftingServiceTests
     }
 
     [Fact]
+    public void Verifies_supporting_excerpts_against_the_original_source_note()
+    {
+        var parser = new RuleDraftJsonParser();
+        var sourceIds = new HashSet<string>(["source-001"], StringComparer.Ordinal);
+        var sourceText = new Dictionary<string, string> { ["source-001"] = "Magic leaves a lasting mark on the caster." };
+        var valid = """{"action":"presentDraft","draft":{"title":"Draft","intent":"Intent","rules":[{"id":"rule","name":"Rule","kind":"rule","text":"Magic leaves a mark.","sourceNoteIds":["source-001"],"sourceSupport":[{"sourceNoteId":"source-001","excerpt":"Magic leaves a lasting mark"}]}],"concepts":[],"assumptions":[],"openQuestions":[],"exclusions":[]}}""";
+        var unsupported = """{"action":"presentDraft","draft":{"title":"Draft","intent":"Intent","rules":[{"id":"rule","name":"Rule","kind":"rule","text":"Magic harms the caster.","sourceNoteIds":["source-001"],"sourceSupport":[{"sourceNoteId":"source-001","excerpt":"Magic harms the caster"}]}],"concepts":[],"assumptions":[],"openQuestions":[],"exclusions":[]}}""";
+
+        var turn = parser.Parse(valid, sourceIds, sourceText);
+
+        Assert.Equal("Magic leaves a lasting mark", turn.Draft!.Rules.Single().SourceSupport.Single().Excerpt);
+        var exception = Assert.Throws<RuleDraftFormatException>(() => parser.Parse(unsupported, sourceIds, sourceText));
+        Assert.Contains("does not occur", exception.Message);
+    }
+
+    [Fact]
     public async Task Rejects_a_model_rule_that_cites_an_unavailable_source()
     {
         var model = new FakeModel("""

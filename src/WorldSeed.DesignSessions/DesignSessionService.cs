@@ -42,7 +42,7 @@ public sealed class DesignSessionService
     {
         ArgumentNullException.ThrowIfNull(session);
         ValidateSession(session);
-        var conversation = new RuleDraftConversation(session.ProjectId, session.SourceNotes.Select(source => source.Id).ToArray(), session.Messages);
+        var conversation = new RuleDraftConversation(session.ProjectId, session.SourceNotes.Select(source => source.Id).ToArray(), session.Messages, session.SourceNotes.ToDictionary(source => source.Id, source => source.OriginalText, StringComparer.Ordinal));
         var result = await _ruleDrafting.AdvanceWithTranscriptAsync(conversation, cancellationToken);
         var messages = session.Messages.Append(new LlmMessage(LlmMessageRole.Assistant, result.RawModelResponse)).ToArray();
         return session with { Messages = messages, LatestTurn = result.Turn, UpdatedAt = _timeProvider.GetUtcNow() };

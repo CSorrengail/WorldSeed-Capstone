@@ -6,7 +6,7 @@ namespace WorldSeed.SchemaTranslation.Tests;
 
 public class SchemaTranslationServiceTests
 {
-    private static readonly StructuredRuleDraft Draft = new("Dangerous Magic", "Magic leaves marks.", [new RuleStatement("casting-adds-mark", "Casting Adds a Mark", RuleStatementKind.Rule, "Casting creates a mark.", ["source-001"])], [], [], [], []);
+    private static readonly StructuredRuleDraft Draft = new("Dangerous Magic", "Magic leaves marks.", [new RuleStatement("casting-adds-mark", "Casting Adds a Mark", RuleStatementKind.Rule, "Casting creates a mark.", ["source-001"], [new RuleSourceSupport("source-001", "Magic leaves marks.")])], [], [], [], []);
 
     [Fact]
     public async Task Returns_a_valid_noncanonical_schema_proposal_with_rule_mappings()
