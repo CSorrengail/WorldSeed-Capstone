@@ -13,7 +13,7 @@ This repeatable developer test runs one deliberately small, source-traceable rul
 Run it from the repository root after starting Ollama:
 
 ```powershell
-dotnet run --project tools/WorldSeed.EndToEnd -- qwen3:8b
+dotnet run --project tools/WorldSeed.EndToEnd -- gemma3:12b
 ```
 
 The tool prints both the raw response and the accepted structured result. If the model returns malformed JSON or an invalid source citation, or exceeds its three-minute local response window, the tool exits with an error and prints the available diagnostics. This is expected useful feedback about prompt/model compatibility; it never silently accepts malformed output.
@@ -22,6 +22,16 @@ The default local profile disables optional model-thinking output and the drafti
 
 The draft prompt includes an explicit minimal JSON example. This is intentional: small local models may understand the rule-design request but still omit a required wrapper field without a concrete format example. WorldSeed continues to reject rather than repair an invalid response, preserving a clear boundary between model proposal and validated artifact.
 
-`qwen3:8b` is the initial test model because it is installed locally and should be practical for iterative structured-output experiments. Running the same test later with `llama3.2:3b` can reveal whether smaller models need stronger prompt or repair handling; the 35B model can be reserved for a quality comparison.
+`gemma3:12b` is the current recommended local test model. It fits the available GPU and passed the initial controlled benchmark and reliability suite. Smaller models remain useful for failure-path testing; the installed 35B model is too slow on the current hardware for interactive work.
 
 The completed initial results are recorded in [local Ollama end-to-end results](local-ollama-end-to-end-results.md).
+
+## Reliability suite
+
+Run the three controlled scenarios with:
+
+```powershell
+dotnet run --project tools/WorldSeed.EndToEnd -- gemma3:12b --suite
+```
+
+The suite checks a complete procedural rule, an intentionally ambiguous rule that should return one clarification question, and a facilitator-driven rule that should remain a natural-language proposal. It remains isolated from real designer files and canonical game information.

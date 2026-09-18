@@ -36,6 +36,18 @@ The integration boundary works as intended: malformed output and missing traceab
 
 Even a structurally accepted result needs designer review, because the present validator verifies JSON shape and declared provenance—not whether the natural-language statement is semantically entailed by a cited source note. A future source-support review step should make that limitation visible to the designer rather than silently treating citations as proof.
 
+## Gemma reliability suite
+
+After refining the clarification policy, `gemma3:12b` passed the three controlled scenarios:
+
+| Scenario | Expected behavior | Result |
+| --- | --- | --- |
+| Complete procedural rule | Present a source-cited draft | Passed; all explicit mechanics were retained. |
+| Undefined mechanical effect | Ask one focused clarification | Passed; it asked what a "harder journey" changes. |
+| Facilitator-driven narrative rule | Preserve it as a natural-language draft | Passed; it retained facilitator discretion and excluded fixed mechanics. |
+
+This establishes a useful controlled baseline for the rule-drafting layer. It does not yet authorize testing on real designer notes: the next readiness work is source-support review and a deliberate multi-note ingestion workflow.
+
 ## Next benchmark decision
 
 The 35B comparison has now shown that a 23 GB model is too large for the test machine's 12 GB GPU. The next candidate should be a model that fits primarily in GPU memory. A 9–12B model is the reasonable size range for a quality comparison. The first comparison should use this exact runner and scenario, then evaluate response time, format validity, source citations, completeness, and fidelity to the original note.
