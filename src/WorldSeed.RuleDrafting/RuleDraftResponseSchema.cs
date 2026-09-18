@@ -16,7 +16,7 @@ public static class RuleDraftResponseSchema
           "required": ["action"],
           "properties": {
             "action": { "type": "string", "enum": ["askClarifyingQuestion", "presentDraft"] },
-            "clarifyingQuestion": { "type": "string", "minLength": 1 },
+            "clarifyingQuestions": { "type": "array", "minItems": 1, "maxItems": 5, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
             "draft": {
               "type": "object",
               "additionalProperties": false,
@@ -58,7 +58,7 @@ public static class RuleDraftResponseSchema
             }
           },
           "allOf": [
-            { "if": { "properties": { "action": { "const": "askClarifyingQuestion" } } }, "then": { "required": ["clarifyingQuestion"] } },
+            { "if": { "properties": { "action": { "const": "askClarifyingQuestion" } } }, "then": { "required": ["clarifyingQuestions"] } },
             { "if": { "properties": { "action": { "const": "presentDraft" } } }, "then": { "required": ["draft"] } }
           ]
         }

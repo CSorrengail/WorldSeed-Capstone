@@ -21,8 +21,12 @@ public sealed class RuleDraftJsonParser
             "presentDraft" => RuleDraftAction.PresentDraft,
             _ => throw new RuleDraftFormatException("The model response has an unknown action.")
         };
-        var question = String(root["clarifyingQuestion"]);
-        if (action == RuleDraftAction.AskClarifyingQuestion && question is null) throw new RuleDraftFormatException("A clarification response requires a question.");
+        var questions = Strings(root, "clarifyingQuestions");
+        // Accept the v0.1 response shape while existing saved sessions and small local models catch up.
+        var legacyQuestion = String(root["clarifyingQuestion"]);
+        if (questions.Length == 0 && legacyQuestion is not null) questions = [legacyQuestion];
+        if (action == RuleDraftAction.AskClarifyingQuestion && (questions.Length is < 1 or > 5)) throw new RuleDraftFormatException("A clarification response requires one to five questions.");
+        if (questions.Distinct(StringComparer.Ordinal).Count() != questions.Length) throw new RuleDraftFormatException("Clarifying questions must not repeat.");
         var draft = root["draft"] is null ? null : ParseDraft(root["draft"] as JsonObject);
         if (action == RuleDraftAction.PresentDraft && draft is null) throw new RuleDraftFormatException("A draft response requires a structured draft.");
         if (draft is not null)
@@ -30,7 +34,7 @@ public sealed class RuleDraftJsonParser
             var issues = _validator.Validate(draft, action == RuleDraftAction.PresentDraft, allowedSourceNoteIds, sourceTextById);
             if (issues.Count > 0) throw new RuleDraftFormatException(string.Join(" ", issues));
         }
-        return new RuleDraftTurn(action, question, draft);
+        return new RuleDraftTurn(action, legacyQuestion ?? questions.FirstOrDefault(), questions, draft);
     }
 
     private static StructuredRuleDraft ParseDraft(JsonObject? draft)
