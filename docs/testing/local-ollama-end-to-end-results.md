@@ -21,6 +21,7 @@ No session, game schema, game data, or model library entry was written by the ru
 | `llama3.2:3b` after a stronger no-invention instruction | Rejected | Avoided the fake citation but returned an empty duplicate rule with no source ID. |
 | `llama3.2:3b` with the full response schema | Structurally accepted | Supplied all required draft fields and allowed source IDs. It omitted two source details: the guide revealing three cards and discarding unchosen cards. |
 | `qwen3.6:35b` with the full response schema | Timed out | Produced no response within three minutes. Ollama reported 59% CPU / 41% GPU execution on the test machine. |
+| `gemma3:12b` with the full response schema | Structurally accepted | Produced three source-cited statements covering all mechanical parts of the note: reveal and choice, supply-token result, and discarding unchosen cards. It added no unsupported rule or external citation. Ollama ran it at 100% GPU and it completed in under 20 seconds after loading. |
 
 ## Changes made from evidence
 
@@ -32,10 +33,10 @@ No session, game schema, game data, or model library entry was written by the ru
 
 ## Assessment
 
-The integration boundary works as intended: malformed output and missing traceability are rejected before a draft can advance. The full response schema materially improved `llama3.2:3b`'s format compliance, but the model still omitted source material and is not reliable enough to be the recommended drafting model. `qwen3:8b` is not currently usable for this task on this installation, and the installed 35B model is not responsive enough on this hardware.
+The integration boundary works as intended: malformed output and missing traceability are rejected before a draft can advance. The full response schema materially improved `llama3.2:3b`'s format compliance, but the model still omitted source material and is not reliable enough to be the recommended drafting model. `qwen3:8b` is not currently usable for this task on this installation, and the installed 35B model is not responsive enough on this hardware. In this first controlled scenario, `gemma3:12b` is the clear local drafting candidate: it was responsive, structurally compliant, and retained all explicit mechanics.
 
 Even a structurally accepted result needs designer review, because the present validator verifies JSON shape and declared provenance—not whether the natural-language statement is semantically entailed by a cited source note. A future source-support review step should make that limitation visible to the designer rather than silently treating citations as proof.
 
 ## Next benchmark decision
 
-The 35B comparison has now shown that a 23 GB model is too large for the test machine's 12 GB GPU. The next candidate should be a model that fits primarily in GPU memory. A 9–12B model is the reasonable size range for a quality comparison. The first comparison should use this exact runner and scenario, then evaluate response time, format validity, source citations, completeness, and fidelity to the original note.
+The 35B comparison has now shown that a 23 GB model is too large for the test machine's 12 GB GPU. `gemma3:12b` fits and has passed the first scenario. Before treating it as the default, repeat the benchmark with a small scenario set: a complete procedural rule, an intentionally ambiguous rule that should trigger one clarification question, and a source note containing a special mechanic that should remain natural language rather than become invented structure. Evaluate response time, format validity, source citations, completeness, and fidelity to the original note.
