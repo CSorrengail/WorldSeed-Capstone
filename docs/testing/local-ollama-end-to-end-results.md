@@ -49,6 +49,8 @@ After refining the clarification policy, `gemma3:12b` passed the three controlle
 
 This establishes a useful controlled baseline for the rule-drafting layer. It does not yet authorize testing on real designer notes: the next readiness work is source-support review and a deliberate multi-note ingestion workflow.
 
+Source-support review is now implemented and was rerun against the same suite. Gemma supplied exact excerpts for every drafted rule, and WorldSeed verified each excerpt against the original note. The next remaining readiness work is multi-note ingestion.
+
 ## Next benchmark decision
 
 The 35B comparison has now shown that a 23 GB model is too large for the test machine's 12 GB GPU. `gemma3:12b` fits and has passed the first scenario. Before treating it as the default, repeat the benchmark with a small scenario set: a complete procedural rule, an intentionally ambiguous rule that should trigger one clarification question, and a source note containing a special mechanic that should remain natural language rather than become invented structure. Evaluate response time, format validity, source citations, completeness, and fidelity to the original note.
