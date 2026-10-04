@@ -38,18 +38,26 @@ public partial class MainWindow : Window
 
     private async void CreateProject_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
-        var dialog = new NewProjectWindow();
-        if (await dialog.ShowDialog<bool>(this) is not true || string.IsNullOrWhiteSpace(dialog.ProjectName)) return;
-        var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = "Choose where to save the WorldSeed project", AllowMultiple = false });
-        var selectedDirectory = folders.FirstOrDefault()?.TryGetLocalPath();
-        if (string.IsNullOrWhiteSpace(selectedDirectory)) { StatusText.Text = "Project creation canceled: no save location was chosen."; return; }
-        _projectDirectory = selectedDirectory;
-        _project = DesignProjectService.Create($"project-{Guid.NewGuid():N}", dialog.ProjectName, dialog.Description);
-        await ProjectStore().SaveAsync(_project);
-        await RefreshProjectsAsync();
-        RefreshNotes(); ShowSelectedSource();
-        ProjectLocationText.Text = $"Saved in: {_projectDirectory}";
-        StatusText.Text = $"Project '{_project.Name}' created locally.";
+        try
+        {
+            var dialog = new NewProjectWindow();
+            if (await dialog.ShowDialog<bool>(this) is not true || string.IsNullOrWhiteSpace(dialog.ProjectName)) return;
+            var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = "Choose where to save the WorldSeed project", AllowMultiple = false });
+            var selectedDirectory = folders.FirstOrDefault()?.TryGetLocalPath();
+            if (string.IsNullOrWhiteSpace(selectedDirectory)) { StatusText.Text = "Project creation canceled: no save location was chosen."; return; }
+            _projectDirectory = selectedDirectory;
+            _project = DesignProjectService.Create($"project-{Guid.NewGuid():N}", dialog.ProjectName, dialog.Description);
+            await ProjectStore().SaveAsync(_project);
+            await RefreshProjectsAsync();
+            RefreshNotes(); ShowSelectedSource();
+            ProjectLocationText.Text = $"Saved in: {_projectDirectory}";
+            StatusText.Text = $"Project '{_project.Name}' created locally.";
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = "Could not create the project. The application remains open.";
+            DraftText.Text = $"Project creation detail: {ex.GetType().Name}: {ex.Message}";
+        }
     }
 
     private async void ProjectSelector_SelectionChanged(object? sender, SelectionChangedEventArgs e)
