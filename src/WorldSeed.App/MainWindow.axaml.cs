@@ -12,6 +12,7 @@ public partial class MainWindow : Window
     private readonly HttpClient _http = new();
     private readonly List<DesignProjectSummary> _projectSummaries = [];
     private readonly List<ProjectRuleItem> _projectRules = [];
+    private string _projectDirectory = DefaultProjectDirectory;
     private DesignProject? _project;
     private readonly List<TextBox> _answerInputs = [];
     private IReadOnlyList<string> _activeQuestions = [];
@@ -30,18 +31,24 @@ public partial class MainWindow : Window
         _projectSummaries.Clear();
         _projectSummaries.AddRange(await ProjectStore().ListAsync());
         ProjectSelector.ItemsSource = _projectSummaries.Select(project => new ProjectListItem(project)).ToArray();
+        if (_project is null && _projectSummaries.Count > 0) _project = await ProjectStore().LoadAsync(_projectSummaries[0].Id);
         if (_project is not null) ProjectSelector.SelectedIndex = _projectSummaries.FindIndex(project => project.Id == _project.Id);
+        ProjectLocationText.Text = $"Project folder: {_projectDirectory}";
     }
 
     private async void CreateProject_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
-        var name = ProjectNameInput.Text?.Trim();
-        if (string.IsNullOrWhiteSpace(name)) { StatusText.Text = "Enter a name for the new project."; return; }
-        _project = DesignProjectService.Create($"project-{Guid.NewGuid():N}", name);
+        var dialog = new NewProjectWindow();
+        if (await dialog.ShowDialog<bool>(this) is not true || string.IsNullOrWhiteSpace(dialog.ProjectName)) return;
+        var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = "Choose where to save the WorldSeed project", AllowMultiple = false });
+        var selectedDirectory = folders.FirstOrDefault()?.TryGetLocalPath();
+        if (string.IsNullOrWhiteSpace(selectedDirectory)) { StatusText.Text = "Project creation canceled: no save location was chosen."; return; }
+        _projectDirectory = selectedDirectory;
+        _project = DesignProjectService.Create($"project-{Guid.NewGuid():N}", dialog.ProjectName, dialog.Description);
         await ProjectStore().SaveAsync(_project);
-        ProjectNameInput.Text = "";
         await RefreshProjectsAsync();
         RefreshNotes(); ShowSelectedSource();
+        ProjectLocationText.Text = $"Saved in: {_projectDirectory}";
         StatusText.Text = $"Project '{_project.Name}' created locally.";
     }
 
@@ -51,7 +58,19 @@ public partial class MainWindow : Window
         if (index < 0 || index >= _projectSummaries.Count) return;
         _project = await ProjectStore().LoadAsync(_projectSummaries[index].Id);
         RefreshNotes(); ShowSelectedSource();
-        if (_project is not null) StatusText.Text = $"Loaded project '{_project.Name}'.";
+        if (_project is not null) { ProjectLocationText.Text = $"Saved in: {_projectDirectory}"; StatusText.Text = $"Loaded project '{_project.Name}'."; }
+    }
+
+    private async void OpenProjectFolder_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = "Choose a folder containing WorldSeed projects", AllowMultiple = false });
+        var selectedDirectory = folders.FirstOrDefault()?.TryGetLocalPath();
+        if (string.IsNullOrWhiteSpace(selectedDirectory)) return;
+        _projectDirectory = selectedDirectory;
+        _project = null;
+        await RefreshProjectsAsync();
+        RefreshNotes(); ShowSelectedSource();
+        StatusText.Text = _project is null ? "No WorldSeed projects were found in that folder." : $"Loaded project '{_project.Name}'.";
     }
 
     private async Task RefreshModelsAsync()
@@ -159,6 +178,7 @@ public partial class MainWindow : Window
         if (turn.Action == RuleDraftAction.AskClarifyingQuestion)
         {
             _activeQuestions = turn.ClarifyingQuestions.Count > 0 ? turn.ClarifyingQuestions : turn.ClarifyingQuestion is null ? [] : [turn.ClarifyingQuestion];
+            SourceText.Text = "WorldSeed needs the answers below before it can create a traceable rule draft. Your original note remains preserved in this project.";
             QuestionHeading.Text = "Questions to answer";
             foreach (var question in _activeQuestions)
             {
@@ -176,7 +196,7 @@ public partial class MainWindow : Window
 
     private void RefreshRules()
     {
-        var selectedId = RuleList.SelectedIndex is var index && index >= 0 && index < _projectRules.Count ? _projectRules[index].Rule.Id : null;
+        var selectedRule = RuleList.SelectedIndex is var index && index >= 0 && index < _projectRules.Count ? _projectRules[index] : null;
         _projectRules.Clear();
         if (_project is not null)
         {
@@ -185,14 +205,15 @@ public partial class MainWindow : Window
                 .SelectMany(session => session.LatestTurn!.Draft!.Rules.Select(rule => new ProjectRuleItem(session.Id, session.SourceNotes.FirstOrDefault()?.Origin?.DisplayName ?? "Source", rule))));
         }
         RuleList.ItemsSource = _projectRules;
-        RuleList.SelectedIndex = selectedId is null ? -1 : _projectRules.FindIndex(item => item.Rule.Id == selectedId);
+        RuleList.SelectedIndex = selectedRule is null ? -1 : _projectRules.FindIndex(item => item.SessionId == selectedRule.SessionId && item.Rule.Id == selectedRule.Rule.Id);
     }
 
     private DesignSession? SessionFor(DesignSourceNote note) => _project?.Sessions.SingleOrDefault(session => session.SourceNotes.Any(source => source.Id == note.Id));
     private string StatusFor(DesignSourceNote note) => SessionFor(note) is not { LatestTurn: { } turn } ? "Not started" : turn.Action == RuleDraftAction.PresentDraft ? "Draft ready" : "Needs answers";
     private static string FormatDraft(StructuredRuleDraft draft) => $"{draft.Title}\n{draft.Intent}\n\n" + string.Join("\n\n", draft.Rules.Select(rule => $"{rule.Name} ({rule.Kind})\n{rule.Text}\n\nSource evidence:\n{string.Join("\n", rule.SourceSupport.Select(support => $"• {support.SourceNoteId}: “{support.Excerpt}”"))}"));
     private static string FormatRule(RuleStatement rule) => $"{rule.Name}\nType: {rule.Kind}\n\nProposed rule\n{rule.Text}\n\nSource evidence\n{string.Join("\n", rule.SourceSupport.Select(support => $"• {support.SourceNoteId}: “{support.Excerpt}”"))}";
-    private static JsonDesignProjectStore ProjectStore() => new(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WorldSeed", "projects"));
+    private JsonDesignProjectStore ProjectStore() => new(_projectDirectory);
+    private static string DefaultProjectDirectory => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WorldSeed", "projects");
     private static string Preview(string? text) => string.IsNullOrWhiteSpace(text) ? "No model response was received." : text.Length > 3000 ? text[..3000] + "\n[truncated]" : text;
     protected override void OnClosed(EventArgs e) { _http.Dispose(); base.OnClosed(e); }
 

@@ -46,7 +46,9 @@ public sealed class RuleDraftingService
         var response = await _client.CompleteAsync(new LlmChatRequest(
             messages,
             Temperature: 0.2,
-            MaxOutputTokens: 1200,
+            // Source-supported drafts can be long. A too-small cap produces a partial JSON object,
+            // which is less useful than a complete, reviewable response.
+            MaxOutputTokens: 3200,
             ResponseSchema: RuleDraftResponseSchema.Create(allowedSourceNoteIds)), cancellationToken);
         return new RuleDraftingResult(_parser.Parse(response.Content, allowedSourceNoteIds, sourceTextById), response.Content);
     }

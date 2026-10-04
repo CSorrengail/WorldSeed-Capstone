@@ -57,6 +57,8 @@ public class RuleDraftingServiceTests
         var parser = new RuleDraftJsonParser();
         var sources = new HashSet<string>(["source-001"], StringComparer.Ordinal);
         Assert.Throws<RuleDraftFormatException>(() => parser.Parse("Here is your draft: magic is dangerous.", sources));
+        var incomplete = Assert.Throws<RuleDraftFormatException>(() => parser.Parse("""{"action":"presentDraft""", sources));
+        Assert.Contains("appears incomplete", incomplete.Message);
         Assert.Throws<RuleDraftFormatException>(() => parser.Parse("""
         {"action":"presentDraft","draft":{"title":"Draft","intent":"Intent","rules":[{"id":"rule","name":"Rule","kind":"rule","text":"Text","sourceNoteIds":[]}],"concepts":[],"assumptions":[],"openQuestions":[],"exclusions":[]}}
         """, sources));

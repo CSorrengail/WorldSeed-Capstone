@@ -7,6 +7,7 @@ namespace WorldSeed.DesignSessions;
 public sealed record DesignProject(
     string Id,
     string Name,
+    string? Description,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
     IReadOnlyList<DesignSourceNote> SourceNotes,
@@ -65,11 +66,11 @@ public sealed class JsonDesignProjectStore(string directory) : IDesignProjectSto
 
 public static class DesignProjectService
 {
-    public static DesignProject Create(string id, string name, TimeProvider? timeProvider = null)
+    public static DesignProject Create(string id, string name, string? description = null, TimeProvider? timeProvider = null)
     {
         if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(name)) throw new ArgumentException("A project id and name are required.");
         var now = (timeProvider ?? TimeProvider.System).GetUtcNow();
-        return new DesignProject(id, name.Trim(), now, now, [], []);
+        return new DesignProject(id, name.Trim(), string.IsNullOrWhiteSpace(description) ? null : description.Trim(), now, now, [], []);
     }
 
     public static DesignProject AddSources(DesignProject project, IEnumerable<DesignSourceNote> sources, TimeProvider? timeProvider = null)
