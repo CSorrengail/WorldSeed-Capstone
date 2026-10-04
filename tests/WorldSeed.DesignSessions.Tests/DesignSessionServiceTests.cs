@@ -55,6 +55,34 @@ public class DesignSessionServiceTests
         await Assert.ThrowsAsync<ArgumentException>(() => store.LoadAsync("../outside"));
     }
 
+    [Fact]
+    public async Task Saves_loads_and_updates_a_project_with_its_sessions()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "worldseed-design-project-tests", Guid.NewGuid().ToString("N"));
+        try
+        {
+            var source = new DesignSourceNote("source-001", "Original note", DateTimeOffset.UtcNow);
+            var project = DesignProjectService.Create("project-001", "Test project");
+            project = DesignProjectService.AddSources(project, [source]);
+            var session = new DesignSession("session-001", project.Id, "local", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, [source], [new LlmMessage(LlmMessageRole.User, source.OriginalText)], null);
+            project = DesignProjectService.SaveSession(project, session);
+            var store = new JsonDesignProjectStore(directory);
+
+            await store.SaveAsync(project);
+            var loaded = await store.LoadAsync(project.Id);
+            var projects = await store.ListAsync();
+
+            Assert.Equal("Test project", loaded!.Name);
+            Assert.Equal("Original note", loaded.SourceNotes.Single().OriginalText);
+            Assert.Equal("session-001", loaded.Sessions.Single().Id);
+            Assert.Equal("project-001", projects.Single().Id);
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+        }
+    }
+
     private sealed class FakeModel(string content) : ILanguageModelClient
     {
         public LlmChatRequest? Request { get; private set; }
