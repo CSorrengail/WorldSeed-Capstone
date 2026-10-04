@@ -1,0 +1,8 @@
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:Class="WorldSeed.App.NewProjectWindow" Title="New WorldSeed Project" Width="480" Height="310" MinWidth="420" MinHeight="280" WindowStartupLocation="CenterOwner">
+  <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="24" RowSpacing="10">
+    <TextBlock Text="Create project" FontSize="24"/>
+    <TextBox Grid.Row="1" Name="NameInput" PlaceholderText="Project name"/>
+    <TextBox Grid.Row="2" Name="DescriptionInput" PlaceholderText="Optional description or design goal" AcceptsReturn="True" TextWrapping="Wrap"/>
+    <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10"><Button Content="Cancel" Click="Cancel_Click"/><Button Content="Choose save location" Click="Create_Click"/></StackPanel>
+  </Grid>
+</Window>

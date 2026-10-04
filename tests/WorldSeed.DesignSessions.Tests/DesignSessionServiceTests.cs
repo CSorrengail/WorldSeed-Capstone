@@ -62,7 +62,7 @@ public class DesignSessionServiceTests
         try
         {
             var source = new DesignSourceNote("source-001", "Original note", DateTimeOffset.UtcNow);
-            var project = DesignProjectService.Create("project-001", "Test project");
+            var project = DesignProjectService.Create("project-001", "Test project", "A saved project description.");
             project = DesignProjectService.AddSources(project, [source]);
             var session = new DesignSession("session-001", project.Id, "local", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, [source], [new LlmMessage(LlmMessageRole.User, source.OriginalText)], null);
             project = DesignProjectService.SaveSession(project, session);
@@ -73,6 +73,7 @@ public class DesignSessionServiceTests
             var projects = await store.ListAsync();
 
             Assert.Equal("Test project", loaded!.Name);
+            Assert.Equal("A saved project description.", loaded.Description);
             Assert.Equal("Original note", loaded.SourceNotes.Single().OriginalText);
             Assert.Equal("session-001", loaded.Sessions.Single().Id);
             Assert.Equal("project-001", projects.Single().Id);

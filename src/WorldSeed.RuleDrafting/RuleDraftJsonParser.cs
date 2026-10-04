@@ -12,7 +12,14 @@ public sealed class RuleDraftJsonParser
         if (allowedSourceNoteIds is null || allowedSourceNoteIds.Count == 0) throw new ArgumentException("At least one allowed source note id is required.", nameof(allowedSourceNoteIds));
         JsonObject root;
         try { root = JsonNode.Parse(content)?.AsObject() ?? throw new RuleDraftFormatException("The model did not return a JSON object."); }
-        catch (JsonException) { throw new RuleDraftFormatException("The model did not return valid JSON."); }
+        catch (JsonException)
+        {
+            var trimmed = content.Trim();
+            var detail = trimmed.StartsWith('{') && !trimmed.EndsWith('}')
+                ? " The response appears incomplete, usually because the model reached its output limit."
+                : string.Empty;
+            throw new RuleDraftFormatException("The model did not return valid JSON." + detail);
+        }
         catch (InvalidOperationException) { throw new RuleDraftFormatException("The model did not return a JSON object."); }
 
         var action = String(root["action"]) switch
