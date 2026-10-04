@@ -24,6 +24,10 @@ The model’s original response is retained as an assistant message so later tur
 
 `JsonDesignSessionStore` saves one session as a JSON document using an atomic temporary-file replacement. The future GUI should provide an application-data directory; the library deliberately does not hard-code a repository location or assume that designers want work-in-progress conversations committed to Git.
 
+## Project working space
+
+`DesignProject` is the local container above a session. It stores a project name, imported source notes, and their drafting sessions together in one atomic local JSON document. This lets a designer reopen a project, add new notes, and review all completed draft rules without treating any draft as canonical game content. It is deliberately separate from the later canonical schema, game data, and change ledger.
+
 ## GUI boundary
 
 The future GUI can start a session from a note, add a designer reply, request the next model turn, save, and reopen. Those operations are exposed by `DesignSessionService`; screens do not need to know prompt details, provider protocols, or JSON parsing rules.
