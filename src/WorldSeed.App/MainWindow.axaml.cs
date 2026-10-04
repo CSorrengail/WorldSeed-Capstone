@@ -13,26 +13,33 @@ public partial class MainWindow : Window
     private readonly List<DesignProjectSummary> _projectSummaries = [];
     private readonly List<ProjectRuleItem> _projectRules = [];
     private string _projectDirectory = DefaultProjectDirectory;
+    private int _projectLoadGeneration;
+    private bool _updatingProjectSelector;
     private DesignProject? _project;
     private readonly List<TextBox> _answerInputs = [];
     private IReadOnlyList<string> _activeQuestions = [];
 
     public MainWindow() => InitializeComponent();
-    protected override void OnOpened(EventArgs e) { base.OnOpened(e); _ = InitializeAsync(); }
+    protected override void OnOpened(EventArgs e) { base.OnOpened(e); AppLog.Info("Application opened."); _ = InitializeAsync(); }
 
     private async Task InitializeAsync()
     {
-        await RefreshModelsAsync();
-        await RefreshProjectsAsync();
+        try { await RefreshModelsAsync(); await RefreshProjectsAsync(); }
+        catch (Exception ex) { AppLog.Error("Initialize application", ex); StatusText.Text = "WorldSeed could not load its local projects. See the diagnostic log."; }
     }
 
     private async Task RefreshProjectsAsync()
     {
-        _projectSummaries.Clear();
-        _projectSummaries.AddRange(await ProjectStore().ListAsync());
-        ProjectSelector.ItemsSource = _projectSummaries.Select(project => new ProjectListItem(project)).ToArray();
-        if (_project is null && _projectSummaries.Count > 0) _project = await ProjectStore().LoadAsync(_projectSummaries[0].Id);
-        if (_project is not null) ProjectSelector.SelectedIndex = _projectSummaries.FindIndex(project => project.Id == _project.Id);
+        _updatingProjectSelector = true;
+        try
+        {
+            _projectSummaries.Clear();
+            _projectSummaries.AddRange(await ProjectStore().ListAsync());
+            ProjectSelector.ItemsSource = _projectSummaries.Select(project => new ProjectListItem(project)).ToArray();
+            if (_project is null && _projectSummaries.Count > 0) _project = await ProjectStore().LoadAsync(_projectSummaries[0].Id);
+            if (_project is not null) ProjectSelector.SelectedIndex = _projectSummaries.FindIndex(project => project.Id == _project.Id);
+        }
+        finally { _updatingProjectSelector = false; }
         ProjectLocationText.Text = $"Project folder: {_projectDirectory}";
     }
 
@@ -47,27 +54,39 @@ public partial class MainWindow : Window
             if (string.IsNullOrWhiteSpace(selectedDirectory)) { StatusText.Text = "Project creation canceled: no save location was chosen."; return; }
             _projectDirectory = selectedDirectory;
             _project = DesignProjectService.Create($"project-{Guid.NewGuid():N}", dialog.ProjectName, dialog.Description);
+            _projectLoadGeneration++;
             ClearProjectView();
             await ProjectStore().SaveAsync(_project);
             await RefreshProjectsAsync();
             RefreshNotes(); ShowSelectedSource();
             ProjectLocationText.Text = $"Saved in: {_projectDirectory}";
             StatusText.Text = $"Project '{_project.Name}' created locally.";
+            AppLog.Info($"Created project '{_project.Id}' in selected folder.");
         }
         catch (Exception ex)
         {
+            AppLog.Error("Create project", ex);
             StatusText.Text = "Could not create the project. The application remains open.";
-            DraftText.Text = $"Project creation detail: {ex.GetType().Name}: {ex.Message}";
+            DraftText.Text = $"Project creation detail: {ex.GetType().Name}: {ex.Message}\n\nDiagnostic log: {AppLog.CurrentPath}";
         }
     }
 
     private async void ProjectSelector_SelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
+        if (_updatingProjectSelector) return;
         var index = ProjectSelector.SelectedIndex;
         if (index < 0 || index >= _projectSummaries.Count) return;
-        _project = await ProjectStore().LoadAsync(_projectSummaries[index].Id);
-        RefreshNotes(); ShowSelectedSource();
-        if (_project is not null) { ProjectLocationText.Text = $"Saved in: {_projectDirectory}"; StatusText.Text = $"Loaded project '{_project.Name}'."; }
+        var projectId = _projectSummaries[index].Id;
+        var generation = ++_projectLoadGeneration;
+        try
+        {
+            var loaded = await ProjectStore().LoadAsync(projectId);
+            if (generation != _projectLoadGeneration) return;
+            _project = loaded;
+            ClearProjectView(); RefreshNotes(); ShowSelectedSource();
+            if (_project is not null) { ProjectLocationText.Text = $"Saved in: {_projectDirectory}"; StatusText.Text = $"Loaded project '{_project.Name}'."; AppLog.Info($"Loaded project '{_project.Id}'."); }
+        }
+        catch (Exception ex) { AppLog.Error("Load selected project", ex); StatusText.Text = "Could not load that project. See the diagnostic log."; }
     }
 
     private async void OpenProjectFolder_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
@@ -77,10 +96,12 @@ public partial class MainWindow : Window
         if (string.IsNullOrWhiteSpace(selectedDirectory)) return;
         _projectDirectory = selectedDirectory;
         _project = null;
+        _projectLoadGeneration++;
         ClearProjectView();
         await RefreshProjectsAsync();
         RefreshNotes(); ShowSelectedSource();
         StatusText.Text = _project is null ? "No WorldSeed projects were found in that folder." : $"Loaded project '{_project.Name}'.";
+        AppLog.Info(_project is null ? "Opened a folder with no WorldSeed projects." : $"Opened project folder and loaded '{_project.Id}'.");
     }
 
     private async Task RefreshModelsAsync()
@@ -113,7 +134,7 @@ public partial class MainWindow : Window
         if (requests.Length == 0) return;
         if (_project is null) { StatusText.Text = "Create or select a project before adding source files."; return; }
         try { _project = DesignProjectService.AddSources(_project, await new PlainTextSourceImporter().ImportAsync(requests)); await ProjectStore().SaveAsync(_project); RefreshNotes(); StatusText.Text = $"{_project.SourceNotes.Count} original note(s) preserved in '{_project.Name}'."; }
-        catch (Exception ex) { StatusText.Text = ex.Message; }
+        catch (Exception ex) { AppLog.Error("Import source notes", ex); StatusText.Text = ex.Message; }
     }
 
     private void RemoveSelectedNote_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
@@ -170,8 +191,8 @@ public partial class MainWindow : Window
             _project = DesignProjectService.SaveSession(_project, result); await ProjectStore().SaveAsync(_project); await RefreshProjectsAsync(); RefreshNotes(); ShowSelectedSource();
             StatusText.Text = result.LatestTurn!.Action == RuleDraftAction.PresentDraft ? "Validated draft saved in this project. Review each rule and its exact source excerpt." : "Clarification needed; the project was saved locally. Answer the questions in the Conversation panel.";
         }
-        catch (RuleDraftFormatException ex) { StatusText.Text = "The model returned text WorldSeed could not safely use. Nothing was saved."; DraftText.Text = $"Format detail: {ex.Message}\n\nRaw model output (for diagnosis):\n{Preview(capture.Last?.Content)}"; }
-        catch (Exception ex) { StatusText.Text = "Drafting failed before a usable result was produced."; DraftText.Text = $"{ex.GetType().Name}: {ex.Message}"; }
+        catch (RuleDraftFormatException ex) { AppLog.Error("Validate model draft", ex); StatusText.Text = "The model returned text WorldSeed could not safely use. Nothing was saved."; DraftText.Text = $"Format detail: {ex.Message}\n\nRaw model output (for diagnosis):\n{Preview(capture.Last?.Content)}"; }
+        catch (Exception ex) { AppLog.Error("Draft source", ex); StatusText.Text = "Drafting failed before a usable result was produced."; DraftText.Text = $"{ex.GetType().Name}: {ex.Message}\n\nDiagnostic log: {AppLog.CurrentPath}"; }
         finally { DraftButton.IsEnabled = true; SubmitAnswersButton.IsEnabled = true; }
     }
 
