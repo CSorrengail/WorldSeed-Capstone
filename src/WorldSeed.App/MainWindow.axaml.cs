@@ -47,6 +47,7 @@ public partial class MainWindow : Window
             if (string.IsNullOrWhiteSpace(selectedDirectory)) { StatusText.Text = "Project creation canceled: no save location was chosen."; return; }
             _projectDirectory = selectedDirectory;
             _project = DesignProjectService.Create($"project-{Guid.NewGuid():N}", dialog.ProjectName, dialog.Description);
+            ClearProjectView();
             await ProjectStore().SaveAsync(_project);
             await RefreshProjectsAsync();
             RefreshNotes(); ShowSelectedSource();
@@ -76,6 +77,7 @@ public partial class MainWindow : Window
         if (string.IsNullOrWhiteSpace(selectedDirectory)) return;
         _projectDirectory = selectedDirectory;
         _project = null;
+        ClearProjectView();
         await RefreshProjectsAsync();
         RefreshNotes(); ShowSelectedSource();
         StatusText.Text = _project is null ? "No WorldSeed projects were found in that folder." : $"Loaded project '{_project.Name}'.";
@@ -214,6 +216,17 @@ public partial class MainWindow : Window
         }
         RuleList.ItemsSource = _projectRules;
         RuleList.SelectedIndex = selectedRule is null ? -1 : _projectRules.FindIndex(item => item.SessionId == selectedRule.SessionId && item.Rule.Id == selectedRule.Rule.Id);
+    }
+
+    private void ClearProjectView()
+    {
+        SourceNotesList.SelectedIndex = -1;
+        RuleList.SelectedIndex = -1;
+        _projectRules.Clear();
+        RuleList.ItemsSource = Array.Empty<ProjectRuleItem>();
+        DraftText.Text = "Select a rule to review its wording and evidence.";
+        QuestionsPanel.Children.Clear();
+        QuestionHeading.Text = "";
     }
 
     private DesignSession? SessionFor(DesignSourceNote note) => _project?.Sessions.SingleOrDefault(session => session.SourceNotes.Any(source => source.Id == note.Id));
