@@ -171,6 +171,9 @@ public partial class MainWindow : Window
         var text = string.Join("\n\n", _activeQuestions.Zip(answers, (question, answer) => $"Question: {question}\nAnswer: {answer}"));
         var service = CreateService(model, out var capture);
         session = service.AddDesignerMessage(session, text, new DesignSourceNote($"answer-{Guid.NewGuid():N}", text, DateTimeOffset.UtcNow, new SourceNoteOrigin("Designer answers")));
+        _project = DesignProjectService.SaveSession(_project, session);
+        await ProjectStore().SaveAsync(_project);
+        AppLog.Info($"Saved designer answers for session '{session.Id}' before drafting.");
         await AdvanceAndSaveAsync(note, session, service, capture, model);
     }
 
@@ -214,7 +217,7 @@ public partial class MainWindow : Window
             foreach (var question in _activeQuestions)
             {
                 QuestionsPanel.Children.Add(new TextBlock { Text = question, TextWrapping = Avalonia.Media.TextWrapping.Wrap });
-                var input = new TextBox { PlaceholderText = "Your answer", AcceptsReturn = true, MinHeight = 58 }; _answerInputs.Add(input); QuestionsPanel.Children.Add(input);
+                var input = new TextBox { PlaceholderText = "Your answer", AcceptsReturn = true, TextWrapping = Avalonia.Media.TextWrapping.Wrap, MinHeight = 58 }; _answerInputs.Add(input); QuestionsPanel.Children.Add(input);
             }
             SubmitAnswersButton.IsVisible = _answerInputs.Count > 0;
             DraftText.Text = "No processed rules yet. The model needs the answers shown in the Conversation panel before it can create a traceable draft.";
