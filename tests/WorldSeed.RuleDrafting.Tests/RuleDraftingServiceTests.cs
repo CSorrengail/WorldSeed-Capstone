@@ -81,6 +81,19 @@ public class RuleDraftingServiceTests
     }
 
     [Fact]
+    public void Splits_ellipsized_evidence_into_separate_exact_excerpts_and_normalizes_typography()
+    {
+        var parser = new RuleDraftJsonParser();
+        var sourceIds = new HashSet<string>(["source-001"], StringComparer.Ordinal);
+        var sourceText = new Dictionary<string, string> { ["source-001"] = "A combatant's turn starts. A tie is rerolled." };
+        var response = """{"action":"presentDraft","draft":{"title":"Draft","intent":"Intent","rules":[{"id":"rule","name":"Rule","kind":"rule","text":"Text","sourceNoteIds":["source-001"],"sourceSupport":[{"sourceNoteId":"source-001","excerpt":"A combatant’s turn starts...A tie is rerolled."}]}],"concepts":[],"assumptions":[],"openQuestions":[],"exclusions":[]}}""";
+
+        var turn = parser.Parse(response, sourceIds, sourceText);
+
+        Assert.Equal(2, turn.Draft!.Rules.Single().SourceSupport.Count);
+    }
+
+    [Fact]
     public async Task Rejects_a_model_rule_that_cites_an_unavailable_source()
     {
         var model = new FakeModel("""
