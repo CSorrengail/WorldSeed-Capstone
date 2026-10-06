@@ -13,6 +13,7 @@ public sealed class RuleDraftingService
         A presentDraft must contain draft.title, draft.intent, draft.rules, draft.concepts, draft.assumptions, draft.openQuestions, and draft.exclusions.
         Each rule has id, name, kind (definition, rule, procedure, or constraint), text, sourceNoteIds, and sourceSupport. Every rule must cite at least one provided sourceNoteId and provide at least one sourceSupport object with sourceNoteId and passageIds. Cite only sourceNoteIds and passageIds provided for this turn. passageIds are source anchors: choose the anchors that support the rule, but never write or paraphrase a quotation. WorldSeed will attach the literal passage text itself. A designer answer is a separate source note and may be cited only through passage IDs belonging to that answer. If evidence comes from separate passages, list each relevant anchor id. If a rule restates any part of the designer's note, cite that note; do not leave sourceNoteIds or sourceSupport empty.
         Rule text is human-readable, specific, and authoritative in tone. Mark uncertainty in assumptions or openQuestions instead of treating it as fact.
+        Keep a draft concise: normally produce three to eight consolidated rules, with one or two sentences per rule. Merge closely related statements rather than creating one rule per sentence. Preserve omitted or unresolved material in exclusions or openQuestions rather than producing an incomplete JSON response.
         Do not emit a game schema, JSON Schema, database structure, approval decision, or implementation code.
         For presentDraft, use this exact outer shape (with real values in place of ellipses):
         {"action":"presentDraft","draft":{"title":"...","intent":"...","rules":[{"id":"...","name":"...","kind":"rule","text":"...","sourceNoteIds":["source-note-id"],"sourceSupport":[{"sourceNoteId":"source-note-id","passageIds":["source-note-id:p001"]}]}],"concepts":[{"id":"...","name":"...","description":"..."}],"assumptions":[],"openQuestions":[],"exclusions":[]}}
@@ -48,10 +49,21 @@ public sealed class RuleDraftingService
         var response = await _client.CompleteAsync(new LlmChatRequest(
             messages,
             Temperature: 0.2,
-            // Source-supported drafts can be long. A too-small cap produces a partial JSON object,
-            // which is less useful than a complete, reviewable response.
-            MaxOutputTokens: 3200,
+            MaxOutputTokens: 4800,
             ResponseSchema: RuleDraftResponseSchema.Create(allowedSourceNoteIds, sourcePassages)), cancellationToken);
-        return new RuleDraftingResult(_parser.Parse(response.Content, allowedSourceNoteIds, sourceTextById, sourcePassages), response.Content);
+        try
+        {
+            return new RuleDraftingResult(_parser.Parse(response.Content, allowedSourceNoteIds, sourceTextById, sourcePassages), response.Content);
+        }
+        catch (RuleDraftFormatException exception) when (exception.Message.Contains("appears incomplete", StringComparison.Ordinal))
+        {
+            var recoveryMessages = messages.Append(new LlmMessage(LlmMessageRole.System, "Your previous response was cut off. Return a complete compact replacement now: at most four consolidated rules, short text, anchor citations only, and valid JSON. Do not continue the prior JSON.")).ToArray();
+            var recovery = await _client.CompleteAsync(new LlmChatRequest(
+                recoveryMessages,
+                Temperature: 0.1,
+                MaxOutputTokens: 2400,
+                ResponseSchema: RuleDraftResponseSchema.Create(allowedSourceNoteIds, sourcePassages)), cancellationToken);
+            return new RuleDraftingResult(_parser.Parse(recovery.Content, allowedSourceNoteIds, sourceTextById, sourcePassages), recovery.Content);
+        }
     }
 }

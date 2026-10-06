@@ -134,6 +134,30 @@ public class RuleDraftingServiceTests
         Assert.Contains("not available in this conversation", exception.Message);
     }
 
+    [Fact]
+    public async Task Retries_once_with_a_compact_prompt_when_the_initial_draft_is_truncated()
+    {
+        var model = new SequenceModel(
+            """{"action":"presentDraft","draft":{"title":"Incomplete""",
+            """{"action":"presentDraft","draft":{"title":"Combat","intent":"Resolve turn order.","rules":[{"id":"turn-order","name":"Turn Order","kind":"procedure","text":"A combatant with zero initiative takes a turn.","sourceNoteIds":["source-001"],"sourceSupport":[{"sourceNoteId":"source-001","passageIds":["source-001:p001"]}]}],"concepts":[],"assumptions":[],"openQuestions":[],"exclusions":[]}}""");
+        var service = new RuleDraftingService(model);
+        var sourceText = new Dictionary<string, string> { ["source-001"] = "A combatant with zero initiative takes a turn." };
+        var conversation = new RuleDraftConversation(
+            "project-001",
+            ["source-001"],
+            [new(LlmMessageRole.User, "Describe initiative.")],
+            sourceText,
+            SourcePassageCatalog.Create(sourceText));
+
+        var result = await service.AdvanceWithTranscriptAsync(conversation);
+
+        Assert.Equal("Combat", result.Turn.Draft!.Title);
+        Assert.Equal(2, model.Requests.Count);
+        Assert.Equal(4800, model.Requests[0].MaxOutputTokens);
+        Assert.Equal(2400, model.Requests[1].MaxOutputTokens);
+        Assert.Contains(model.Requests[1].Messages, message => message.Content.Contains("previous response was cut off"));
+    }
+
     private sealed class FakeModel(string content) : ILanguageModelClient
     {
         public LlmChatRequest? Request { get; private set; }
@@ -141,6 +165,18 @@ public class RuleDraftingServiceTests
         {
             Request = request;
             return Task.FromResult(new LlmChatResponse(content, "test-model", null));
+        }
+    }
+
+    private sealed class SequenceModel(params string[] contents) : ILanguageModelClient
+    {
+        private readonly Queue<string> _contents = new(contents);
+        public List<LlmChatRequest> Requests { get; } = [];
+
+        public Task<LlmChatResponse> CompleteAsync(LlmChatRequest request, CancellationToken cancellationToken = default)
+        {
+            Requests.Add(request);
+            return Task.FromResult(new LlmChatResponse(_contents.Dequeue(), "test-model", null));
         }
     }
 }
