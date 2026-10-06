@@ -38,10 +38,24 @@ public sealed class RuleDraftJsonParser
         if (action == RuleDraftAction.PresentDraft && draft is null) throw new RuleDraftFormatException("A draft response requires a structured draft.");
         if (draft is not null)
         {
+            draft = RepairNearExcerpts(draft, sourceTextById);
             var issues = _validator.Validate(draft, action == RuleDraftAction.PresentDraft, allowedSourceNoteIds, sourceTextById);
             if (issues.Count > 0) throw new RuleDraftFormatException(string.Join(" ", issues));
         }
         return new RuleDraftTurn(action, legacyQuestion ?? questions.FirstOrDefault(), questions, draft);
+    }
+
+    private static StructuredRuleDraft RepairNearExcerpts(StructuredRuleDraft draft, IReadOnlyDictionary<string, string>? sourceTextById)
+    {
+        if (sourceTextById is null || sourceTextById.Count == 0) return draft;
+        var rules = draft.Rules.Select(rule => rule with
+        {
+            SourceSupport = rule.SourceSupport.Select(support =>
+                sourceTextById.TryGetValue(support.SourceNoteId, out var sourceText)
+                    ? support with { Excerpt = StructuredRuleDraftValidator.RepairNearExcerpt(sourceText, support.Excerpt) ?? support.Excerpt }
+                    : support).ToArray()
+        }).ToArray();
+        return draft with { Rules = rules };
     }
 
     private static StructuredRuleDraft ParseDraft(JsonObject? draft)
