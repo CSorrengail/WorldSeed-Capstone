@@ -33,5 +33,8 @@ public sealed class StructuredRuleDraftValidator
         foreach (var id in ids.Where(string.IsNullOrWhiteSpace).Concat(ids.Where(id => !string.IsNullOrWhiteSpace(id)).GroupBy(id => id).Where(group => group.Count() > 1).Select(group => group.Key))) issues.Add($"Every {kind} requires a unique non-empty id.");
     }
 
-    private static string Normalize(string value) => string.Join(' ', value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)).ToUpperInvariant();
+    private static string Normalize(string value) => string.Join(' ', value
+        .Replace('’', '\'').Replace('‘', '\'').Replace('“', '"').Replace('”', '"')
+        .Replace('–', '-').Replace('—', '-')
+        .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)).ToUpperInvariant();
 }

@@ -62,7 +62,17 @@ public sealed class RuleDraftJsonParser
             "procedure" => RuleStatementKind.Procedure, "constraint" => RuleStatementKind.Constraint,
             _ => throw new RuleDraftFormatException("A rule statement has an unknown kind.")
         };
-        return new RuleStatement(Required(rule, "id"), Required(rule, "name"), kind, Required(rule, "text"), Strings(rule, "sourceNoteIds"), (rule["sourceSupport"] as JsonArray)?.OfType<JsonObject>().Select(support => new RuleSourceSupport(Required(support, "sourceNoteId"), Required(support, "excerpt"))).ToArray() ?? []);
+        return new RuleStatement(Required(rule, "id"), Required(rule, "name"), kind, Required(rule, "text"), Strings(rule, "sourceNoteIds"), (rule["sourceSupport"] as JsonArray)?.OfType<JsonObject>().SelectMany(ParseSupport).ToArray() ?? []);
+    }
+
+    private static IEnumerable<RuleSourceSupport> ParseSupport(JsonObject support)
+    {
+        var sourceNoteId = Required(support, "sourceNoteId");
+        var excerpt = Required(support, "excerpt");
+        // Models sometimes use an ellipsis to concatenate two quotations. Preserve the
+        // evidence only as separate literal snippets, never as a fabricated continuous quote.
+        return excerpt.Split(["...", "…"], StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+            .Select(part => new RuleSourceSupport(sourceNoteId, part));
     }
 
     private static RuleConcept ParseConcept(JsonObject concept) => new(Required(concept, "id"), Required(concept, "name"), Required(concept, "description"));
