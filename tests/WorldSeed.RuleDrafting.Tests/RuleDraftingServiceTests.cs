@@ -94,6 +94,19 @@ public class RuleDraftingServiceTests
     }
 
     [Fact]
+    public void Repairs_a_high_confidence_near_quote_to_the_literal_source_text()
+    {
+        var parser = new RuleDraftJsonParser();
+        var sourceIds = new HashSet<string>(["source-001"], StringComparer.Ordinal);
+        var sourceText = new Dictionary<string, string> { ["source-001"] = "Each combatant starts combat by rolling a d20 and subtracting their Reaction value. This is that combatant's starting Combat Initiative." };
+        var response = """{"action":"presentDraft","draft":{"title":"Draft","intent":"Intent","rules":[{"id":"rule","name":"Rule","kind":"rule","text":"Text","sourceNoteIds":["source-001"],"sourceSupport":[{"sourceNoteId":"source-001","excerpt":"Each combatant starts combat by rolling a d20 and subtracting their Reaction value. This is the combatant's starting Combat Initiative."}]}],"concepts":[],"assumptions":[],"openQuestions":[],"exclusions":[]}}""";
+
+        var turn = parser.Parse(response, sourceIds, sourceText);
+
+        Assert.Equal(sourceText["source-001"], turn.Draft!.Rules.Single().SourceSupport.Single().Excerpt);
+    }
+
+    [Fact]
     public async Task Rejects_a_model_rule_that_cites_an_unavailable_source()
     {
         var model = new FakeModel("""

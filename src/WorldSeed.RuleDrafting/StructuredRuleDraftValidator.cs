@@ -1,7 +1,31 @@
+using System.Text.RegularExpressions;
+
 namespace WorldSeed.RuleDrafting;
 
 public sealed class StructuredRuleDraftValidator
 {
+    /// <summary>Returns a literal source passage only when a model's near-quote is a high-confidence match.</summary>
+    public static string? RepairNearExcerpt(string sourceText, string excerpt)
+    {
+        if (string.IsNullOrWhiteSpace(sourceText) || string.IsNullOrWhiteSpace(excerpt)) return null;
+        if (Normalize(sourceText).Contains(Normalize(excerpt), StringComparison.Ordinal)) return excerpt;
+        var target = Tokens(excerpt);
+        if (target.Length < 8) return null;
+        var sentences = Regex.Split(sourceText, @"(?<=[.!?])\s+").Where(sentence => !string.IsNullOrWhiteSpace(sentence)).ToArray();
+        string? best = null;
+        var bestScore = 0d;
+        for (var start = 0; start < sentences.Length; start++)
+        {
+            for (var length = 1; length <= 4 && start + length <= sentences.Length; length++)
+            {
+                var candidate = string.Join(' ', sentences.Skip(start).Take(length));
+                var score = DiceCoefficient(target, Tokens(candidate));
+                if (score > bestScore) { bestScore = score; best = candidate; }
+            }
+        }
+        return bestScore >= 0.90 ? best : null;
+    }
+
     public IReadOnlyList<string> Validate(StructuredRuleDraft draft, bool requireRules, IReadOnlySet<string> allowedSourceNoteIds, IReadOnlyDictionary<string, string>? sourceTextById = null)
     {
         var issues = new List<string>();
@@ -37,4 +61,16 @@ public sealed class StructuredRuleDraftValidator
         .Replace('’', '\'').Replace('‘', '\'').Replace('“', '"').Replace('”', '"')
         .Replace('–', '-').Replace('—', '-')
         .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)).ToUpperInvariant();
+
+    private static string[] Tokens(string value) => Regex.Matches(Normalize(value), "[A-Z0-9]+")
+        .Select(match => match.Value).ToArray();
+
+    private static double DiceCoefficient(IReadOnlyList<string> left, IReadOnlyList<string> right)
+    {
+        if (left.Count == 0 || right.Count == 0) return 0;
+        var counts = left.GroupBy(token => token).ToDictionary(group => group.Key, group => group.Count());
+        var shared = 0;
+        foreach (var token in right) if (counts.TryGetValue(token, out var count) && count > 0) { shared++; counts[token] = count - 1; }
+        return 2d * shared / (left.Count + right.Count);
+    }
 }
