@@ -8,7 +8,8 @@ public sealed record LlmModelProfile(
     string Model,
     LlmProviderKind Provider = LlmProviderKind.Ollama,
     bool UseBearerAuthentication = false,
-    bool? EnableThinking = null);
+    bool? EnableThinking = null,
+    int? ContextWindowTokens = null);
 
 public enum LlmProviderKind
 {
@@ -53,7 +54,7 @@ public static class OllamaDefaults
     public static readonly Uri BaseUri = new("http://127.0.0.1:11434/");
 
     public static LlmModelProfile CreateProfile(string id, string displayName, string model) =>
-        new(id, displayName, BaseUri, model, LlmProviderKind.Ollama, UseBearerAuthentication: false, EnableThinking: false);
+        new(id, displayName, BaseUri, model, LlmProviderKind.Ollama, UseBearerAuthentication: false, EnableThinking: false, ContextWindowTokens: 8192);
 }
 
 /// <summary>Metadata for a model already installed in a local Ollama library.</summary>

@@ -29,6 +29,20 @@ public class OllamaIntegrationTests
         Assert.Equal("user", body["messages"]![1]!["role"]!.GetValue<string>());
         Assert.Equal(0.1, body["options"]!["temperature"]!.GetValue<double>());
         Assert.Equal(400, body["options"]!["num_predict"]!.GetValue<int>());
+        Assert.Equal(8192, body["options"]!["num_ctx"]!.GetValue<int>());
+    }
+
+    [Fact]
+    public async Task Explains_an_empty_assistant_response()
+    {
+        var handler = new RecordingHandler("""{"model":"gemma3:12b","done_reason":"length","message":{"role":"assistant","content":""}}""");
+        using var httpClient = new HttpClient(handler);
+        var client = new OllamaChatClient(httpClient, OllamaDefaults.CreateProfile("local", "My local model", "gemma3:12b"));
+
+        var exception = await Assert.ThrowsAsync<LlmClientException>(() => client.CompleteAsync(new LlmChatRequest([new(LlmMessageRole.User, "An idea")])));
+
+        Assert.Contains("empty assistant response", exception.Message);
+        Assert.Contains("length", exception.Message);
     }
 
     [Fact]

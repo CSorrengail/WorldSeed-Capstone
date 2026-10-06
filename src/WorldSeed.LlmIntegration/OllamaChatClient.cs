@@ -37,11 +37,12 @@ public sealed class OllamaChatClient : ILanguageModelClient
         if (_profile.EnableThinking is { } enableThinking) body["think"] = enableThinking;
         if (request.ResponseSchema is not null) body["format"] = request.ResponseSchema.DeepClone();
         else if (request.RequireJsonObject) body["format"] = "json";
-        if (request.Temperature is { } temperature || request.MaxOutputTokens is { })
+        if (request.Temperature is { } temperature || request.MaxOutputTokens is { } || _profile.ContextWindowTokens is { })
         {
             var options = new JsonObject();
             if (request.Temperature is { } temperatureValue) options["temperature"] = temperatureValue;
             if (request.MaxOutputTokens is { } maximum) options["num_predict"] = maximum;
+            if (_profile.ContextWindowTokens is { } contextWindow) options["num_ctx"] = contextWindow;
             body["options"] = options;
         }
 
@@ -57,7 +58,12 @@ public sealed class OllamaChatClient : ILanguageModelClient
         try { root = JsonNode.Parse(responseBody); }
         catch (JsonException) { throw new LlmClientException("Ollama returned invalid JSON.", (int)response.StatusCode); }
         var content = StringValue(root?["message"]?["content"]);
-        if (content is null) throw new LlmClientException("Ollama returned no assistant content.", (int)response.StatusCode);
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            var reason = StringValue(root?["done_reason"]);
+            var suffix = reason is null ? string.Empty : $" (reason: {reason})";
+            throw new LlmClientException("Ollama returned an empty assistant response. The source note or conversation may exceed the model context window." + suffix, (int)response.StatusCode);
+        }
         return new LlmChatResponse(content, StringValue(root?["model"]) ?? _profile.Model,
             new LlmUsage(IntValue(root?["prompt_eval_count"]), IntValue(root?["eval_count"])));
     }
