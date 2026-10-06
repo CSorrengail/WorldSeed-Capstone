@@ -15,6 +15,7 @@ public partial class MainWindow : Window
     private string _projectDirectory = DefaultProjectDirectory;
     private int _projectLoadGeneration;
     private bool _updatingProjectSelector;
+    private string? _pendingDeletionProjectId;
     private DesignProject? _project;
     private readonly List<TextBox> _answerInputs = [];
     private IReadOnlyList<string> _activeQuestions = [];
@@ -24,7 +25,12 @@ public partial class MainWindow : Window
 
     private async Task InitializeAsync()
     {
-        try { await RefreshModelsAsync(); await RefreshProjectsAsync(); }
+        try
+        {
+            var preferences = AppPreferencesStore.Load();
+            if (!string.IsNullOrWhiteSpace(preferences.LastProjectDirectory) && Directory.Exists(preferences.LastProjectDirectory)) _projectDirectory = preferences.LastProjectDirectory;
+            await RefreshModelsAsync(); await RefreshProjectsAsync();
+        }
         catch (Exception ex) { AppLog.Error("Initialize application", ex); StatusText.Text = "WorldSeed could not load its local projects. See the diagnostic log."; }
     }
 
@@ -53,6 +59,7 @@ public partial class MainWindow : Window
             var selectedDirectory = folders.FirstOrDefault()?.TryGetLocalPath();
             if (string.IsNullOrWhiteSpace(selectedDirectory)) { StatusText.Text = "Project creation canceled: no save location was chosen."; return; }
             _projectDirectory = selectedDirectory;
+            AppPreferencesStore.Save(new AppPreferences(_projectDirectory));
             _project = DesignProjectService.Create($"project-{Guid.NewGuid():N}", dialog.ProjectName, dialog.Description);
             _projectLoadGeneration++;
             ClearProjectView();
@@ -77,6 +84,7 @@ public partial class MainWindow : Window
         var index = ProjectSelector.SelectedIndex;
         if (index < 0 || index >= _projectSummaries.Count) return;
         var projectId = _projectSummaries[index].Id;
+        ResetDeleteConfirmation();
         var generation = ++_projectLoadGeneration;
         try
         {
@@ -95,6 +103,7 @@ public partial class MainWindow : Window
         var selectedDirectory = folders.FirstOrDefault()?.TryGetLocalPath();
         if (string.IsNullOrWhiteSpace(selectedDirectory)) return;
         _projectDirectory = selectedDirectory;
+        AppPreferencesStore.Save(new AppPreferences(_projectDirectory));
         _project = null;
         _projectLoadGeneration++;
         ClearProjectView();
@@ -102,6 +111,38 @@ public partial class MainWindow : Window
         RefreshNotes(); ShowSelectedSource();
         StatusText.Text = _project is null ? "No WorldSeed projects were found in that folder." : $"Loaded project '{_project.Name}'.";
         AppLog.Info(_project is null ? "Opened a folder with no WorldSeed projects." : $"Opened project folder and loaded '{_project.Id}'.");
+    }
+
+    private async void DeleteProject_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (_project is null) { StatusText.Text = "Select a project to delete."; return; }
+        if (_pendingDeletionProjectId != _project.Id)
+        {
+            _pendingDeletionProjectId = _project.Id;
+            DeleteProjectButton.Content = "Confirm delete";
+            StatusText.Text = $"Click Confirm delete to permanently remove '{_project.Name}' from this folder.";
+            return;
+        }
+        try
+        {
+            var id = _project.Id;
+            await ProjectStore().DeleteAsync(id);
+            AppLog.Info($"Deleted project '{id}'.");
+            _project = null;
+            _projectLoadGeneration++;
+            ClearProjectView();
+            ResetDeleteConfirmation();
+            await RefreshProjectsAsync();
+            RefreshNotes(); ShowSelectedSource();
+            StatusText.Text = "Project deleted.";
+        }
+        catch (Exception ex) { AppLog.Error("Delete project", ex); StatusText.Text = "Could not delete the project. See the diagnostic log."; ResetDeleteConfirmation(); }
+    }
+
+    private void ResetDeleteConfirmation()
+    {
+        _pendingDeletionProjectId = null;
+        DeleteProjectButton.Content = "Delete";
     }
 
     private async Task RefreshModelsAsync()
@@ -269,7 +310,7 @@ public partial class MainWindow : Window
     }
     private sealed record ProjectListItem(DesignProjectSummary Project)
     {
-        public override string ToString() => $"{Project.Name} — updated {Project.UpdatedAt.LocalDateTime:g}";
+        public override string ToString() => Project.Name;
     }
     private sealed class CapturingClient(ILanguageModelClient inner) : ILanguageModelClient { public LlmChatResponse? Last { get; private set; } public async Task<LlmChatResponse> CompleteAsync(LlmChatRequest request, CancellationToken cancellationToken = default) => Last = await inner.CompleteAsync(request, cancellationToken); }
 }

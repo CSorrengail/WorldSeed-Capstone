@@ -20,6 +20,7 @@ public interface IDesignProjectStore
     Task SaveAsync(DesignProject project, CancellationToken cancellationToken = default);
     Task<DesignProject?> LoadAsync(string projectId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<DesignProjectSummary>> ListAsync(CancellationToken cancellationToken = default);
+    Task DeleteAsync(string projectId, CancellationToken cancellationToken = default);
 }
 
 /// <summary>Atomic local JSON persistence for a working project. It contains no credentials or canonical revision.</summary>
@@ -55,6 +56,15 @@ public sealed class JsonDesignProjectStore(string directory) : IDesignProjectSto
             if (project is not null) projects.Add(new DesignProjectSummary(project.Id, project.Name, project.UpdatedAt));
         }
         return projects.OrderByDescending(project => project.UpdatedAt).ToArray();
+    }
+
+    public Task DeleteAsync(string projectId, CancellationToken cancellationToken = default)
+    {
+        ValidateId(projectId);
+        cancellationToken.ThrowIfCancellationRequested();
+        var path = PathFor(projectId);
+        if (File.Exists(path)) File.Delete(path);
+        return Task.CompletedTask;
     }
 
     private string PathFor(string id) => Path.Combine(_directory, id + ".worldseed-project.json");
