@@ -107,6 +107,21 @@ public class RuleDraftingServiceTests
     }
 
     [Fact]
+    public void Materializes_exact_evidence_from_model_selected_source_passages()
+    {
+        var parser = new RuleDraftJsonParser();
+        var sourceIds = new HashSet<string>(["source-001"], StringComparer.Ordinal);
+        var sourceText = new Dictionary<string, string> { ["source-001"] = "First original sentence. Second original sentence." };
+        var passages = SourcePassageCatalog.Create(sourceText);
+        var response = """{"action":"presentDraft","draft":{"title":"Draft","intent":"Intent","rules":[{"id":"rule","name":"Rule","kind":"rule","text":"Text","sourceNoteIds":["source-001"],"sourceSupport":[{"sourceNoteId":"source-001","passageIds":["source-001:p001","source-001:p002"]}]}],"concepts":[],"assumptions":[],"openQuestions":[],"exclusions":[]}}""";
+
+        var turn = parser.Parse(response, sourceIds, sourceText, passages);
+
+        Assert.Equal(["First original sentence.", "Second original sentence."], turn.Draft!.Rules.Single().SourceSupport.Select(support => support.Excerpt));
+        Assert.All(turn.Draft.Rules.Single().SourceSupport, support => Assert.NotNull(support.PassageId));
+    }
+
+    [Fact]
     public async Task Rejects_a_model_rule_that_cites_an_unavailable_source()
     {
         var model = new FakeModel("""
