@@ -77,6 +77,9 @@ public class DesignSessionServiceTests
             Assert.Equal("Original note", loaded.SourceNotes.Single().OriginalText);
             Assert.Equal("session-001", loaded.Sessions.Single().Id);
             Assert.Equal("project-001", projects.Single().Id);
+
+            await store.DeleteAsync(project.Id);
+            Assert.Null(await store.LoadAsync(project.Id));
         }
         finally
         {
