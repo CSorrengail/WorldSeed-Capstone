@@ -29,7 +29,9 @@ public partial class MainWindow : Window
         {
             var preferences = AppPreferencesStore.Load();
             if (!string.IsNullOrWhiteSpace(preferences.LastProjectDirectory) && Directory.Exists(preferences.LastProjectDirectory)) _projectDirectory = preferences.LastProjectDirectory;
-            await RefreshModelsAsync(); await RefreshProjectsAsync();
+            await RefreshModelsAsync();
+            await RefreshProjectsAsync();
+            await ChooseStartupProjectAsync();
         }
         catch (Exception ex) { AppLog.Error("Initialize application", ex); StatusText.Text = "WorldSeed could not load its local projects. See the diagnostic log."; }
     }
@@ -42,14 +44,23 @@ public partial class MainWindow : Window
             _projectSummaries.Clear();
             _projectSummaries.AddRange(await ProjectStore().ListAsync());
             ProjectSelector.ItemsSource = _projectSummaries.Select(project => new ProjectListItem(project)).ToArray();
-            if (_project is null && _projectSummaries.Count > 0) _project = await ProjectStore().LoadAsync(_projectSummaries[0].Id);
             if (_project is not null) ProjectSelector.SelectedIndex = _projectSummaries.FindIndex(project => project.Id == _project.Id);
         }
         finally { _updatingProjectSelector = false; }
         ProjectLocationText.Text = $"Project folder: {_projectDirectory}";
     }
 
-    private async void CreateProject_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    private async Task ChooseStartupProjectAsync()
+    {
+        var chooser = new StartupProjectWindow(_projectSummaries);
+        if (await chooser.ShowDialog<bool>(this) is not true) { StatusText.Text = "Choose or create a project to begin."; return; }
+        if (chooser.CreateNew) { await CreateProjectAsync(); return; }
+        if (chooser.SelectedProjectId is not null) await LoadProjectAsync(chooser.SelectedProjectId);
+    }
+
+    private async void CreateProject_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => await CreateProjectAsync();
+
+    private async Task CreateProjectAsync()
     {
         try
         {
@@ -83,7 +94,11 @@ public partial class MainWindow : Window
         if (_updatingProjectSelector) return;
         var index = ProjectSelector.SelectedIndex;
         if (index < 0 || index >= _projectSummaries.Count) return;
-        var projectId = _projectSummaries[index].Id;
+        await LoadProjectAsync(_projectSummaries[index].Id);
+    }
+
+    private async Task LoadProjectAsync(string projectId)
+    {
         ResetDeleteConfirmation();
         var generation = ++_projectLoadGeneration;
         try
@@ -92,7 +107,15 @@ public partial class MainWindow : Window
             if (generation != _projectLoadGeneration) return;
             _project = loaded;
             ClearProjectView(); RefreshNotes(); ShowSelectedSource();
-            if (_project is not null) { ProjectLocationText.Text = $"Saved in: {_projectDirectory}"; StatusText.Text = $"Loaded project '{_project.Name}'."; AppLog.Info($"Loaded project '{_project.Id}'."); }
+            if (_project is not null)
+            {
+                ProjectLocationText.Text = $"Saved in: {_projectDirectory}";
+                _updatingProjectSelector = true;
+                ProjectSelector.SelectedIndex = _projectSummaries.FindIndex(project => project.Id == _project.Id);
+                _updatingProjectSelector = false;
+                StatusText.Text = $"Loaded project '{_project.Name}'.";
+                AppLog.Info($"Loaded project '{_project.Id}'.");
+            }
         }
         catch (Exception ex) { AppLog.Error("Load selected project", ex); StatusText.Text = "Could not load that project. See the diagnostic log."; }
     }
@@ -108,9 +131,9 @@ public partial class MainWindow : Window
         _projectLoadGeneration++;
         ClearProjectView();
         await RefreshProjectsAsync();
+        await ChooseStartupProjectAsync();
         RefreshNotes(); ShowSelectedSource();
-        StatusText.Text = _project is null ? "No WorldSeed projects were found in that folder." : $"Loaded project '{_project.Name}'.";
-        AppLog.Info(_project is null ? "Opened a folder with no WorldSeed projects." : $"Opened project folder and loaded '{_project.Id}'.");
+        AppLog.Info("Opened a project folder.");
     }
 
     private async void DeleteProject_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
