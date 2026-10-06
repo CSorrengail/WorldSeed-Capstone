@@ -11,11 +11,11 @@ public sealed class RuleDraftingService
         Return JSON only, with no Markdown or surrounding commentary. Use exactly one action: askClarifyingQuestion or presentDraft.
         Ask focused questions only when undefined effects, triggers, or procedures must be decided before the stated rules can be faithfully represented. Ask one to five independent questions together when doing so avoids another round trip; each question must be short and answerable on its own. Do not replace a required clarification with openQuestions. For example, if a source says an outcome is "harder" but does not define what that changes, ask what "harder" means before presenting a draft. Do not ask for clarification about direct wording that can be restated faithfully: choosing "the same route" means choosing the same revealed option, not a similar option. Do not ask for a missing procedure when the source explicitly gives the facilitator narrative discretion or says no fixed mechanical procedure exists; present that rule as natural language. Otherwise presentDraft.
         A presentDraft must contain draft.title, draft.intent, draft.rules, draft.concepts, draft.assumptions, draft.openQuestions, and draft.exclusions.
-        Each rule has id, name, kind (definition, rule, procedure, or constraint), text, sourceNoteIds, and sourceSupport. Every rule must cite at least one provided sourceNoteId and provide at least one sourceSupport object with sourceNoteId and excerpt. An excerpt must be an exact, continuous quote from that source note. Cite only sourceNoteIds provided for this turn. If evidence comes from separate passages, add separate sourceSupport objects; never join quotations with an ellipsis. Before returning JSON, compare every excerpt character-for-character with the source note named by its sourceNoteId; never cite a later designer answer for wording that appears only in an earlier original note. A designer answer is a separate source note and may be cited only for text actually present in that answer. If a rule restates any part of the designer's note, cite that note; do not leave sourceNoteIds or sourceSupport empty.
+        Each rule has id, name, kind (definition, rule, procedure, or constraint), text, sourceNoteIds, and sourceSupport. Every rule must cite at least one provided sourceNoteId and provide at least one sourceSupport object with sourceNoteId and passageIds. Cite only sourceNoteIds and passageIds provided for this turn. passageIds are source anchors: choose the anchors that support the rule, but never write or paraphrase a quotation. WorldSeed will attach the literal passage text itself. A designer answer is a separate source note and may be cited only through passage IDs belonging to that answer. If evidence comes from separate passages, list each relevant anchor id. If a rule restates any part of the designer's note, cite that note; do not leave sourceNoteIds or sourceSupport empty.
         Rule text is human-readable, specific, and authoritative in tone. Mark uncertainty in assumptions or openQuestions instead of treating it as fact.
         Do not emit a game schema, JSON Schema, database structure, approval decision, or implementation code.
         For presentDraft, use this exact outer shape (with real values in place of ellipses):
-        {"action":"presentDraft","draft":{"title":"...","intent":"...","rules":[{"id":"...","name":"...","kind":"rule","text":"...","sourceNoteIds":["source-note-id"]}],"concepts":[{"id":"...","name":"...","description":"..."}],"assumptions":[],"openQuestions":[],"exclusions":[]}}
+        {"action":"presentDraft","draft":{"title":"...","intent":"...","rules":[{"id":"...","name":"...","kind":"rule","text":"...","sourceNoteIds":["source-note-id"],"sourceSupport":[{"sourceNoteId":"source-note-id","passageIds":["source-note-id:p001"]}]}],"concepts":[{"id":"...","name":"...","description":"..."}],"assumptions":[],"openQuestions":[],"exclusions":[]}}
         For askClarifyingQuestion, use exactly {"action":"askClarifyingQuestion","clarifyingQuestions":["..."]}. Do not put several questions in one string.
         Never omit action. Concepts must be objects with id, name, and description; do not use strings for concepts.
         """;
@@ -40,8 +40,10 @@ public sealed class RuleDraftingService
         var sourceTextById = conversation.SourceTextById ?? new Dictionary<string, string>();
         if (sourceTextById.Count > 0 && (!sourceTextById.Keys.ToHashSet(StringComparer.Ordinal).SetEquals(allowedSourceNoteIds) || sourceTextById.Any(source => string.IsNullOrWhiteSpace(source.Value)))) throw new ArgumentException("Source text must be supplied for every source material id.", nameof(conversation));
         if (conversation.Messages.Count == 0) throw new ArgumentException("At least one conversation message is required.", nameof(conversation));
+        var sourcePassages = conversation.SourcePassages ?? SourcePassageCatalog.Create(sourceTextById);
+        if (sourcePassages.Any(passage => !allowedSourceNoteIds.Contains(passage.SourceNoteId) || string.IsNullOrWhiteSpace(passage.Id) || string.IsNullOrWhiteSpace(passage.Text))) throw new ArgumentException("Source passages must belong to available source notes and contain text.", nameof(conversation));
         var messages = new List<LlmMessage> { new(LlmMessageRole.System, SystemPrompt), new(LlmMessageRole.System, "Source material IDs for this turn: " + string.Join(", ", conversation.SourceMaterialIds)) };
-        if (sourceTextById.Count > 0) messages.Add(new LlmMessage(LlmMessageRole.System, "Source notes for exact quotation:\n" + string.Join("\n\n", sourceTextById.OrderBy(source => source.Key, StringComparer.Ordinal).Select(source => $"[{source.Key}]\n{source.Value}"))));
+        if (sourcePassages.Count > 0) messages.Add(new LlmMessage(LlmMessageRole.System, "Source passages available for citation:\n" + string.Join("\n", sourcePassages.Select(passage => $"[{passage.Id} | {passage.SourceNoteId}] {passage.Text}"))));
         messages.AddRange(conversation.Messages);
         var response = await _client.CompleteAsync(new LlmChatRequest(
             messages,
@@ -49,7 +51,7 @@ public sealed class RuleDraftingService
             // Source-supported drafts can be long. A too-small cap produces a partial JSON object,
             // which is less useful than a complete, reviewable response.
             MaxOutputTokens: 3200,
-            ResponseSchema: RuleDraftResponseSchema.Create(allowedSourceNoteIds)), cancellationToken);
-        return new RuleDraftingResult(_parser.Parse(response.Content, allowedSourceNoteIds, sourceTextById), response.Content);
+            ResponseSchema: RuleDraftResponseSchema.Create(allowedSourceNoteIds, sourcePassages)), cancellationToken);
+        return new RuleDraftingResult(_parser.Parse(response.Content, allowedSourceNoteIds, sourceTextById, sourcePassages), response.Content);
     }
 }

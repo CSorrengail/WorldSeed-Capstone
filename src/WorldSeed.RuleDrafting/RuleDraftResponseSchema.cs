@@ -5,10 +5,11 @@ namespace WorldSeed.RuleDrafting;
 /// <summary>Native structured-output contract for local providers that support JSON Schema.</summary>
 public static class RuleDraftResponseSchema
 {
-    public static JsonObject Create(IReadOnlySet<string> allowedSourceNoteIds)
+    public static JsonObject Create(IReadOnlySet<string> allowedSourceNoteIds, IReadOnlyList<SourcePassage>? sourcePassages = null)
     {
         ArgumentNullException.ThrowIfNull(allowedSourceNoteIds);
         var sourceIds = allowedSourceNoteIds.OrderBy(id => id, StringComparer.Ordinal).ToArray();
+        var passageIds = (sourcePassages ?? []).Select(passage => passage.Id).OrderBy(id => id, StringComparer.Ordinal).ToArray();
         var schema = JsonNode.Parse("""
         {
           "type": "object",
@@ -35,7 +36,7 @@ public static class RuleDraftResponseSchema
                       "kind": { "type": "string", "enum": ["definition", "rule", "procedure", "constraint"] },
                       "text": { "type": "string", "minLength": 1 },
                       "sourceNoteIds": { "type": "array", "minItems": 1, "items": { "type": "string", "enum": [] } },
-                      "sourceSupport": { "type": "array", "minItems": 1, "items": { "type": "object", "additionalProperties": false, "required": ["sourceNoteId", "excerpt"], "properties": { "sourceNoteId": { "type": "string", "enum": [] }, "excerpt": { "type": "string", "minLength": 1 } } } }
+                      "sourceSupport": { "type": "array", "minItems": 1, "items": { "type": "object", "additionalProperties": false, "required": ["sourceNoteId", "passageIds"], "properties": { "sourceNoteId": { "type": "string", "enum": [] }, "passageIds": { "type": "array", "minItems": 1, "items": { "type": "string", "enum": [] } } } } }
                     }
                   }
                 },
@@ -67,6 +68,8 @@ public static class RuleDraftResponseSchema
         sourceIdEnum["enum"] = new JsonArray(sourceIds.Select(id => (JsonNode)JsonValue.Create(id)!).ToArray());
         var supportSourceIdEnum = schema["properties"]!["draft"]!["properties"]!["rules"]!["items"]!["properties"]!["sourceSupport"]!["items"]!["properties"]!["sourceNoteId"]!.AsObject();
         supportSourceIdEnum["enum"] = new JsonArray(sourceIds.Select(id => (JsonNode)JsonValue.Create(id)!).ToArray());
+        var passageIdEnum = schema["properties"]!["draft"]!["properties"]!["rules"]!["items"]!["properties"]!["sourceSupport"]!["items"]!["properties"]!["passageIds"]!["items"]!.AsObject();
+        passageIdEnum["enum"] = new JsonArray(passageIds.Select(id => (JsonNode)JsonValue.Create(id)!).ToArray());
         return schema;
     }
 }

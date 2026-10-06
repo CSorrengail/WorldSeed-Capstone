@@ -16,7 +16,7 @@ public sealed record StructuredRuleDraft(
     IReadOnlyList<string> Exclusions);
 
 /// <summary>An exact excerpt that lets a designer review a proposed rule against its original note.</summary>
-public sealed record RuleSourceSupport(string SourceNoteId, string Excerpt);
+public sealed record RuleSourceSupport(string SourceNoteId, string Excerpt, string? PassageId = null);
 public sealed record RuleStatement(string Id, string Name, RuleStatementKind Kind, string Text, IReadOnlyList<string> SourceNoteIds, IReadOnlyList<RuleSourceSupport> SourceSupport);
 public sealed record RuleConcept(string Id, string Name, string Description);
 /// <summary>
@@ -35,6 +35,7 @@ public sealed record RuleDraftConversation(
     string ProjectId,
     IReadOnlyList<string> SourceMaterialIds,
     IReadOnlyList<LlmMessage> Messages,
-    IReadOnlyDictionary<string, string>? SourceTextById = null);
+    IReadOnlyDictionary<string, string>? SourceTextById = null,
+    IReadOnlyList<SourcePassage>? SourcePassages = null);
 
 public sealed class RuleDraftFormatException(string message) : Exception(message);
