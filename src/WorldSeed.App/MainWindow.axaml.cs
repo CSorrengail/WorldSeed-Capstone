@@ -324,7 +324,36 @@ public partial class MainWindow : Window
     private JsonDesignProjectStore ProjectStore() => new(_projectDirectory);
     private static string DefaultProjectDirectory => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WorldSeed", "projects");
     private static string Preview(string? text) => string.IsNullOrWhiteSpace(text) ? "No model response was received." : text.Length > 3000 ? text[..3000] + "\n[truncated]" : text;
-    protected override void OnClosed(EventArgs e) { _http.Dispose(); base.OnClosed(e); }
+    protected override void OnClosed(EventArgs e)
+    {
+        EndIncompleteSessionsOnClose();
+        _http.Dispose();
+        base.OnClosed(e);
+    }
+
+    private void EndIncompleteSessionsOnClose()
+    {
+        try
+        {
+            var store = ProjectStore();
+            var endedCount = 0;
+            foreach (var summary in store.ListAsync().GetAwaiter().GetResult())
+            {
+                var project = store.LoadAsync(summary.Id).GetAwaiter().GetResult();
+                if (project is null) continue;
+                var cleaned = DesignProjectService.EndIncompleteSessions(project);
+                if (ReferenceEquals(cleaned, project)) continue;
+                endedCount += project.Sessions.Count - cleaned.Sessions.Count;
+                store.SaveAsync(cleaned).GetAwaiter().GetResult();
+            }
+            if (endedCount > 0) AppLog.Info($"Ended {endedCount} incomplete design session(s) when the application closed.");
+        }
+        catch (Exception ex)
+        {
+            // Closing the window must still succeed; the next normal close can retry this housekeeping.
+            AppLog.Error("End incomplete sessions on application close", ex);
+        }
+    }
 
     private sealed record SourceListItem(DesignSourceNote Note, string Status) { public override string ToString() => $"{Note.Origin?.DisplayName ?? Note.Id} — {Status}"; }
     private sealed record ProjectRuleItem(string SessionId, string SourceName, RuleStatement Rule)

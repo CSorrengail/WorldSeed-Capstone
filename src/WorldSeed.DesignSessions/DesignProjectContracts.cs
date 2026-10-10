@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using WorldSeed.RuleDrafting;
 
 namespace WorldSeed.DesignSessions;
 
@@ -103,5 +104,20 @@ public static class DesignProjectService
         ArgumentNullException.ThrowIfNull(project); ArgumentNullException.ThrowIfNull(session);
         var sessions = project.Sessions.Where(existing => existing.Id != session.Id).Append(session).ToArray();
         return project with { Sessions = sessions, UpdatedAt = (timeProvider ?? TimeProvider.System).GetUtcNow() };
+    }
+
+    /// <summary>
+    /// Ends temporary clarification conversations while retaining completed, reviewable rule drafts.
+    /// This is used when the desktop application closes so an old unanswered conversation is never resumed as current work.
+    /// </summary>
+    public static DesignProject EndIncompleteSessions(DesignProject project, TimeProvider? timeProvider = null)
+    {
+        ArgumentNullException.ThrowIfNull(project);
+        var retained = project.Sessions
+            .Where(session => session.LatestTurn is { Action: RuleDraftAction.PresentDraft, Draft: not null })
+            .ToArray();
+        return retained.Length == project.Sessions.Count
+            ? project
+            : project with { Sessions = retained, UpdatedAt = (timeProvider ?? TimeProvider.System).GetUtcNow() };
     }
 }
