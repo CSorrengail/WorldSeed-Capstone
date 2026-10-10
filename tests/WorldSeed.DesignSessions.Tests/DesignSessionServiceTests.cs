@@ -87,6 +87,22 @@ public class DesignSessionServiceTests
         }
     }
 
+    [Fact]
+    public void Ends_unfinished_sessions_but_keeps_completed_drafts()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var source = new DesignSourceNote("source-001", "Original note", now);
+        var project = DesignProjectService.AddSources(DesignProjectService.Create("project-001", "Test project"), [source]);
+        var unfinished = new DesignSession("session-open", project.Id, "local", now, now, [source], [new LlmMessage(LlmMessageRole.User, source.OriginalText)], new RuleDraftTurn(RuleDraftAction.AskClarifyingQuestion, "What happens next?", ["What happens next?"], null));
+        var completed = new DesignSession("session-draft", project.Id, "local", now, now, [source], [new LlmMessage(LlmMessageRole.User, source.OriginalText)], new RuleDraftTurn(RuleDraftAction.PresentDraft, null, [], new StructuredRuleDraft("Draft", "Intent", [], [], [], [], [])));
+        project = DesignProjectService.SaveSession(DesignProjectService.SaveSession(project, unfinished), completed);
+
+        var cleaned = DesignProjectService.EndIncompleteSessions(project);
+
+        Assert.Equal(["session-draft"], cleaned.Sessions.Select(session => session.Id));
+        Assert.True(cleaned.UpdatedAt >= project.UpdatedAt);
+    }
+
     private sealed class FakeModel(string content) : ILanguageModelClient
     {
         public LlmChatRequest? Request { get; private set; }
