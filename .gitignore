@@ -10,3 +10,7 @@
 # Local credentials and machine-specific application configuration
 appsettings.Local.json
 *.secrets.json
+
+# Docker Compose local settings and volumes
+deploy/.env
+deploy/mongo-data/

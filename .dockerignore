@@ -1,0 +1,15 @@
+.git
+.vs
+**/bin
+**/obj
+deploy/.env
+deploy/mongo-data
+*.worldseed-project.json
+*.worldseed-session.json
+*.txt
+*.gguf
+README.md
+docs
+schemas
+tests
+tools

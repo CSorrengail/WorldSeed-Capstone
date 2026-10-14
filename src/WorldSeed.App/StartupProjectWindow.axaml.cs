@@ -17,7 +17,7 @@ public partial class StartupProjectWindow : Window
         InitializeComponent();
         ProjectList.ItemsSource = projects.Select(project => project.Name).ToArray();
         if (projects.Count > 0) ProjectList.SelectedIndex = 0;
-        else { HintText.Text = "No saved projects were found in the current project folder. Create a new one to begin."; OpenButton.IsEnabled = false; }
+        else { HintText.Text = "No saved projects were found in the local WorldSeed database. Create a new one to begin."; OpenButton.IsEnabled = false; }
     }
 
     private void Open_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)

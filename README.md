@@ -2,6 +2,8 @@
 
 This repository is being organized around an architecture-first capstone project. The immediate focus is testing and refining the universal meta-schema before application code is introduced.
 
+The local desktop application stores projects through a local API backed by MongoDB. Docker Compose runs that API and database; the Avalonia desktop UI and local Ollama models stay on the host machine. See [the local-stack instructions](deploy/README.md).
+
 ## Repository layout
 
 `src/` now contains reusable .NET validation and LLM-integration services; a future GUI will compose those services rather than reimplement them.
