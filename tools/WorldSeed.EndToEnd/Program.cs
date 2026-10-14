@@ -1,6 +1,7 @@
 using WorldSeed.DesignSessions;
 using WorldSeed.LlmIntegration;
 using WorldSeed.RuleDrafting;
+using WorldSeed.WorkingRules;
 
 var modelName = args.FirstOrDefault(argument => !argument.StartsWith("--", StringComparison.Ordinal)) ?? "gemma3:12b";
 var runSuite = args.Contains("--suite", StringComparer.OrdinalIgnoreCase);
@@ -9,7 +10,7 @@ var liveClient = new OllamaChatClient(httpClient, OllamaDefaults.CreateProfile("
 var scenarios = runSuite ? EndToEndScenario.ReliabilitySuite : [EndToEndScenario.CompleteRule];
 var failed = false;
 
-Console.WriteLine($"Running {(runSuite ? "the reliability suite" : "a local rule-drafting test")} with '{modelName}'.");
+Console.WriteLine($"Running {(runSuite ? "the reliability suite" : "a local draft-to-working-rules test")} with '{modelName}'.");
 Console.WriteLine();
 
 foreach (var scenario in scenarios)
@@ -45,6 +46,27 @@ foreach (var scenario in scenarios)
             foreach (var rule in draft.Rules)
                 Console.WriteLine($"- {rule.Id} [{rule.Kind}]: {rule.Text} (sources: {string.Join(", ", rule.SourceNoteIds)})");
             Console.WriteLine($"Assumptions: {draft.Assumptions.Count}; open questions: {draft.OpenQuestions.Count}; exclusions: {draft.Exclusions.Count}.");
+
+            var project = DesignProjectService.AddSources(DesignProjectService.Create("end-to-end-project", "End-to-end project"), [source]);
+            project = DesignProjectService.SaveSession(project, advanced);
+            var formalizationClient = new RecordingLanguageModelClient(liveClient);
+            try
+            {
+                var proposal = await new WorkingRuleSetFormalizationService(formalizationClient).CreateProposalAsync(project);
+                Console.WriteLine($"Accepted Working Rule Set '{proposal.RuleSet.Name}' with {proposal.RuleSet.Rules.Count} project rule(s).");
+                foreach (var rule in proposal.RuleSet.Rules)
+                    Console.WriteLine($"- {rule.Id} [{rule.Kind}]: {rule.AuthoritativeText} (draft evidence: {string.Join(", ", rule.SourceDraftRules.Select(reference => reference.SessionId + "/" + reference.RuleId))})");
+            }
+            catch (Exception exception) when (exception is WorkingRuleSetFormatException or LlmClientException or HttpRequestException or OperationCanceledException)
+            {
+                Console.Error.WriteLine("WorldSeed rejected or could not obtain the working-rule proposal: " + exception.Message);
+                if (formalizationClient.LastResponse is not null)
+                {
+                    Console.Error.WriteLine("Raw working-rule response retained for diagnosis:");
+                    Console.Error.WriteLine(formalizationClient.LastResponse.Content);
+                }
+                failed = true;
+            }
         }
     }
     catch (Exception exception) when (exception is RuleDraftFormatException or LlmClientException or HttpRequestException or OperationCanceledException)
