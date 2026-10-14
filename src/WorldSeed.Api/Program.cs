@@ -41,8 +41,9 @@ projects.MapPut("/{projectId}", async (string projectId, DesignProject project, 
     await store.SaveAsync(project, cancellationToken);
     return Results.NoContent();
 });
-projects.MapDelete("/{projectId}", async (string projectId, IDesignProjectStore store, CancellationToken cancellationToken) =>
+projects.MapDelete("/{projectId}", async (string projectId, IDesignProjectStore store, IWorkingRuleSetStore ruleSets, CancellationToken cancellationToken) =>
 {
+    await ruleSets.DeleteAsync(projectId, cancellationToken);
     await store.DeleteAsync(projectId, cancellationToken);
     return Results.NoContent();
 });
