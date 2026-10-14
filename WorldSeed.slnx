@@ -1,8 +1,10 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/WorldSeed.App/WorldSeed.App.csproj" />
+    <Project Path="src/WorldSeed.Api/WorldSeed.Api.csproj" />
     <Project Path="src/WorldSeed.DesignSessions/WorldSeed.DesignSessions.csproj" />
     <Project Path="src/WorldSeed.LlmIntegration/WorldSeed.LlmIntegration.csproj" />
+    <Project Path="src/WorldSeed.Persistence.Mongo/WorldSeed.Persistence.Mongo.csproj" />
     <Project Path="src/WorldSeed.RuleDrafting/WorldSeed.RuleDrafting.csproj" />
     <Project Path="src/WorldSeed.SchemaValidation/WorldSeed.SchemaValidation.csproj" />
     <Project Path="src/WorldSeed.SchemaTranslation/WorldSeed.SchemaTranslation.csproj" />
