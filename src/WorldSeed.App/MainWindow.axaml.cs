@@ -463,7 +463,18 @@ public partial class MainWindow : Window
     private static string FormatWorkingRule(WorkingRule rule) => $"{rule.Name}\nType: {rule.Kind}\n\nWorking rule\n{rule.AuthoritativeText}\n\nDerived from source drafts\n{string.Join("\n", rule.SourceDraftRules.Select(reference => $"- {reference.SessionId} / {reference.RuleId}"))}\n\nExact source evidence\n{string.Join("\n", rule.Evidence.Select(evidence => $"- {evidence.SourceNoteId} ({evidence.PassageId ?? "source text"}): {evidence.Excerpt}"))}\n\nOpen questions\n{(rule.OpenQuestions.Count == 0 ? "None" : string.Join("\n", rule.OpenQuestions.Select(question => $"- {question}")))}\n\nSchema hints\n{(rule.SchemaHints.Count == 0 ? "None" : string.Join("\n", rule.SchemaHints.Select(hint => $"- {hint.Kind}: {hint.SuggestedName} - {hint.Rationale}")))}";
     private IDesignProjectStore ProjectStore() => _projectStore;
     private IWorkingRuleSetStore WorkingRuleStore() => _workingRuleStore;
-    private static string Preview(string? text) => string.IsNullOrWhiteSpace(text) ? "No model response was received." : text.Length > 3000 ? text[..3000] + "\n[truncated]" : text;
+    private static string Preview(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return "No model response was received.";
+        var display = text;
+        try
+        {
+            using var document = JsonDocument.Parse(text);
+            display = JsonSerializer.Serialize(document.RootElement, new JsonSerializerOptions { WriteIndented = true });
+        }
+        catch (JsonException) { /* Preserve malformed model output exactly for diagnosis. */ }
+        return display.Length > 6000 ? display[..6000] + "\n[truncated]" : display;
+    }
     protected override void OnClosed(EventArgs e)
     {
         EndIncompleteSessionsOnClose();
