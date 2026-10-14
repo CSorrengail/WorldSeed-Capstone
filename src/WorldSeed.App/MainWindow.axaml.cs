@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Platform.Storage;
+using System.Text.Json;
 using WorldSeed.DesignSessions;
 using WorldSeed.LlmIntegration;
 using WorldSeed.RuleDrafting;
@@ -33,10 +34,46 @@ public partial class MainWindow : Window
         try
         {
             await RefreshModelsAsync();
+            await ImportLegacyProjectsAsync();
             await RefreshProjectsAsync();
             await ChooseStartupProjectAsync();
         }
         catch (Exception ex) { AppLog.Error("Initialize application", ex); StatusText.Text = "WorldSeed could not load its local projects. See the diagnostic log."; }
+    }
+
+    /// <summary>Copies old file-backed projects into the local database once, without deleting their JSON originals.</summary>
+    private async Task ImportLegacyProjectsAsync()
+    {
+        var imported = 0;
+        foreach (var directory in LegacyProjectDirectories().Distinct(StringComparer.OrdinalIgnoreCase).Where(Directory.Exists))
+        {
+            var legacyStore = new JsonDesignProjectStore(directory);
+            foreach (var summary in await legacyStore.ListAsync())
+            {
+                if (await ProjectStore().LoadAsync(summary.Id) is not null) continue;
+                var project = await legacyStore.LoadAsync(summary.Id);
+                if (project is null) continue;
+                await ProjectStore().SaveAsync(DesignProjectService.EndIncompleteSessions(project));
+                imported++;
+            }
+        }
+        if (imported > 0) AppLog.Info($"Imported {imported} legacy file-backed project(s) into the local database.");
+    }
+
+    private static IEnumerable<string> LegacyProjectDirectories()
+    {
+        var worldSeedDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WorldSeed");
+        yield return Path.Combine(worldSeedDirectory, "projects");
+        var preferencePath = Path.Combine(worldSeedDirectory, "preferences.json");
+        if (!File.Exists(preferencePath)) yield break;
+        string? priorDirectory = null;
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(preferencePath));
+            if (document.RootElement.TryGetProperty("LastProjectDirectory", out var directory)) priorDirectory = directory.GetString();
+        }
+        catch (JsonException) { /* A legacy preference failure must not block startup. */ }
+        if (!string.IsNullOrWhiteSpace(priorDirectory)) yield return priorDirectory;
     }
 
     private async Task RefreshProjectsAsync()
