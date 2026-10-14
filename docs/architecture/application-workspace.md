@@ -84,4 +84,4 @@ The MVP exposes one current working proposal per project. Records still have sta
 
 ## MVP navigation transition
 
-The current three-panel drafting screen should become the Sources area. The first new top-level area is Rules; Schema follows once a persisted Working Rule Set can be translated. The UI should use project-level navigation from this transition onward rather than growing the existing screen into a long page of unrelated panels.
+The source-drafting screen is the Sources area. The Rules area is now the first project-level workspace extension: it builds, saves, reloads, and inspects one validated Working Rule Set. Schema follows once a persisted Working Rule Set can be translated. The UI uses project-level navigation from this transition onward rather than growing the source screen into a long page of unrelated panels.

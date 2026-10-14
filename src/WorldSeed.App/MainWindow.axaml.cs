@@ -5,6 +5,7 @@ using WorldSeed.DesignSessions;
 using WorldSeed.LlmIntegration;
 using WorldSeed.RuleDrafting;
 using WorldSeed.SourceIngestion;
+using WorldSeed.WorkingRules;
 
 namespace WorldSeed.App;
 
@@ -13,18 +14,22 @@ public partial class MainWindow : Window
     private readonly HttpClient _http = new();
     private readonly HttpClient _apiHttp = new() { BaseAddress = new Uri("http://localhost:5080/") };
     private readonly IDesignProjectStore _projectStore;
+    private readonly IWorkingRuleSetStore _workingRuleStore;
     private readonly List<DesignProjectSummary> _projectSummaries = [];
     private readonly List<ProjectRuleItem> _projectRules = [];
+    private readonly List<WorkingRule> _workingRules = [];
     private int _projectLoadGeneration;
     private bool _updatingProjectSelector;
     private string? _pendingDeletionProjectId;
     private DesignProject? _project;
+    private WorkingRuleSet? _workingRuleSet;
     private readonly List<TextBox> _answerInputs = [];
     private IReadOnlyList<string> _activeQuestions = [];
 
     public MainWindow()
     {
         _projectStore = new HttpDesignProjectStore(_apiHttp);
+        _workingRuleStore = new HttpWorkingRuleSetStore(_apiHttp);
         InitializeComponent();
     }
     protected override void OnOpened(EventArgs e) { base.OnOpened(e); AppLog.Info("Application opened."); _ = InitializeAsync(); }
@@ -107,6 +112,7 @@ public partial class MainWindow : Window
             var dialog = new NewProjectWindow();
             if (await dialog.ShowDialog<bool>(this) is not true || string.IsNullOrWhiteSpace(dialog.ProjectName)) return;
             _project = DesignProjectService.Create($"project-{Guid.NewGuid():N}", dialog.ProjectName, dialog.Description);
+            _workingRuleSet = null;
             _projectLoadGeneration++;
             ClearProjectView();
             await ProjectStore().SaveAsync(_project);
@@ -141,9 +147,11 @@ public partial class MainWindow : Window
             var loaded = await ProjectStore().LoadAsync(projectId);
             if (generation != _projectLoadGeneration) return;
             _project = loaded;
-            ClearProjectView(); RefreshNotes(); ShowSelectedSource();
+            ClearProjectView();
             if (_project is not null)
             {
+                await LoadWorkingRuleSetAsync(_project.Id);
+                RefreshNotes(); ShowSelectedSource();
                 ProjectLocationText.Text = "Project database: http://localhost:5080 (Docker local stack)";
                 _updatingProjectSelector = true;
                 ProjectSelector.SelectedIndex = _projectSummaries.FindIndex(project => project.Id == _project.Id);
@@ -183,6 +191,7 @@ public partial class MainWindow : Window
         try
         {
             var id = _project.Id;
+            await WorkingRuleStore().DeleteAsync(id);
             await ProjectStore().DeleteAsync(id);
             AppLog.Info($"Deleted project '{id}'.");
             _project = null;
@@ -235,12 +244,21 @@ public partial class MainWindow : Window
         catch (Exception ex) { AppLog.Error("Import source notes", ex); StatusText.Text = ex.Message; }
     }
 
-    private void RemoveSelectedNote_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    private async void RemoveSelectedNote_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
         var note = SelectedNote; if (note is null) return;
         if (_project is null) return;
-        _project = DesignProjectService.RemoveSource(_project, note.Id); _ = ProjectStore().SaveAsync(_project); RefreshNotes(); ShowSelectedSource();
-        StatusText.Text = $"{_project.SourceNotes.Count} original note(s) preserved.";
+        try
+        {
+            _project = DesignProjectService.RemoveSource(_project, note.Id);
+            await WorkingRuleStore().DeleteAsync(_project.Id);
+            await ProjectStore().SaveAsync(_project);
+            _workingRuleSet = null;
+            RefreshWorkingRulesView();
+            RefreshNotes(); ShowSelectedSource();
+            StatusText.Text = $"{_project.SourceNotes.Count} original note(s) preserved. The working proposal was cleared because its evidence may have changed.";
+        }
+        catch (Exception ex) { AppLog.Error("Remove source note", ex); StatusText.Text = "Could not remove the note safely. See the diagnostic log."; }
     }
 
     private void SourceNotesList_SelectionChanged(object? sender, SelectionChangedEventArgs e) => ShowSelectedSource();
@@ -340,6 +358,86 @@ public partial class MainWindow : Window
         RuleList.SelectedIndex = selectedRule is null ? -1 : _projectRules.FindIndex(item => item.SessionId == selectedRule.SessionId && item.Rule.Id == selectedRule.Rule.Id);
     }
 
+    private async void BuildWorkingRules_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (_project is null || ModelSelector.SelectedItem is not string model)
+        {
+            WorkingRulesStatusText.Text = "Select a project and a local model on the Sources tab first.";
+            return;
+        }
+        BuildWorkingRulesButton.IsEnabled = false;
+        WorkingRulesStatusText.Text = $"Consolidating completed source drafts with {model}. This can take a few seconds...";
+        var capture = new CapturingClient(new OllamaChatClient(_http, OllamaDefaults.CreateProfile("local", "Local", model)));
+        try
+        {
+            var result = await new WorkingRuleSetFormalizationService(capture).CreateProposalAsync(_project, _workingRuleSet);
+            await WorkingRuleStore().SaveAsync(result.RuleSet);
+            _workingRuleSet = result.RuleSet;
+            RefreshWorkingRulesView();
+            WorkingRulesStatusText.Text = $"Saved working proposal revision {_workingRuleSet.Revision}. It remains a project working proposal, not a game schema.";
+            AppLog.Info($"Saved working rule set revision {_workingRuleSet.Revision} for project '{_project.Id}'.");
+        }
+        catch (WorkingRuleSetFormatException ex)
+        {
+            AppLog.Error("Validate working rule proposal", ex);
+            WorkingRulesStatusText.Text = "The model returned a proposal WorldSeed could not safely use. Nothing was saved.";
+            WorkingRuleText.Text = $"Format detail: {ex.Message}\n\nRaw model output (for diagnosis):\n{Preview(capture.Last?.Content)}";
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("Build working rule proposal", ex);
+            WorkingRulesStatusText.Text = "Working-rule formalization failed before a usable proposal was produced.";
+            WorkingRuleText.Text = $"{ex.GetType().Name}: {ex.Message}\n\nDiagnostic log: {AppLog.CurrentPath}";
+        }
+        finally { BuildWorkingRulesButton.IsEnabled = true; }
+    }
+
+    private async void ReloadWorkingRules_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (_project is null) { WorkingRulesStatusText.Text = "Select a project first."; return; }
+        await LoadWorkingRuleSetAsync(_project.Id);
+    }
+
+    private async Task LoadWorkingRuleSetAsync(string projectId)
+    {
+        try
+        {
+            _workingRuleSet = await WorkingRuleStore().LoadAsync(projectId);
+            RefreshWorkingRulesView();
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("Load working rule set", ex);
+            _workingRuleSet = null;
+            RefreshWorkingRulesView();
+            WorkingRulesStatusText.Text = "Could not load the saved working proposal. See the diagnostic log.";
+        }
+    }
+
+    private void RefreshWorkingRulesView()
+    {
+        var selected = WorkingRuleList.SelectedIndex is var index && index >= 0 && index < _workingRules.Count ? _workingRules[index].Id : null;
+        _workingRules.Clear();
+        if (_workingRuleSet is not null) _workingRules.AddRange(_workingRuleSet.Rules);
+        WorkingRuleList.ItemsSource = _workingRules.Select(rule => new WorkingRuleListItem(rule)).ToArray();
+        WorkingRuleList.SelectedIndex = selected is null ? -1 : _workingRules.FindIndex(rule => rule.Id == selected);
+        if (_workingRuleSet is null)
+        {
+            WorkingRulesSummaryText.Text = "Create completed source drafts, then build one project-wide working proposal.";
+            WorkingRulesStatusText.Text = "No project-level working proposal is loaded.";
+            WorkingRuleText.Text = "Build or load a proposal to inspect its project-level rules and exact evidence.";
+            return;
+        }
+        WorkingRulesSummaryText.Text = $"{_workingRuleSet.Name} - revision {_workingRuleSet.Revision}. {_workingRuleSet.Rules.Count} rule(s), {_workingRuleSet.Concepts.Count} concept(s).";
+        WorkingRulesStatusText.Text = "Select a working rule to inspect its wording, source-draft links, and exact evidence.";
+        if (_workingRules.Count > 0) WorkingRuleList.SelectedIndex = Math.Max(0, WorkingRuleList.SelectedIndex);
+    }
+
+    private void WorkingRuleList_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (WorkingRuleList.SelectedIndex is var index && index >= 0 && index < _workingRules.Count) WorkingRuleText.Text = FormatWorkingRule(_workingRules[index]);
+    }
+
     private void ClearProjectView()
     {
         SourceNotesList.SelectedIndex = -1;
@@ -349,13 +447,22 @@ public partial class MainWindow : Window
         DraftText.Text = "Select a rule to review its wording and evidence.";
         QuestionsPanel.Children.Clear();
         QuestionHeading.Text = "";
+        _workingRuleSet = null;
+        _workingRules.Clear();
+        WorkingRuleList.ItemsSource = Array.Empty<WorkingRuleListItem>();
+        WorkingRuleList.SelectedIndex = -1;
+        WorkingRulesSummaryText.Text = "Create completed source drafts, then build one project-wide working proposal.";
+        WorkingRulesStatusText.Text = "No project-level working proposal is loaded.";
+        WorkingRuleText.Text = "Build or load a proposal to inspect its project-level rules and exact evidence.";
     }
 
     private DesignSession? SessionFor(DesignSourceNote note) => _project?.Sessions.SingleOrDefault(session => session.SourceNotes.Any(source => source.Id == note.Id));
     private string StatusFor(DesignSourceNote note) => SessionFor(note) is not { LatestTurn: { } turn } ? "Not started" : turn.Action == RuleDraftAction.PresentDraft ? "Draft ready" : "Needs answers";
     private static string FormatDraft(StructuredRuleDraft draft) => $"{draft.Title}\n{draft.Intent}\n\n" + string.Join("\n\n", draft.Rules.Select(rule => $"{rule.Name} ({rule.Kind})\n{rule.Text}\n\nSource evidence:\n{string.Join("\n", rule.SourceSupport.Select(support => $"• {support.SourceNoteId}: “{support.Excerpt}”"))}"));
     private static string FormatRule(RuleStatement rule) => $"{rule.Name}\nType: {rule.Kind}\n\nProposed rule\n{rule.Text}\n\nSource evidence\n{string.Join("\n", rule.SourceSupport.Select(support => $"• {support.SourceNoteId}: “{support.Excerpt}”"))}";
+    private static string FormatWorkingRule(WorkingRule rule) => $"{rule.Name}\nType: {rule.Kind}\n\nWorking rule\n{rule.AuthoritativeText}\n\nDerived from source drafts\n{string.Join("\n", rule.SourceDraftRules.Select(reference => $"- {reference.SessionId} / {reference.RuleId}"))}\n\nExact source evidence\n{string.Join("\n", rule.Evidence.Select(evidence => $"- {evidence.SourceNoteId} ({evidence.PassageId ?? "source text"}): {evidence.Excerpt}"))}\n\nOpen questions\n{(rule.OpenQuestions.Count == 0 ? "None" : string.Join("\n", rule.OpenQuestions.Select(question => $"- {question}")))}\n\nSchema hints\n{(rule.SchemaHints.Count == 0 ? "None" : string.Join("\n", rule.SchemaHints.Select(hint => $"- {hint.Kind}: {hint.SuggestedName} - {hint.Rationale}")))}";
     private IDesignProjectStore ProjectStore() => _projectStore;
+    private IWorkingRuleSetStore WorkingRuleStore() => _workingRuleStore;
     private static string Preview(string? text) => string.IsNullOrWhiteSpace(text) ? "No model response was received." : text.Length > 3000 ? text[..3000] + "\n[truncated]" : text;
     protected override void OnClosed(EventArgs e)
     {
@@ -393,6 +500,10 @@ public partial class MainWindow : Window
     private sealed record ProjectRuleItem(string SessionId, string SourceName, RuleStatement Rule)
     {
         public override string ToString() => $"{Rule.Name} — {SourceName}";
+    }
+    private sealed record WorkingRuleListItem(WorkingRule Rule)
+    {
+        public override string ToString() => $"{Rule.Name} - {Rule.Kind}";
     }
     private sealed record ProjectListItem(DesignProjectSummary Project)
     {
