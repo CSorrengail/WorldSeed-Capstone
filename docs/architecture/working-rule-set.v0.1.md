@@ -150,7 +150,9 @@ When updating the working proposal, the model may propose to:
 - identify missing information as an open question; or
 - attach optional schema hints.
 
-It may not discard a previously stored working rule, invent evidence, overwrite source text, or silently make a schema change. The service returns a complete replacement proposal that deterministic validation checks before it becomes the project’s current working rule set.
+It may not invent evidence, overwrite source text, or silently make a schema change. When a current proposal exists, the formalizer receives it as context and should preserve or deliberately consolidate its rules while still citing completed source drafts. The service returns a complete replacement proposal that deterministic validation checks before it becomes the project’s current working rule set.
+
+The first implementation keeps this operation intentionally simple: it does not attempt a hidden merge or independently treat a source file as the owner of a rule. The generated proposal is a fresh, project-wide view of all completed interpretation drafts, with the current proposal supplied to reduce accidental regression. A future change-management layer can introduce explicit diff and merge decisions without changing the provenance model.
 
 ## Persistence and future evolution
 
