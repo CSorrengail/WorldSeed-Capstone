@@ -9,5 +9,6 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\WorldSeed.DesignSessions\WorldSeed.DesignSessions.csproj" />
+    <ProjectReference Include="..\WorldSeed.WorkingRules\WorldSeed.WorkingRules.csproj" />
   </ItemGroup>
 </Project>

@@ -9,6 +9,7 @@
     <Project Path="src/WorldSeed.SchemaValidation/WorldSeed.SchemaValidation.csproj" />
     <Project Path="src/WorldSeed.SchemaTranslation/WorldSeed.SchemaTranslation.csproj" />
     <Project Path="src/WorldSeed.SourceIngestion/WorldSeed.SourceIngestion.csproj" />
+    <Project Path="src/WorldSeed.WorkingRules/WorldSeed.WorkingRules.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/WorldSeed.DesignSessions.Tests/WorldSeed.DesignSessions.Tests.csproj" />
@@ -17,6 +18,7 @@
     <Project Path="tests/WorldSeed.SchemaValidation.Tests/WorldSeed.SchemaValidation.Tests.csproj" />
     <Project Path="tests/WorldSeed.SchemaTranslation.Tests/WorldSeed.SchemaTranslation.Tests.csproj" />
     <Project Path="tests/WorldSeed.SourceIngestion.Tests/WorldSeed.SourceIngestion.Tests.csproj" />
+    <Project Path="tests/WorldSeed.WorkingRules.Tests/WorldSeed.WorkingRules.Tests.csproj" />
   </Folder>
   <Folder Name="/tools/">
     <Project Path="tools/WorldSeed.EndToEnd/WorldSeed.EndToEnd.csproj" />

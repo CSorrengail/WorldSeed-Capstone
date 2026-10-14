@@ -49,7 +49,7 @@ Each project has one mutable working rule set in the MVP. It is a working propos
   "kind": "procedure",
   "authoritativeText": "At the start of combat, determine the order in which combatants take turns using Combat Initiative.",
   "evidence": [],
-  "sourceDraftRuleIds": ["draft-ci-turn-order"],
+  "sourceDraftRules": [{ "sessionId": "session-combat", "ruleId": "draft-ci-turn-order" }],
   "conceptIds": ["combat-initiative", "combatant"],
   "schemaHints": [],
   "structuredSupport": {
@@ -71,7 +71,7 @@ Each project has one mutable working rule set in the MVP. It is a working propos
 | `kind` | One of `definition`, `rule`, `procedure`, or `constraint`, matching the existing drafting vocabulary. |
 | `authoritativeText` | Required human-readable rule wording. This is authoritative within the working proposal even if no structured support exists. |
 | `evidence` | At least one exact supporting source passage for every substantive rule. |
-| `sourceDraftRuleIds` | One or more structured-draft rule IDs from which the rule was integrated. |
+| `sourceDraftRules` | One or more session-scoped structured-draft rule references from which the rule was integrated. Session scope prevents collisions between model-generated draft IDs. |
 | `conceptIds` | Optional links to project concepts; they do not require a schema decision. |
 | `schemaHints` | Optional, non-authoritative suggestions for a later game-schema proposal. |
 | `structuredSupport` | Optional machine-oriented representation. It is usable only when its automation status and interpreter are clear. |
@@ -85,8 +85,7 @@ An evidence item preserves source identity and literal text rather than trusting
 {
   "sourceNoteId": "source-combat",
   "passageId": "source-combat:p006",
-  "excerpt": "At the beginning of combat, subtract CI equal to the lowest CI among all combatants.",
-  "sourceDraftRuleId": "draft-ci-turn-order"
+  "excerpt": "At the beginning of combat, subtract CI equal to the lowest CI among all combatants."
 }
 ```
 
@@ -95,7 +94,7 @@ The validator must confirm that:
 - the source note belongs to the project;
 - the passage identifier belongs to that source note when one is present;
 - the excerpt exactly matches the preserved source material;
-- the cited draft rule exists in the project interpretation artifacts; and
+- each cited session-scoped draft rule exists in the project interpretation artifacts; and
 - every substantive working rule has evidence.
 
 Rules may have evidence from many source files. No source file is a complete rule set by assumption.
