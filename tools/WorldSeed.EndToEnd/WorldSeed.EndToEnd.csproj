@@ -9,5 +9,6 @@
     <ProjectReference Include="..\..\src\WorldSeed.DesignSessions\WorldSeed.DesignSessions.csproj" />
     <ProjectReference Include="..\..\src\WorldSeed.LlmIntegration\WorldSeed.LlmIntegration.csproj" />
     <ProjectReference Include="..\..\src\WorldSeed.RuleDrafting\WorldSeed.RuleDrafting.csproj" />
+    <ProjectReference Include="..\..\src\WorldSeed.WorkingRules\WorldSeed.WorkingRules.csproj" />
   </ItemGroup>
 </Project>
