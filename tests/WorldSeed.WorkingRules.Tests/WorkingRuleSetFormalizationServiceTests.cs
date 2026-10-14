@@ -12,7 +12,7 @@ public class WorkingRuleSetFormalizationServiceTests
     {
         var project = CreateProject();
         var model = new CapturingModel("""
-        {"name":"Combat Rules","description":"Current combat proposal.","rules":[{"id":"combat-turn-order","name":"Combat Turn Order","kind":"procedure","authoritativeText":"At the beginning of combat, the combatant with the lowest initiative takes a turn.","sourceDraftRules":[{"sessionId":"session-initiative","ruleId":"draft-turn-order"}],"conceptIds":["initiative"],"schemaHints":[{"kind":"property","suggestedId":"combatant.initiative","suggestedName":"Initiative","parentSuggestedId":"combatant","rationale":"Turn order uses initiative.","sourceWorkingRuleIds":["combat-turn-order"]}],"openQuestions":[],"exclusions":[]}],"concepts":[{"id":"initiative","name":"Initiative","description":"A value that determines combat turn order.","sourceDraftRules":[{"sessionId":"session-initiative","ruleId":"draft-turn-order"}]}],"openQuestions":[],"exclusions":[],"conflicts":[]}
+        {"name":"Combat Rules","description":"Current combat proposal.","rules":[{"id":"combat-turn-order","name":"Combat Turn Order","kind":"procedure","authoritativeText":"At the beginning of combat, the combatant with the lowest initiative takes a turn.","sourceDraftIds":["d001"],"conceptIds":["initiative"],"schemaHints":[{"kind":"property","suggestedId":"combatant.initiative","suggestedName":"Initiative","parentSuggestedId":"combatant","rationale":"Turn order uses initiative.","sourceWorkingRuleIds":["combat-turn-order"]}],"openQuestions":[],"exclusions":[]}],"concepts":[{"id":"initiative","name":"Initiative","description":"A value that determines combat turn order.","sourceDraftIds":["d001"]}],"openQuestions":[],"exclusions":[],"conflicts":[]}
         """);
         var now = DateTimeOffset.Parse("2026-10-14T00:00:00Z");
         var service = new WorkingRuleSetFormalizationService(model, timeProvider: new FixedTimeProvider(now));
@@ -25,7 +25,7 @@ public class WorkingRuleSetFormalizationServiceTests
         Assert.Equal(now, result.RuleSet.CreatedAt);
         Assert.Equal("source-initiative:p001", Assert.Single(rule.Evidence).PassageId);
         Assert.Equal("At the beginning of combat, the combatant with the lowest initiative takes a turn.", rule.Evidence.Single().Excerpt);
-        Assert.Contains(model.Request!.Messages, message => message.Content.Contains("session-initiative/draft-turn-order"));
+        Assert.Contains(model.Request!.Messages, message => message.Content.Contains("[d001]"));
         Assert.Contains(model.Request.Messages, message => message.Content.Contains("Never invent mechanics"));
         Assert.True(model.Request.RequireJsonObject);
     }
@@ -50,11 +50,11 @@ public class WorkingRuleSetFormalizationServiceTests
     [Fact]
     public async Task Rejects_unknown_source_draft_references_before_a_rule_set_can_be_saved()
     {
-        var model = new CapturingModel(ValidResponse.Replace("draft-turn-order", "invented-rule", StringComparison.Ordinal));
+        var model = new CapturingModel(ValidResponse.Replace("d001", "d999", StringComparison.Ordinal));
 
         var error = await Assert.ThrowsAsync<WorkingRuleSetFormatException>(() => new WorkingRuleSetFormalizationService(model).CreateProposalAsync(CreateProject()));
 
-        Assert.Contains("not available for this project", error.Message);
+        Assert.Contains("citation 'd999' is not available", error.Message);
     }
 
     [Fact]
@@ -68,7 +68,7 @@ public class WorkingRuleSetFormalizationServiceTests
     }
 
     private const string ValidResponse = """
-    {"name":"Combat Rules","description":null,"rules":[{"id":"combat-turn-order","name":"Combat Turn Order","kind":"procedure","authoritativeText":"At the beginning of combat, the combatant with the lowest initiative takes a turn.","sourceDraftRules":[{"sessionId":"session-initiative","ruleId":"draft-turn-order"}],"conceptIds":[],"schemaHints":[],"openQuestions":[],"exclusions":[]}],"concepts":[],"openQuestions":[],"exclusions":[],"conflicts":[]}
+    {"name":"Combat Rules","description":null,"rules":[{"id":"combat-turn-order","name":"Combat Turn Order","kind":"procedure","authoritativeText":"At the beginning of combat, the combatant with the lowest initiative takes a turn.","sourceDraftIds":["d001"],"conceptIds":[],"schemaHints":[],"openQuestions":[],"exclusions":[]}],"concepts":[],"openQuestions":[],"exclusions":[],"conflicts":[]}
     """;
 
     private static DesignProject CreateProject()

@@ -9,10 +9,10 @@ public sealed class WorkingRuleSetJsonParser
 {
     private readonly WorkingRuleSetValidator _validator = new();
 
-    public WorkingRuleSet Parse(string content, DesignProject project, IReadOnlyList<CompletedDraftRule>? completedDrafts = null, WorkingRuleSet? existingRuleSet = null, DateTimeOffset? now = null)
+    public WorkingRuleSet Parse(string content, DesignProject project, IReadOnlyList<DraftCitation>? citations = null, WorkingRuleSet? existingRuleSet = null, DateTimeOffset? now = null)
     {
         ArgumentNullException.ThrowIfNull(project);
-        var catalog = (completedDrafts ?? CompletedDraftCatalog.Create(project)).ToDictionary(item => item.Reference);
+        var catalog = (citations ?? DraftCitationCatalog.Create(CompletedDraftCatalog.Create(project))).ToDictionary(item => item.Id, StringComparer.Ordinal);
         if (catalog.Count == 0) throw new WorkingRuleSetFormatException("No completed source drafts are available for working-rule provenance.");
         JsonObject root;
         try { root = JsonNode.Parse(content)?.AsObject() ?? throw new WorkingRuleSetFormatException("The model did not return a JSON object."); }
@@ -48,7 +48,7 @@ public sealed class WorkingRuleSetJsonParser
         return ruleSet;
     }
 
-    private static WorkingRule ParseRule(JsonObject item, IReadOnlyDictionary<DraftRuleReference, CompletedDraftRule> catalog)
+    private static WorkingRule ParseRule(JsonObject item, IReadOnlyDictionary<string, DraftCitation> catalog)
     {
         var references = References(item, catalog);
         return new WorkingRule(
@@ -57,7 +57,7 @@ public sealed class WorkingRuleSetJsonParser
             null, Strings(item, "openQuestions"), Strings(item, "exclusions"));
     }
 
-    private static WorkingRuleConcept ParseConcept(JsonObject item, IReadOnlyDictionary<DraftRuleReference, CompletedDraftRule> catalog)
+    private static WorkingRuleConcept ParseConcept(JsonObject item, IReadOnlyDictionary<string, DraftCitation> catalog)
     {
         var references = References(item, catalog);
         return new WorkingRuleConcept(Required(item, "id"), Required(item, "name"), Required(item, "description"), EvidenceFor(references, catalog));
@@ -66,16 +66,17 @@ public sealed class WorkingRuleSetJsonParser
     private static SchemaHint ParseSchemaHint(JsonObject item) => new(
         ParseHintKind(Required(item, "kind")), Required(item, "suggestedId"), Required(item, "suggestedName"), Optional(item, "parentSuggestedId"), Required(item, "rationale"), Strings(item, "sourceWorkingRuleIds"));
 
-    private static IReadOnlyList<DraftRuleReference> References(JsonObject item, IReadOnlyDictionary<DraftRuleReference, CompletedDraftRule> catalog)
+    private static IReadOnlyList<DraftRuleReference> References(JsonObject item, IReadOnlyDictionary<string, DraftCitation> catalog)
     {
-        var references = Objects(item, "sourceDraftRules").Select(reference => new DraftRuleReference(Required(reference, "sessionId"), Required(reference, "ruleId"))).ToArray();
-        if (references.Length == 0) throw new WorkingRuleSetFormatException("Every working rule and concept requires at least one source-draft rule reference.");
-        foreach (var reference in references.Where(reference => !catalog.ContainsKey(reference))) throw new WorkingRuleSetFormatException($"Source-draft rule '{reference.SessionId}/{reference.RuleId}' is not available for this project.");
+        var citationIds = Strings(item, "sourceDraftIds");
+        if (citationIds.Length == 0) throw new WorkingRuleSetFormatException("Every working rule and concept requires at least one source-draft citation ID.");
+        foreach (var citationId in citationIds.Where(citationId => !catalog.ContainsKey(citationId))) throw new WorkingRuleSetFormatException($"Source-draft citation '{citationId}' is not available for this project.");
+        var references = citationIds.Select(citationId => catalog[citationId].Draft.Reference).ToArray();
         return references.Distinct().ToArray();
     }
 
-    private static IReadOnlyList<WorkingRuleEvidence> EvidenceFor(IEnumerable<DraftRuleReference> references, IReadOnlyDictionary<DraftRuleReference, CompletedDraftRule> catalog) => references
-        .SelectMany(reference => catalog[reference].Rule.SourceSupport)
+    private static IReadOnlyList<WorkingRuleEvidence> EvidenceFor(IEnumerable<DraftRuleReference> references, IReadOnlyDictionary<string, DraftCitation> catalog) => references
+        .SelectMany(reference => catalog.Values.Single(citation => citation.Draft.Reference == reference).Draft.Rule.SourceSupport)
         .Select(support => new WorkingRuleEvidence(support.SourceNoteId, support.PassageId, support.Excerpt))
         .Distinct()
         .ToArray();

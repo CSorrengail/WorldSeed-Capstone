@@ -154,6 +154,8 @@ It may not invent evidence, overwrite source text, or silently make a schema cha
 
 The first implementation keeps this operation intentionally simple: it does not attempt a hidden merge or independently treat a source file as the owner of a rule. The generated proposal is a fresh, project-wide view of all completed interpretation drafts, with the current proposal supplied to reduce accidental regression. A future change-management layer can introduce explicit diff and merge decisions without changing the provenance model.
 
+The model receives short opaque citation IDs (for example, `d001`) rather than internal session identifiers. It returns those IDs, and deterministic code resolves them to the actual session-scoped `sourceDraftRules` and literal evidence before validation and storage. This keeps the model-facing format small while retaining exact provenance in the stored Working Rule Set.
+
 ## Persistence and future evolution
 
 MongoDB should store the set as a dedicated document, separate from the existing `DesignProject` document. Suggested collections are:
