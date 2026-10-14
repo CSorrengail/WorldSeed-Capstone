@@ -10,9 +10,10 @@ namespace WorldSeed.App;
 public partial class MainWindow : Window
 {
     private readonly HttpClient _http = new();
+    private readonly HttpClient _apiHttp = new() { BaseAddress = new Uri("http://localhost:5080/") };
+    private readonly IDesignProjectStore _projectStore;
     private readonly List<DesignProjectSummary> _projectSummaries = [];
     private readonly List<ProjectRuleItem> _projectRules = [];
-    private string _projectDirectory = DefaultProjectDirectory;
     private int _projectLoadGeneration;
     private bool _updatingProjectSelector;
     private string? _pendingDeletionProjectId;
@@ -20,15 +21,17 @@ public partial class MainWindow : Window
     private readonly List<TextBox> _answerInputs = [];
     private IReadOnlyList<string> _activeQuestions = [];
 
-    public MainWindow() => InitializeComponent();
+    public MainWindow()
+    {
+        _projectStore = new HttpDesignProjectStore(_apiHttp);
+        InitializeComponent();
+    }
     protected override void OnOpened(EventArgs e) { base.OnOpened(e); AppLog.Info("Application opened."); _ = InitializeAsync(); }
 
     private async Task InitializeAsync()
     {
         try
         {
-            var preferences = AppPreferencesStore.Load();
-            if (!string.IsNullOrWhiteSpace(preferences.LastProjectDirectory) && Directory.Exists(preferences.LastProjectDirectory)) _projectDirectory = preferences.LastProjectDirectory;
             await RefreshModelsAsync();
             await RefreshProjectsAsync();
             await ChooseStartupProjectAsync();
@@ -47,7 +50,7 @@ public partial class MainWindow : Window
             if (_project is not null) ProjectSelector.SelectedIndex = _projectSummaries.FindIndex(project => project.Id == _project.Id);
         }
         finally { _updatingProjectSelector = false; }
-        ProjectLocationText.Text = $"Project folder: {_projectDirectory}";
+        ProjectLocationText.Text = "Project database: http://localhost:5080 (Docker local stack)";
     }
 
     private async Task ChooseStartupProjectAsync()
@@ -66,20 +69,15 @@ public partial class MainWindow : Window
         {
             var dialog = new NewProjectWindow();
             if (await dialog.ShowDialog<bool>(this) is not true || string.IsNullOrWhiteSpace(dialog.ProjectName)) return;
-            var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = "Choose where to save the WorldSeed project", AllowMultiple = false });
-            var selectedDirectory = folders.FirstOrDefault()?.TryGetLocalPath();
-            if (string.IsNullOrWhiteSpace(selectedDirectory)) { StatusText.Text = "Project creation canceled: no save location was chosen."; return; }
-            _projectDirectory = selectedDirectory;
-            AppPreferencesStore.Save(new AppPreferences(_projectDirectory));
             _project = DesignProjectService.Create($"project-{Guid.NewGuid():N}", dialog.ProjectName, dialog.Description);
             _projectLoadGeneration++;
             ClearProjectView();
             await ProjectStore().SaveAsync(_project);
             await RefreshProjectsAsync();
             RefreshNotes(); ShowSelectedSource();
-            ProjectLocationText.Text = $"Saved in: {_projectDirectory}";
-            StatusText.Text = $"Project '{_project.Name}' created locally.";
-            AppLog.Info($"Created project '{_project.Id}' in selected folder.");
+            ProjectLocationText.Text = "Project database: http://localhost:5080 (Docker local stack)";
+            StatusText.Text = $"Project '{_project.Name}' created in the local database.";
+            AppLog.Info($"Created project '{_project.Id}' in the local database.");
         }
         catch (Exception ex)
         {
@@ -109,31 +107,30 @@ public partial class MainWindow : Window
             ClearProjectView(); RefreshNotes(); ShowSelectedSource();
             if (_project is not null)
             {
-                ProjectLocationText.Text = $"Saved in: {_projectDirectory}";
+                ProjectLocationText.Text = "Project database: http://localhost:5080 (Docker local stack)";
                 _updatingProjectSelector = true;
                 ProjectSelector.SelectedIndex = _projectSummaries.FindIndex(project => project.Id == _project.Id);
                 _updatingProjectSelector = false;
-                StatusText.Text = $"Loaded project '{_project.Name}'.";
+                StatusText.Text = $"Loaded project '{_project.Name}' from the local database.";
                 AppLog.Info($"Loaded project '{_project.Id}'.");
             }
         }
         catch (Exception ex) { AppLog.Error("Load selected project", ex); StatusText.Text = "Could not load that project. See the diagnostic log."; }
     }
 
-    private async void OpenProjectFolder_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    private async void CheckServer_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
-        var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = "Choose a folder containing WorldSeed projects", AllowMultiple = false });
-        var selectedDirectory = folders.FirstOrDefault()?.TryGetLocalPath();
-        if (string.IsNullOrWhiteSpace(selectedDirectory)) return;
-        _projectDirectory = selectedDirectory;
-        AppPreferencesStore.Save(new AppPreferences(_projectDirectory));
-        _project = null;
-        _projectLoadGeneration++;
-        ClearProjectView();
-        await RefreshProjectsAsync();
-        await ChooseStartupProjectAsync();
-        RefreshNotes(); ShowSelectedSource();
-        AppLog.Info("Opened a project folder.");
+        try
+        {
+            using var response = await _apiHttp.GetAsync("health");
+            response.EnsureSuccessStatusCode();
+            StatusText.Text = "Local database service is available.";
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("Check local database service", ex);
+            StatusText.Text = "The local database service is unavailable. Start it with deploy\\worldseed-local.bat.";
+        }
     }
 
     private async void DeleteProject_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
@@ -321,13 +318,13 @@ public partial class MainWindow : Window
     private string StatusFor(DesignSourceNote note) => SessionFor(note) is not { LatestTurn: { } turn } ? "Not started" : turn.Action == RuleDraftAction.PresentDraft ? "Draft ready" : "Needs answers";
     private static string FormatDraft(StructuredRuleDraft draft) => $"{draft.Title}\n{draft.Intent}\n\n" + string.Join("\n\n", draft.Rules.Select(rule => $"{rule.Name} ({rule.Kind})\n{rule.Text}\n\nSource evidence:\n{string.Join("\n", rule.SourceSupport.Select(support => $"• {support.SourceNoteId}: “{support.Excerpt}”"))}"));
     private static string FormatRule(RuleStatement rule) => $"{rule.Name}\nType: {rule.Kind}\n\nProposed rule\n{rule.Text}\n\nSource evidence\n{string.Join("\n", rule.SourceSupport.Select(support => $"• {support.SourceNoteId}: “{support.Excerpt}”"))}";
-    private JsonDesignProjectStore ProjectStore() => new(_projectDirectory);
-    private static string DefaultProjectDirectory => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WorldSeed", "projects");
+    private IDesignProjectStore ProjectStore() => _projectStore;
     private static string Preview(string? text) => string.IsNullOrWhiteSpace(text) ? "No model response was received." : text.Length > 3000 ? text[..3000] + "\n[truncated]" : text;
     protected override void OnClosed(EventArgs e)
     {
         EndIncompleteSessionsOnClose();
         _http.Dispose();
+        _apiHttp.Dispose();
         base.OnClosed(e);
     }
 
