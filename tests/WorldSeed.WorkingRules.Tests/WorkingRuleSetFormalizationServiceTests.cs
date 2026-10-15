@@ -58,6 +58,16 @@ public class WorkingRuleSetFormalizationServiceTests
     }
 
     [Fact]
+    public async Task Ignores_an_incomplete_optional_schema_hint_while_preserving_the_working_rule()
+    {
+        var response = ValidResponse.Replace("\"schemaHints\":[]", "\"schemaHints\":[{\"kind\":\"property\",\"suggestedId\":\"combatant.initiative\",\"rationale\":\"Incomplete optional suggestion.\",\"sourceWorkingRuleIds\":[\"combat-turn-order\"]}]", StringComparison.Ordinal);
+
+        var result = await new WorkingRuleSetFormalizationService(new CapturingModel(response)).CreateProposalAsync(CreateProject());
+
+        Assert.Empty(Assert.Single(result.RuleSet.Rules).SchemaHints);
+    }
+
+    [Fact]
     public async Task Requires_a_completed_source_draft()
     {
         var emptyProject = DesignProjectService.Create("empty", "Empty");

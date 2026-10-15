@@ -25,7 +25,9 @@ public sealed class WorkingRuleSetJsonParser
         catch (InvalidOperationException) { throw new WorkingRuleSetFormatException("The model did not return a JSON object."); }
 
         var timestamp = now ?? DateTimeOffset.UtcNow;
-        var rules = Objects(root, "rules").Select(rule => ParseRule(rule, catalog)).ToArray();
+        var parsedRules = Objects(root, "rules").Select(rule => ParseRule(rule, catalog)).ToArray();
+        var ruleIds = parsedRules.Select(rule => rule.Id).ToHashSet(StringComparer.Ordinal);
+        var rules = parsedRules.Select(rule => rule with { SchemaHints = rule.SchemaHints.Where(hint => hint.SourceWorkingRuleIds.Count > 0 && hint.SourceWorkingRuleIds.All(ruleIds.Contains)).ToArray() }).ToArray();
         var concepts = Objects(root, "concepts").Select(concept => ParseConcept(concept, catalog)).ToArray();
         var revision = existingRuleSet is null ? 1 : existingRuleSet.Revision + 1;
         var createdAt = existingRuleSet?.CreatedAt ?? timestamp;
@@ -53,7 +55,7 @@ public sealed class WorkingRuleSetJsonParser
         var references = References(item, catalog);
         return new WorkingRule(
             Required(item, "id"), Required(item, "name"), ParseKind(Required(item, "kind")), Required(item, "authoritativeText"),
-            EvidenceFor(references, catalog), references, Strings(item, "conceptIds"), Objects(item, "schemaHints").Select(ParseSchemaHint).ToArray(),
+            EvidenceFor(references, catalog), references, Strings(item, "conceptIds"), ParseSchemaHints(item),
             null, Strings(item, "openQuestions"), Strings(item, "exclusions"));
     }
 
@@ -65,6 +67,22 @@ public sealed class WorkingRuleSetJsonParser
 
     private static SchemaHint ParseSchemaHint(JsonObject item) => new(
         ParseHintKind(Required(item, "kind")), Required(item, "suggestedId"), Required(item, "suggestedName"), Optional(item, "parentSuggestedId"), Required(item, "rationale"), Strings(item, "sourceWorkingRuleIds"));
+
+    /// <summary>Hints are optional; malformed model suggestions must not prevent preservation of valid rules and evidence.</summary>
+    private static IReadOnlyList<SchemaHint> ParseSchemaHints(JsonObject item)
+    {
+        var hints = new List<SchemaHint>();
+        foreach (var hint in Objects(item, "schemaHints"))
+        {
+            try
+            {
+                var parsed = ParseSchemaHint(hint);
+                if (parsed.SourceWorkingRuleIds.Count > 0) hints.Add(parsed);
+            }
+            catch (WorkingRuleSetFormatException) { /* Optional malformed hints are ignored. */ }
+        }
+        return hints;
+    }
 
     private static IReadOnlyList<DraftRuleReference> References(JsonObject item, IReadOnlyDictionary<string, DraftCitation> catalog)
     {
