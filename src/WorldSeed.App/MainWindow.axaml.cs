@@ -11,7 +11,9 @@ namespace WorldSeed.App;
 
 public partial class MainWindow : Window
 {
-    private readonly HttpClient _http = new();
+    // A local model may need time to load into memory and generate a complete JSON proposal.
+    // Keep the desktop timeout distinct from the short API/database calls.
+    private readonly HttpClient _http = new() { Timeout = TimeSpan.FromMinutes(10) };
     private readonly HttpClient _apiHttp = new() { BaseAddress = new Uri("http://localhost:5080/") };
     private readonly IDesignProjectStore _projectStore;
     private readonly IWorkingRuleSetStore _workingRuleStore;
@@ -382,6 +384,18 @@ public partial class MainWindow : Window
             AppLog.Error("Validate working rule proposal", ex);
             WorkingRulesStatusText.Text = "The model returned a proposal WorldSeed could not safely use. Nothing was saved.";
             WorkingRuleText.Text = $"Format detail: {ex.Message}\n\nRaw model output (for diagnosis):\n{Preview(capture.Last?.Content)}";
+        }
+        catch (LlmClientException ex) when (ex.InnerException is TaskCanceledException)
+        {
+            AppLog.Error("Build working rule proposal timeout", ex);
+            WorkingRulesStatusText.Text = "The local model did not finish within 10 minutes. Nothing was saved; try a smaller/faster model or reduce the source material for this pass.";
+            WorkingRuleText.Text = $"The request timed out while waiting for Ollama.\n\nDiagnostic log: {AppLog.CurrentPath}";
+        }
+        catch (TaskCanceledException ex)
+        {
+            AppLog.Error("Build working rule proposal timeout", ex);
+            WorkingRulesStatusText.Text = "The local model did not finish within 10 minutes. Nothing was saved; try a smaller/faster model or reduce the source material for this pass.";
+            WorkingRuleText.Text = $"The request timed out while waiting for Ollama.\n\nDiagnostic log: {AppLog.CurrentPath}";
         }
         catch (Exception ex)
         {
