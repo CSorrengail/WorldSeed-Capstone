@@ -50,7 +50,14 @@ public sealed class OllamaChatClient : ILanguageModelClient
         {
             Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json")
         };
-        using var response = await _httpClient.SendAsync(message, cancellationToken);
+        HttpResponseMessage response;
+        try { response = await _httpClient.SendAsync(message, cancellationToken); }
+        catch (TaskCanceledException exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new LlmClientException("Ollama did not respond before the configured local-model timeout.", innerException: exception);
+        }
+        using (response)
+        {
         var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
         if (!response.IsSuccessStatusCode) throw new LlmClientException("Ollama rejected the request.", (int)response.StatusCode);
 
@@ -66,6 +73,7 @@ public sealed class OllamaChatClient : ILanguageModelClient
         }
         return new LlmChatResponse(content, StringValue(root?["model"]) ?? _profile.Model,
             new LlmUsage(IntValue(root?["prompt_eval_count"]), IntValue(root?["eval_count"])));
+        }
     }
 
     private Uri ApiUri() => new(_profile.BaseUri.ToString().TrimEnd('/') + "/api/chat", UriKind.Absolute);

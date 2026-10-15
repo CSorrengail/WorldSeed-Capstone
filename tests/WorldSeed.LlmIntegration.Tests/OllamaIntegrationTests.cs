@@ -46,6 +46,18 @@ public class OllamaIntegrationTests
     }
 
     [Fact]
+    public async Task Distinguishes_a_local_runtime_timeout_from_a_designer_cancellation()
+    {
+        using var httpClient = new HttpClient(new TimeoutHandler());
+        var client = new OllamaChatClient(httpClient, OllamaDefaults.CreateProfile("local", "My local model", "gemma3:12b"));
+
+        var exception = await Assert.ThrowsAsync<LlmClientException>(() => client.CompleteAsync(new LlmChatRequest([new(LlmMessageRole.User, "An idea")])));
+
+        Assert.Contains("did not respond", exception.Message);
+        Assert.IsType<TaskCanceledException>(exception.InnerException);
+    }
+
+    [Fact]
     public async Task Lists_installed_models_without_mutating_the_local_library()
     {
         var handler = new RecordingHandler("""{"models":[{"name":"qwen3:8b","size":5200000000,"modified_at":"2026-08-12T10:00:00Z"},{"name":"llama3.2:3b","size":2000000000}]}""");
@@ -72,5 +84,10 @@ public class OllamaIntegrationTests
             Body = request.Content is null ? null : await request.Content.ReadAsStringAsync(cancellationToken);
             return new HttpResponseMessage(statusCode) { Content = new StringContent(responseBody, Encoding.UTF8, "application/json") };
         }
+    }
+
+    private sealed class TimeoutHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) => Task.FromException<HttpResponseMessage>(new TaskCanceledException());
     }
 }

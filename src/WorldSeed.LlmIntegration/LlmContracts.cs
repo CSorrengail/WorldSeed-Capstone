@@ -45,6 +45,7 @@ public interface ILlmCredentialProvider
 public sealed class LlmClientException : Exception
 {
     public LlmClientException(string message, int? statusCode = null) : base(message) => StatusCode = statusCode;
+    public LlmClientException(string message, Exception innerException) : base(message, innerException) { }
     public int? StatusCode { get; }
 }
 
