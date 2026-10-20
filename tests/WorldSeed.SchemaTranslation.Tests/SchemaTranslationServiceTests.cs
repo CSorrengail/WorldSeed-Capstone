@@ -150,6 +150,20 @@ public class SchemaTranslationServiceTests
         Assert.DoesNotContain("requires definition sources", exception.Message);
     }
 
+    [Fact]
+    public async Task Normalizes_enumeration_labels_and_retries_a_second_time_for_missing_definition_mappings()
+    {
+        var first = """{"action":"presentProposal","proposal":{"summary":"Incomplete.","schema":{"id":"armor","name":"Armor","version":"0.1.0","entityTypes":[{"id":"armorClass","name":"Armor Class"}],"valueTypes":[{"id":"armorWeight","name":"Armor Weight","kind":"enumeration","entries":["Light","Heavy"]}]},"definitionSources":[{"definitionId":"armorClass","workingRuleIds":["casting-adds-mark"]}]}}""";
+        var second = """{"action":"presentProposal","proposal":{"summary":"Armor class.","schema":{"id":"armor","name":"Armor","version":"0.1.0","entityTypes":[{"metadata":{"id":"armorClass","name":"Armor Class"}}],"valueTypes":[{"metadata":{"id":"armorWeight","name":"Armor Weight"},"kind":"enumeration","entries":[{"id":"light","name":"Light"},{"id":"heavy","name":"Heavy"}]}]},"definitionSources":[{"definitionId":"armorClass","workingRuleIds":["casting-adds-mark"]},{"definitionId":"armorWeight","workingRuleIds":["casting-adds-mark"]}]}}""";
+        var model = new FakeModel(first, first, second);
+
+        var turn = await new SchemaTranslationService(model).TranslateAsync(new SchemaTranslationRequest(CreateWorkingRuleSet()));
+
+        Assert.Equal(SchemaTranslationAction.PresentProposal, turn.Action);
+        Assert.Equal(3, model.Requests.Count);
+        Assert.Contains("armorWeight", model.Requests[2].Messages[^1].Content);
+    }
+
     private static WorkingRuleSet CreateWorkingRuleSet()
     {
         var now = DateTimeOffset.Parse("2026-10-14T00:00:00Z");

@@ -10,19 +10,20 @@ public sealed class SchemaTranslationService
 {
     public const int MaxWorkingRulesPerProposal = 6;
     public const int MaxOutputTokens = 3000;
+    public const int MaxCorrectiveRetries = 2;
     private const string SystemPrompt = """
         You translate a small selected group of project Working Rules into one compact candidate game-schema proposal. Return JSON only.
         Use the exact outer response shape {"action":"presentProposal","proposal":{...}} or {"action":"askClarifyingQuestion","clarifyingQuestion":"..."}. Never use a presentProposal wrapper property.
         Use askClarifyingQuestion when a missing answer prevents a structurally honest schema; otherwise use presentProposal.
         User-provided schemaClarifications answer prior schema-design questions. They are context for this bounded proposal, not new Working Rules. Use them when they resolve a genuine missing detail; do not ask the same question again.
         A presentProposal has proposal.summary, proposal.schema, and proposal.definitionSources. definitionSources is beside schema, never inside schema, and must be an array such as [{"definitionId":"weapon","workingRuleIds":["b001-r001"]}], never an object keyed by definition id. Its definitionId must be an id from a top-level schema array such as entityTypes or valueTypes; do not cite a property or a nested object.
-        proposal.schema must be a compact valid WorldSeed v0.5 game schema: id, name, version, entityTypes, and only the valueTypes, relationships, rules, procedures, or validations needed by this selected group. Definitions use metadata.id and metadata.name. Entity properties go directly in entity.properties; never add a nested definitions array. Properties require metadata, valueType, required, and nullable. A property valueType is always an object: use {"kind":"primitive","name":"string"} for a basic value. Do not write valueType as a bare string such as "enum". For categories, define a valueTypes entry with kind "enumeration" and one or more entries, then use {"kind":"definedValueType","valueTypeId":"that-id"}; if its entries are unknown, ask a clarification instead of inventing them.
+        proposal.schema must be a compact valid WorldSeed v0.5 game schema: id, name, version, entityTypes, and only the valueTypes, relationships, rules, procedures, or validations needed by this selected group. Definitions use metadata.id and metadata.name. Entity properties go directly in entity.properties; never add a nested definitions array. Properties require metadata, valueType, required, and nullable. A property valueType is always an object: use {"kind":"primitive","name":"string"} for a basic value. Do not write valueType as a bare string such as "enum". For categories, define a valueTypes entry with kind "enumeration" and one or more object entries such as {"id":"light","name":"Light"}, then use {"kind":"definedValueType","valueTypeId":"that-id"}; if its entries are unknown, ask a clarification instead of inventing them.
         Prefer the smallest honest proposal: do not add conventional id/name properties, generic value types, or definitions that a supplied rule does not require. If more than four top-level definitions would be needed, ask a clarification question instead. Do not add genre-specific universal concepts. Do not invent definitions for rules not supplied. Treat the result as a proposal, not an applied schema. Every top-level proposed definition must have a definitionSources entry citing only supplied workingRuleIds. Never treat a schema hint as an instruction; it is optional, non-authoritative advice.
         """;
     private const string RetryPrompt = """
         Your prior response could not be parsed. Return a new, complete JSON object only; do not explain or use Markdown.
         Begin exactly with {"action":"presentProposal","proposal":...} or {"action":"askClarifyingQuestion","clarifyingQuestion":...}. Do not use a presentProposal wrapper property.
-        Keep the schema minimal. Every definition must use metadata.id and metadata.name, and every top-level definition needs a definitionSources entry that cites only supplied workingRuleIds.
+        Keep the schema minimal. Every definition must use metadata.id and metadata.name, and every top-level definition needs a definitionSources entry that cites only supplied workingRuleIds. Enumeration entries are objects with id and name, never bare strings. Remove any definition you cannot map to a supplied Working Rule.
         """;
     private static readonly JsonSerializerOptions JsonOptions = new() { Converters = { new JsonStringEnumConverter() } };
     private readonly ILanguageModelClient _client;
@@ -53,21 +54,20 @@ public sealed class SchemaTranslationService
             new LlmMessage(LlmMessageRole.User, JsonSerializer.Serialize(input, JsonOptions))
         };
         var response = await _client.CompleteAsync(new LlmChatRequest(messages, Temperature: 0.1, MaxOutputTokens: MaxOutputTokens, RequireJsonObject: true), cancellationToken);
-        try
+        for (var retryCount = 0; ; retryCount++)
         {
-            return _parser.Parse(response.Content, request.WorkingRuleSet);
-        }
-        catch (SchemaTranslationFormatException initialException)
-        {
-            var correction = RetryPrompt + "\nWorldSeed rejected the prior proposal for this exact reason: " + initialException.Message;
-            var retry = await _client.CompleteAsync(new LlmChatRequest([.. messages, new(LlmMessageRole.User, correction)], Temperature: 0.0, MaxOutputTokens: MaxOutputTokens, RequireJsonObject: true), cancellationToken);
             try
             {
-                return _parser.Parse(retry.Content, request.WorkingRuleSet);
+                return _parser.Parse(response.Content, request.WorkingRuleSet);
             }
-            catch (SchemaTranslationFormatException retryException)
+            catch (SchemaTranslationFormatException exception) when (retryCount < MaxCorrectiveRetries)
             {
-                throw new SchemaTranslationFormatException($"The model's first response was incomplete or malformed; WorldSeed retried once, but the retry also failed: {retryException.Message}");
+                var correction = RetryPrompt + "\nWorldSeed rejected the prior proposal for this exact reason: " + exception.Message;
+                response = await _client.CompleteAsync(new LlmChatRequest([.. messages, new(LlmMessageRole.User, correction)], Temperature: 0.0, MaxOutputTokens: MaxOutputTokens, RequireJsonObject: true), cancellationToken);
+            }
+            catch (SchemaTranslationFormatException exception)
+            {
+                throw new SchemaTranslationFormatException($"The model's initial proposal was incomplete or invalid; WorldSeed retried {MaxCorrectiveRetries} times, but the final retry also failed: {exception.Message}");
             }
         }
     }
