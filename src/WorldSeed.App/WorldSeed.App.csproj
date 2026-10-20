@@ -17,6 +17,7 @@
     <ProjectReference Include="..\WorldSeed.DesignSessions\WorldSeed.DesignSessions.csproj" />
     <ProjectReference Include="..\WorldSeed.RuleDrafting\WorldSeed.RuleDrafting.csproj" />
     <ProjectReference Include="..\WorldSeed.SourceIngestion\WorldSeed.SourceIngestion.csproj" />
+    <ProjectReference Include="..\WorldSeed.SchemaTranslation\WorldSeed.SchemaTranslation.csproj" />
     <ProjectReference Include="..\WorldSeed.WorkingRules\WorldSeed.WorkingRules.csproj" />
   </ItemGroup>
 </Project>

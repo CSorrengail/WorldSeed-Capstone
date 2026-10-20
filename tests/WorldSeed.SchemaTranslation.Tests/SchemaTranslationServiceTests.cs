@@ -18,8 +18,10 @@ public class SchemaTranslationServiceTests
         Assert.Equal("dangerous-magic", turn.Proposal!.Schema["id"]!.GetValue<string>());
         Assert.Equal("working-rules-dangerous-magic", turn.Proposal.WorkingRuleSetId);
         Assert.Equal(3, turn.Proposal.WorkingRuleSetRevision);
-        Assert.Contains("Working Rule Set", model.Request!.Messages[0].Content);
+        Assert.Contains("small selected group", model.Request!.Messages[0].Content);
         Assert.Contains("workingRuleIds", model.Request.Messages[0].Content);
+        Assert.Equal(2400, model.Request.MaxOutputTokens);
+        Assert.DoesNotContain("Evidence", model.Request.Messages[1].Content);
     }
 
     [Fact]
@@ -31,6 +33,19 @@ public class SchemaTranslationServiceTests
         var exception = await Assert.ThrowsAsync<SchemaTranslationFormatException>(() => service.TranslateAsync(new SchemaTranslationRequest(CreateWorkingRuleSet())));
 
         Assert.Contains("must cite only working rule ids", exception.Message);
+    }
+
+    [Fact]
+    public async Task Rejects_an_unbounded_rule_selection_before_calling_the_model()
+    {
+        var original = Assert.Single(CreateWorkingRuleSet().Rules);
+        var ruleSet = CreateWorkingRuleSet() with { Rules = Enumerable.Range(1, SchemaTranslationService.MaxWorkingRulesPerProposal + 1).Select(index => original with { Id = "rule-" + index }).ToArray() };
+        var model = new FakeModel("{}");
+
+        var exception = await Assert.ThrowsAsync<ArgumentException>(() => new SchemaTranslationService(model).TranslateAsync(new SchemaTranslationRequest(ruleSet)));
+
+        Assert.Contains("at most", exception.Message);
+        Assert.Null(model.Request);
     }
 
     private static WorkingRuleSet CreateWorkingRuleSet()

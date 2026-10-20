@@ -4,6 +4,7 @@ using System.Text.Json;
 using WorldSeed.DesignSessions;
 using WorldSeed.LlmIntegration;
 using WorldSeed.RuleDrafting;
+using WorldSeed.SchemaTranslation;
 using WorldSeed.SourceIngestion;
 using WorldSeed.WorkingRules;
 
@@ -17,6 +18,7 @@ public partial class MainWindow : Window
     private readonly HttpClient _apiHttp = new() { BaseAddress = new Uri("http://localhost:5080/") };
     private readonly IDesignProjectStore _projectStore;
     private readonly IWorkingRuleSetStore _workingRuleStore;
+    private readonly IProjectSchemaProposalStore _schemaProposalStore;
     private readonly List<DesignProjectSummary> _projectSummaries = [];
     private readonly List<ProjectRuleItem> _projectRules = [];
     private readonly List<WorkingRule> _workingRules = [];
@@ -25,6 +27,7 @@ public partial class MainWindow : Window
     private string? _pendingDeletionProjectId;
     private DesignProject? _project;
     private WorkingRuleSet? _workingRuleSet;
+    private ProjectSchemaProposal? _schemaProposal;
     private readonly List<TextBox> _answerInputs = [];
     private IReadOnlyList<string> _activeQuestions = [];
 
@@ -32,6 +35,7 @@ public partial class MainWindow : Window
     {
         _projectStore = new HttpDesignProjectStore(_apiHttp);
         _workingRuleStore = new HttpWorkingRuleSetStore(_apiHttp);
+        _schemaProposalStore = new HttpProjectSchemaProposalStore(_apiHttp);
         InitializeComponent();
     }
     protected override void OnOpened(EventArgs e) { base.OnOpened(e); AppLog.Info("Application opened."); _ = InitializeAsync(); }
@@ -153,6 +157,7 @@ public partial class MainWindow : Window
             if (_project is not null)
             {
                 await LoadWorkingRuleSetAsync(_project.Id);
+                await LoadSchemaProposalAsync(_project.Id);
                 RefreshNotes(); ShowSelectedSource();
                 ProjectLocationText.Text = "Project database: http://localhost:5080 (Docker local stack)";
                 _updatingProjectSelector = true;
@@ -375,7 +380,9 @@ public partial class MainWindow : Window
             var result = await new WorkingRuleSetFormalizationService(capture).CreateProposalAsync(_project, _workingRuleSet);
             await WorkingRuleStore().SaveAsync(result.RuleSet);
             _workingRuleSet = result.RuleSet;
+            _schemaProposal = null;
             RefreshWorkingRulesView();
+            RefreshSchemaView();
             WorkingRulesStatusText.Text = $"Saved working proposal revision {_workingRuleSet.Revision} from {result.BatchCount} validated batch(es). It remains a project working proposal, not a game schema.";
             AppLog.Info($"Saved working rule set revision {_workingRuleSet.Revision} for project '{_project.Id}'.");
         }
@@ -428,6 +435,100 @@ public partial class MainWindow : Window
         }
     }
 
+    private async Task LoadSchemaProposalAsync(string projectId)
+    {
+        try
+        {
+            _schemaProposal = await SchemaProposalStore().LoadAsync(projectId);
+            RefreshSchemaView();
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("Load schema proposal", ex);
+            _schemaProposal = null;
+            RefreshSchemaView();
+            SchemaStatusText.Text = "Could not load the saved schema proposal. See the diagnostic log.";
+        }
+    }
+
+    private async void BuildSchema_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (_project is null || _workingRuleSet is null || ModelSelector.SelectedItem is not string model)
+        {
+            SchemaStatusText.Text = "Load a project, Working Rule Set, and local model first.";
+            return;
+        }
+        var selected = SchemaRuleList.SelectedItems?.OfType<WorkingRuleListItem>().Select(item => item.Rule).ToArray() ?? [];
+        if (selected.Length == 0 || selected.Length > SchemaTranslationService.MaxWorkingRulesPerProposal)
+        {
+            SchemaStatusText.Text = $"Select between one and {SchemaTranslationService.MaxWorkingRulesPerProposal} related Working Rules.";
+            return;
+        }
+        BuildSchemaButton.IsEnabled = false;
+        SchemaStatusText.Text = $"Building a bounded schema proposal from {selected.Length} rule(s) with {model}...";
+        var capture = new CapturingClient(new OllamaChatClient(_http, OllamaDefaults.CreateProfile("local", "Local", model)));
+        try
+        {
+            var selectedIds = selected.Select(rule => rule.Id).ToHashSet(StringComparer.Ordinal);
+            var selectedRuleSet = _workingRuleSet with
+            {
+                Rules = selected,
+                Concepts = _workingRuleSet.Concepts.Where(concept => selected.SelectMany(rule => rule.ConceptIds).Contains(concept.Id, StringComparer.Ordinal)).ToArray()
+            };
+            var turn = await new SchemaTranslationService(capture).TranslateAsync(new SchemaTranslationRequest(selectedRuleSet));
+            if (turn.Action == SchemaTranslationAction.AskClarifyingQuestion)
+            {
+                SchemaStatusText.Text = "The model needs clarification before it can propose this schema piece.";
+                SchemaText.Text = turn.ClarifyingQuestion ?? "No clarification question was supplied.";
+                return;
+            }
+            var proposal = turn.Proposal ?? throw new SchemaTranslationFormatException("The model did not return a schema proposal.");
+            var now = DateTimeOffset.UtcNow;
+            _schemaProposal = new ProjectSchemaProposal(
+                "schema-proposal-" + _project.Id,
+                _project.Id,
+                "0.1",
+                proposal.Summary,
+                proposal.Schema.ToJsonString(new JsonSerializerOptions { WriteIndented = true }),
+                proposal.DefinitionSources,
+                proposal.WorkingRuleSetId,
+                proposal.WorkingRuleSetRevision,
+                selectedIds.Order(StringComparer.Ordinal).ToArray(),
+                _schemaProposal?.CreatedAt ?? now,
+                now);
+            await SchemaProposalStore().SaveAsync(_schemaProposal);
+            RefreshSchemaView();
+            SchemaStatusText.Text = "Saved a validated schema proposal. It is non-canonical and remains tied to the current Working Rule Set revision.";
+            AppLog.Info($"Saved schema proposal for project '{_project.Id}' from {selected.Length} Working Rule(s).");
+        }
+        catch (SchemaTranslationFormatException ex)
+        {
+            AppLog.Error("Validate schema proposal", ex);
+            SchemaStatusText.Text = "The model returned a schema proposal WorldSeed could not safely use. Nothing was saved.";
+            SchemaText.Text = $"Format detail: {ex.Message}\n\nRaw model output (for diagnosis):\n{Preview(capture.Last?.Content)}";
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("Build schema proposal", ex);
+            SchemaStatusText.Text = "Schema translation failed before a usable proposal was produced.";
+            SchemaText.Text = $"{ex.GetType().Name}: {ex.Message}\n\nDiagnostic log: {AppLog.CurrentPath}";
+        }
+        finally { BuildSchemaButton.IsEnabled = true; }
+    }
+
+    private void RefreshSchemaView()
+    {
+        SchemaRuleList.ItemsSource = _workingRules.Select(rule => new WorkingRuleListItem(rule)).ToArray();
+        if (_schemaProposal is null)
+        {
+            SchemaStatusText.Text = _workingRuleSet is null ? "Load a Working Rule Set, then select related rules to build a schema proposal." : $"Select one to {SchemaTranslationService.MaxWorkingRulesPerProposal} related Working Rules to build a bounded schema proposal.";
+            SchemaText.Text = "No schema proposal is loaded.";
+            return;
+        }
+        SchemaStatusText.Text = $"Proposal based on Working Rule Set revision {_schemaProposal.WorkingRuleSetRevision}; { _schemaProposal.SelectedWorkingRuleIds.Count } selected rule(s).";
+        SchemaText.Text = $"Summary\n{_schemaProposal.Summary}\n\nSelected Working Rules\n{string.Join("\n", _schemaProposal.SelectedWorkingRuleIds.Select(id => "- " + id))}\n\nDefinition sources\n{string.Join("\n", _schemaProposal.DefinitionSources.Select(source => $"- {source.DefinitionId}: {string.Join(", ", source.WorkingRuleIds)}"))}\n\nSchema JSON\n{PrettyJson(_schemaProposal.SchemaJson)}";
+    }
+
     private void RefreshWorkingRulesView()
     {
         var selected = WorkingRuleList.SelectedIndex is var index && index >= 0 && index < _workingRules.Count ? _workingRules[index].Id : null;
@@ -445,6 +546,7 @@ public partial class MainWindow : Window
         WorkingRulesSummaryText.Text = $"{_workingRuleSet.Name} - revision {_workingRuleSet.Revision}. {_workingRuleSet.Rules.Count} rule(s), {_workingRuleSet.Concepts.Count} concept(s).";
         WorkingRulesStatusText.Text = "Select a working rule to inspect its wording, source-draft links, and exact evidence.";
         if (_workingRules.Count > 0) WorkingRuleList.SelectedIndex = Math.Max(0, WorkingRuleList.SelectedIndex);
+        RefreshSchemaView();
     }
 
     private void WorkingRuleList_SelectionChanged(object? sender, SelectionChangedEventArgs e)
@@ -462,12 +564,17 @@ public partial class MainWindow : Window
         QuestionsPanel.Children.Clear();
         QuestionHeading.Text = "";
         _workingRuleSet = null;
+        _schemaProposal = null;
         _workingRules.Clear();
         WorkingRuleList.ItemsSource = Array.Empty<WorkingRuleListItem>();
         WorkingRuleList.SelectedIndex = -1;
         WorkingRulesSummaryText.Text = "Create completed source drafts, then build one project-wide working proposal.";
         WorkingRulesStatusText.Text = "No project-level working proposal is loaded.";
         WorkingRuleText.Text = "Build or load a proposal to inspect its project-level rules and exact evidence.";
+        SchemaRuleList.ItemsSource = Array.Empty<WorkingRuleListItem>();
+        SchemaRuleList.SelectedIndex = -1;
+        SchemaStatusText.Text = "Load a Working Rule Set, then select related rules to build a schema proposal.";
+        SchemaText.Text = "No schema proposal is loaded.";
     }
 
     private DesignSession? SessionFor(DesignSourceNote note) => _project?.Sessions.SingleOrDefault(session => session.SourceNotes.Any(source => source.Id == note.Id));
@@ -477,6 +584,7 @@ public partial class MainWindow : Window
     private static string FormatWorkingRule(WorkingRule rule) => $"{rule.Name}\nType: {rule.Kind}\n\nWorking rule\n{rule.AuthoritativeText}\n\nDerived from source drafts\n{string.Join("\n", rule.SourceDraftRules.Select(reference => $"- {reference.SessionId} / {reference.RuleId}"))}\n\nExact source evidence\n{string.Join("\n", rule.Evidence.Select(evidence => $"- {evidence.SourceNoteId} ({evidence.PassageId ?? "source text"}): {evidence.Excerpt}"))}\n\nOpen questions\n{(rule.OpenQuestions.Count == 0 ? "None" : string.Join("\n", rule.OpenQuestions.Select(question => $"- {question}")))}\n\nSchema hints\n{(rule.SchemaHints.Count == 0 ? "None" : string.Join("\n", rule.SchemaHints.Select(hint => $"- {hint.Kind}: {hint.SuggestedName} - {hint.Rationale}")))}";
     private IDesignProjectStore ProjectStore() => _projectStore;
     private IWorkingRuleSetStore WorkingRuleStore() => _workingRuleStore;
+    private IProjectSchemaProposalStore SchemaProposalStore() => _schemaProposalStore;
     private static string Preview(string? text)
     {
         if (string.IsNullOrWhiteSpace(text)) return "No model response was received.";
@@ -488,6 +596,15 @@ public partial class MainWindow : Window
         }
         catch (JsonException) { /* Preserve malformed model output exactly for diagnosis. */ }
         return display.Length > 6000 ? display[..6000] + "\n[truncated]" : display;
+    }
+    private static string PrettyJson(string text)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(text);
+            return JsonSerializer.Serialize(document.RootElement, new JsonSerializerOptions { WriteIndented = true });
+        }
+        catch (JsonException) { return text; }
     }
     protected override void OnClosed(EventArgs e)
     {

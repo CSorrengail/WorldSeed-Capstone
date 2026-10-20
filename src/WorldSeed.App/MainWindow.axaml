@@ -15,7 +15,12 @@
           <Border Grid.Column="1" Padding="16"><Grid RowDefinitions="Auto,170,*" RowSpacing="10"><TextBlock Name="WorkingRulesStatusText" Text="No project-level working proposal is loaded." TextWrapping="Wrap"/><ListBox Grid.Row="1" Name="WorkingRuleList" SelectionChanged="WorkingRuleList_SelectionChanged"/><TextBox Grid.Row="2" Name="WorkingRuleText" Text="Build or load a proposal to inspect its project-level rules and exact evidence." IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Disabled"/></Grid></Border>
         </Grid>
       </TabItem>
-      <TabItem Header="Schema (later)" IsEnabled="False"/>
+      <TabItem Header="Schema">
+        <Grid ColumnDefinitions="330,*" ColumnSpacing="16">
+          <Border Padding="16"><Grid RowDefinitions="Auto,Auto,*,Auto" RowSpacing="10"><TextBlock Text="Selected working rules" FontSize="20"/><TextBlock Grid.Row="1" Text="Choose up to six related rules. WorldSeed will propose only the schema definitions needed for this small group." TextWrapping="Wrap" Opacity="0.8"/><ListBox Grid.Row="2" Name="SchemaRuleList" SelectionMode="Multiple"/><Button Grid.Row="3" Name="BuildSchemaButton" Content="Build schema proposal" Click="BuildSchema_Click"/></Grid></Border>
+          <Border Grid.Column="1" Padding="16"><Grid RowDefinitions="Auto,*" RowSpacing="10"><TextBlock Name="SchemaStatusText" Text="Load a Working Rule Set, then select related rules to build a schema proposal." TextWrapping="Wrap"/><TextBox Grid.Row="1" Name="SchemaText" Text="No schema proposal is loaded." IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Disabled"/></Grid></Border>
+        </Grid>
+      </TabItem>
       <TabItem Header="Game Data (later)" IsEnabled="False"/>
       <TabItem Header="Validation &amp; Balance (later)" IsEnabled="False"/>
     </TabControl>
