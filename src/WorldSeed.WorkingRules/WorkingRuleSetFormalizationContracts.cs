@@ -3,7 +3,8 @@ using WorldSeed.DesignSessions;
 namespace WorldSeed.WorkingRules;
 
 /// <summary>Returned when an LLM has consolidated completed source drafts into the project's current working proposal.</summary>
-public sealed record WorkingRuleSetFormalizationResult(WorkingRuleSet RuleSet, string RawModelResponse);
+/// <param name="BatchCount">Number of independently validated model batches assembled into the proposal.</param>
+public sealed record WorkingRuleSetFormalizationResult(WorkingRuleSet RuleSet, string RawModelResponse, int BatchCount);
 
 /// <summary>Indicates that a model response could not be safely converted into a traceable working rule set.</summary>
 public sealed class WorkingRuleSetFormatException(string message) : Exception(message);

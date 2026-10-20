@@ -141,7 +141,7 @@ This avoids prematurely forcing dice, cards, probabilities, turns, attributes, o
 
 ## Integration behavior
 
-When updating the working proposal, the model may propose to:
+When updating the working proposal, the model works on a bounded batch of completed source-draft rules. It may propose to:
 
 - add a rule or concept;
 - consolidate several source-draft rules into one cohesive rule;
@@ -153,6 +153,12 @@ When updating the working proposal, the model may propose to:
 It may not invent evidence, overwrite source text, or silently make a schema change. When a current proposal exists, the formalizer receives it as context and should preserve or deliberately consolidate its rules while still citing completed source drafts. The service returns a complete replacement proposal that deterministic validation checks before it becomes the project’s current working rule set.
 
 The first implementation keeps this operation intentionally simple: it does not attempt a hidden merge or independently treat a source file as the owner of a rule. The generated proposal is a fresh, project-wide view of all completed interpretation drafts, with the current proposal supplied to reduce accidental regression. A future change-management layer can introduce explicit diff and merge decisions without changing the provenance model.
+
+### Bounded-batch implementation
+
+The initial implementation now uses small batches of no more than four source-draft rules. It intentionally does not consolidate rules across batches, infer cross-batch contradictions, or attach schema hints. Those require a later, separately bounded reconciliation step; this prevents large projects from requiring one oversized and fragile model response merely to create an initial proposal.
+
+Every source-draft rule in a batch must appear in at least one resulting working rule. Each batch is parsed and provenance-validated before deterministic code combines the batches into one proposal. If a response is incomplete, WorldSeed retries only that batch as two smaller batches. The existing descriptions of whole-proposal consolidation and prior-proposal context describe the intended future reconciliation layer, not the current bounded-batch formalizer.
 
 The model receives short opaque citation IDs (for example, `d001`) rather than internal session identifiers. It returns those IDs, and deterministic code resolves them to the actual session-scoped `sourceDraftRules` and literal evidence before validation and storage. This keeps the model-facing format small while retaining exact provenance in the stored Working Rule Set.
 
