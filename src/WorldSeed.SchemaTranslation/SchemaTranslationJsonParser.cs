@@ -74,6 +74,12 @@ public sealed class SchemaTranslationJsonParser
         NormalizeMetadata(definition, allowNameAsId: false);
         foreach (var property in (definition["properties"] as JsonArray)?.OfType<JsonObject>() ?? []) NormalizeProperty(property);
         foreach (var attribute in (definition["attributes"] as JsonArray)?.OfType<JsonObject>() ?? []) NormalizeProperty(attribute);
+        if (String(definition["kind"]) == "enumeration" && definition["entries"] is JsonArray entries)
+        {
+            for (var index = 0; index < entries.Count; index++)
+                if (String(entries[index]) is { } label)
+                    entries[index] = new JsonObject { ["id"] = label, ["name"] = label };
+        }
     }
 
     private static void NormalizeProperty(JsonObject property)
