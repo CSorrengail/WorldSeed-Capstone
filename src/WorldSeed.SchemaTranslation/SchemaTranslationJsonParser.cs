@@ -13,8 +13,19 @@ public sealed class SchemaTranslationJsonParser
     {
         JsonObject root;
         try { root = JsonNode.Parse(content)?.AsObject() ?? throw new SchemaTranslationFormatException("The model did not return a JSON object."); }
+        catch (JsonException) when (LooksIncomplete(content)) { throw new SchemaTranslationFormatException("The model response ended before its JSON object was complete, usually because it reached its output limit."); }
         catch (JsonException) { throw new SchemaTranslationFormatException("The model did not return valid JSON."); }
         catch (InvalidOperationException) { throw new SchemaTranslationFormatException("The model did not return a JSON object."); }
+        if (root["action"] is null && root["presentProposal"] is JsonObject alternateProposal)
+        {
+            root = (JsonObject)alternateProposal.DeepClone();
+            root["action"] = "presentProposal";
+        }
+        else if (root["action"] is null && root["askClarifyingQuestion"] is JsonObject alternateQuestion)
+        {
+            root = (JsonObject)alternateQuestion.DeepClone();
+            root["action"] = "askClarifyingQuestion";
+        }
         var action = String(root["action"]) switch { "askClarifyingQuestion" => SchemaTranslationAction.AskClarifyingQuestion, "presentProposal" => SchemaTranslationAction.PresentProposal, _ => throw new SchemaTranslationFormatException("The model response has an unknown action.") };
         var question = String(root["clarifyingQuestion"]);
         if (action == SchemaTranslationAction.AskClarifyingQuestion && question is null) throw new SchemaTranslationFormatException("A clarification response requires a question.");
@@ -37,6 +48,11 @@ public sealed class SchemaTranslationJsonParser
     }
 
     private static DefinitionSource ParseSource(JsonObject source) => new(Required(source, "definitionId"), Strings(source, "workingRuleIds"));
+    private static bool LooksIncomplete(string content)
+    {
+        var trimmed = content.Trim();
+        return trimmed.StartsWith('{') && !trimmed.EndsWith('}');
+    }
     private static IEnumerable<string> Definitions(JsonObject schema) => new[] { "schemaFragments", "entityTypes", "valueTypes", "relationships", "rules", "procedures", "validations" }.SelectMany(name => schema[name] is JsonArray definitions ? definitions.OfType<JsonObject>().Select(definition => String((definition["metadata"] as JsonObject)?["id"])).Where(id => id is not null).Cast<string>() : []);
     private static string Required(JsonObject node, string name) => String(node[name]) ?? throw new SchemaTranslationFormatException($"'{name}' is required.");
     private static string? String(JsonNode? node) => node is JsonValue value && value.TryGetValue<string>(out var text) && !string.IsNullOrWhiteSpace(text) ? text : null;

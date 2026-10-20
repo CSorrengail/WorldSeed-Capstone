@@ -2,7 +2,7 @@
 
 Schema translation converts a small selected group of validated Working Rules into a candidate game-schema proposal. It is intentionally proposal-only: it neither overwrites a schema nor records a decision to apply one.
 
-The selected model receives no more than six related Working Rules and may ask one clarification or return a compact valid v0.5 game-schema document containing only the definitions needed by that group. `SchemaTranslationJsonParser` then validates that document with `GameSchemaValidator` and checks a second traceability map: every top-level schema definition must cite rule IDs that exist in the selected input.
+The selected model receives no more than six related Working Rules and may ask one clarification or return a compact valid v0.5 game-schema document containing only the definitions needed by that group. The request requires a minimal response shape and avoids conventional definitions that the selected rules do not require. If the first response is malformed or incomplete, WorldSeed makes one corrective retry before reporting a failure. `SchemaTranslationJsonParser` then validates that document with `GameSchemaValidator` and checks a second traceability map: every top-level schema definition must cite rule IDs that exist in the selected input.
 
 ```text
 selected Working Rules

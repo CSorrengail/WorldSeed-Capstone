@@ -20,7 +20,7 @@ public class SchemaTranslationServiceTests
         Assert.Equal(3, turn.Proposal.WorkingRuleSetRevision);
         Assert.Contains("small selected group", model.Request!.Messages[0].Content);
         Assert.Contains("workingRuleIds", model.Request.Messages[0].Content);
-        Assert.Equal(2400, model.Request.MaxOutputTokens);
+        Assert.Equal(SchemaTranslationService.MaxOutputTokens, model.Request.MaxOutputTokens);
         Assert.DoesNotContain("Evidence", model.Request.Messages[1].Content);
     }
 
@@ -48,6 +48,30 @@ public class SchemaTranslationServiceTests
         Assert.Null(model.Request);
     }
 
+    [Fact]
+    public async Task Retries_once_after_an_incomplete_json_response()
+    {
+        var valid = """{"action":"presentProposal","proposal":{"summary":"A caster schema.","schema":{"id":"dangerous-magic","name":"Dangerous Magic","version":"0.1.0","entityTypes":[{"metadata":{"id":"caster","name":"Caster"}}]},"definitionSources":[{"definitionId":"caster","workingRuleIds":["casting-adds-mark"]}]}}""";
+        var model = new FakeModel("{\"action\":\"presentProposal\",\"proposal\":", valid);
+
+        var turn = await new SchemaTranslationService(model).TranslateAsync(new SchemaTranslationRequest(CreateWorkingRuleSet()));
+
+        Assert.Equal(SchemaTranslationAction.PresentProposal, turn.Action);
+        Assert.Equal(2, model.Requests.Count);
+        Assert.Contains("prior response could not be parsed", model.Requests[1].Messages[^1].Content);
+    }
+
+    [Fact]
+    public async Task Accepts_a_complete_legacy_present_proposal_wrapper()
+    {
+        var model = new FakeModel("""{"presentProposal":{"proposal":{"summary":"A caster schema.","schema":{"id":"dangerous-magic","name":"Dangerous Magic","version":"0.1.0","entityTypes":[{"metadata":{"id":"caster","name":"Caster"}}]},"definitionSources":[{"definitionId":"caster","workingRuleIds":["casting-adds-mark"]}]}}}""");
+
+        var turn = await new SchemaTranslationService(model).TranslateAsync(new SchemaTranslationRequest(CreateWorkingRuleSet()));
+
+        Assert.Equal(SchemaTranslationAction.PresentProposal, turn.Action);
+        Assert.Single(model.Requests);
+    }
+
     private static WorkingRuleSet CreateWorkingRuleSet()
     {
         var now = DateTimeOffset.Parse("2026-10-14T00:00:00Z");
@@ -55,9 +79,17 @@ public class SchemaTranslationServiceTests
         return new WorkingRuleSet("working-rules-dangerous-magic", "project-dangerous-magic", "0.1", "Dangerous Magic", null, 3, now, now, [rule], [], [], [], []);
     }
 
-    private sealed class FakeModel(string content) : ILanguageModelClient
+    private sealed class FakeModel(params string[] contents) : ILanguageModelClient
     {
+        private int _next;
         public LlmChatRequest? Request { get; private set; }
-        public Task<LlmChatResponse> CompleteAsync(LlmChatRequest request, CancellationToken cancellationToken = default) { Request = request; return Task.FromResult(new LlmChatResponse(content, "test-model", null)); }
+        public List<LlmChatRequest> Requests { get; } = [];
+        public Task<LlmChatResponse> CompleteAsync(LlmChatRequest request, CancellationToken cancellationToken = default)
+        {
+            Request = request;
+            Requests.Add(request);
+            var content = contents[Math.Min(_next++, contents.Length - 1)];
+            return Task.FromResult(new LlmChatResponse(content, "test-model", null));
+        }
     }
 }
