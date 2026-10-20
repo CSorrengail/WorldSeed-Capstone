@@ -4,4 +4,4 @@ Use this directory for short decision records as the meta-schema evolves. Each r
 
 The first decisions should cover source-text provenance, the distinction between properties and relationships, the role of behaviors, and schema/data versioning.
 
-The current decision record is [0011: Use local Ollama as the first model runtime](0011-use-local-ollama-first.md).
+The current decision record is [0013: Plan a single-install desktop distribution](0013-plan-single-install-distribution.md).
