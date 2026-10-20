@@ -4,9 +4,12 @@ set "ROOT=%~dp0"
 set "APP_PROJECT=%ROOT%src\WorldSeed.App\WorldSeed.App.csproj"
 
 if /I "%~1"=="--check" goto check
+if /I "%~1"=="--rebuild" set "FORCE_DOCKER_BUILD=1"
 if not "%~1"=="" (
-  echo Usage: RunWorldSeed.bat [--check]
-  exit /b 1
+  if /I not "%~1"=="--rebuild" (
+    echo Usage: RunWorldSeed.bat [--check^|--rebuild]
+    exit /b 1
+  )
 )
 
 :start
@@ -17,6 +20,19 @@ if errorlevel 1 (
   exit /b 1
 )
 
+if not defined FORCE_DOCKER_BUILD (
+  call :api_is_healthy
+  if not errorlevel 1 (
+    echo Reusing the healthy WorldSeed Docker services.
+    goto check
+  )
+)
+
+if defined FORCE_DOCKER_BUILD (
+  echo Rebuilding WorldSeed Docker services by request...
+) else (
+  echo WorldSeed Docker services are not healthy. Starting or rebuilding them now...
+)
 call "%ROOT%deploy\worldseed-local.bat"
 if errorlevel 1 (
   echo.
@@ -41,4 +57,8 @@ if /I "%~1"=="--check" (
 echo Starting the WorldSeed desktop application...
 echo The application window uses the Docker-backed local database service.
 dotnet run --project "%APP_PROJECT%" --disable-build-servers
+exit /b %errorlevel%
+
+:api_is_healthy
+powershell -NoProfile -Command "try { $response = Invoke-WebRequest -UseBasicParsing 'http://localhost:5080/health' -TimeoutSec 2; if ($response.Content -match 'healthy') { exit 0 } } catch { } ; exit 1"
 exit /b %errorlevel%
