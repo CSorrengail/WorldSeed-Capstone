@@ -72,6 +72,21 @@ public class SchemaTranslationServiceTests
         Assert.Single(model.Requests);
     }
 
+    [Fact]
+    public async Task Normalizes_lossless_model_shape_variants_before_validation()
+    {
+        var model = new FakeModel("""{"action":"presentProposal","proposal":{"summary":"A weapon schema.","schema":{"id":"weapons","name":"Weapons","version":"0.1.0","entityTypes":[{"id":"weapon","name":"Weapon","metadata":{"name":"Weapon"},"properties":[{"name":"name","valueType":"string","required":true,"nullable":false,"metadata":{"name":"Name"}}]}]},"definitionSources":{"weapon":["casting-adds-mark"]}}}""");
+
+        var turn = await new SchemaTranslationService(model).TranslateAsync(new SchemaTranslationRequest(CreateWorkingRuleSet()));
+
+        var weapon = turn.Proposal!.Schema["entityTypes"]!.AsArray()[0]!.AsObject();
+        var property = weapon["properties"]!.AsArray()[0]!.AsObject();
+        Assert.Equal("weapon", weapon["metadata"]!["id"]!.GetValue<string>());
+        Assert.Equal("name", property["metadata"]!["id"]!.GetValue<string>());
+        Assert.Equal("primitive", property["valueType"]!["kind"]!.GetValue<string>());
+        Assert.Equal("weapon", Assert.Single(turn.Proposal.DefinitionSources).DefinitionId);
+    }
+
     private static WorkingRuleSet CreateWorkingRuleSet()
     {
         var now = DateTimeOffset.Parse("2026-10-14T00:00:00Z");
