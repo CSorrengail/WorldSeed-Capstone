@@ -105,8 +105,24 @@ public class SchemaTranslationServiceTests
 
         Assert.Equal(new[] { WorkingRuleKind.Definition, WorkingRuleKind.Rule, WorkingRuleKind.Procedure }, groups.Select(group => group.Kind));
         Assert.Equal("Definition - Weapon", Assert.Single(groups[0].Rules).Name);
+        Assert.Equal("Weapon", SchemaRulePicker.DisplayName(groups[0].Rules[0]));
         Assert.False(SchemaRulePicker.TrySetSelected(selected, "too-many", true, SchemaTranslationService.MaxWorkingRulesPerProposal));
         Assert.Equal(SchemaTranslationService.MaxWorkingRulesPerProposal, selected.Count);
+    }
+
+    [Fact]
+    public async Task Retries_once_when_the_first_schema_is_structurally_invalid()
+    {
+        var invalid = """{"action":"presentProposal","proposal":{"summary":"Incomplete.","schema":{"id":"armor","name":"Armor","version":"0.1.0","entityTypes":[{"metadata":{"id":"armorClass","name":"Armor Class"},"properties":[{"metadata":{"id":"weight","name":"Weight"},"valueType":"enum","required":true,"nullable":false}]}]},"definitionSources":[{"definitionId":"armorClass","workingRuleIds":["casting-adds-mark"]},{"definitionId":"materialCost","workingRuleIds":["casting-adds-mark"]}]}}""";
+        var corrected = """{"action":"presentProposal","proposal":{"summary":"Armor class.","schema":{"id":"armor","name":"Armor","version":"0.1.0","entityTypes":[{"metadata":{"id":"armorClass","name":"Armor Class"},"properties":[{"metadata":{"id":"weight","name":"Weight"},"valueType":{"kind":"primitive","name":"string"},"required":true,"nullable":false}]}]},"definitionSources":[{"definitionId":"armorClass","workingRuleIds":["casting-adds-mark"]}]}}""";
+        var model = new FakeModel(invalid, corrected);
+
+        var turn = await new SchemaTranslationService(model).TranslateAsync(new SchemaTranslationRequest(CreateWorkingRuleSet()));
+
+        Assert.Equal(SchemaTranslationAction.PresentProposal, turn.Action);
+        Assert.Equal(2, model.Requests.Count);
+        Assert.Contains("Property valueType requires a kind", model.Requests[1].Messages[^1].Content);
+        Assert.Contains("materialCost", model.Requests[1].Messages[^1].Content);
     }
 
     private static WorkingRuleSet CreateWorkingRuleSet()

@@ -535,7 +535,7 @@ public partial class MainWindow : Window
             {
                 var checkBox = new CheckBox
                 {
-                    Content = rule.Name,
+                    Content = SchemaRulePicker.DisplayName(rule),
                     Tag = rule.Id,
                     IsChecked = _selectedSchemaRuleIds.Contains(rule.Id),
                     VerticalAlignment = VerticalAlignment.Center
