@@ -368,7 +368,7 @@ public partial class MainWindow : Window
             return;
         }
         BuildWorkingRulesButton.IsEnabled = false;
-        WorkingRulesStatusText.Text = $"Consolidating completed source drafts with {model}. This can take a few seconds...";
+        WorkingRulesStatusText.Text = $"Building bounded working-rule batches with {model}. Each batch is validated before it is combined...";
         var capture = new CapturingClient(new OllamaChatClient(_http, OllamaDefaults.CreateProfile("local", "Local", model)));
         try
         {
@@ -376,7 +376,7 @@ public partial class MainWindow : Window
             await WorkingRuleStore().SaveAsync(result.RuleSet);
             _workingRuleSet = result.RuleSet;
             RefreshWorkingRulesView();
-            WorkingRulesStatusText.Text = $"Saved working proposal revision {_workingRuleSet.Revision}. It remains a project working proposal, not a game schema.";
+            WorkingRulesStatusText.Text = $"Saved working proposal revision {_workingRuleSet.Revision} from {result.BatchCount} validated batch(es). It remains a project working proposal, not a game schema.";
             AppLog.Info($"Saved working rule set revision {_workingRuleSet.Revision} for project '{_project.Id}'.");
         }
         catch (WorkingRuleSetFormatException ex)
