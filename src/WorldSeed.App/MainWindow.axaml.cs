@@ -562,12 +562,10 @@ public partial class MainWindow : Window
     {
         var availableIds = _workingRules.Select(rule => rule.Id).ToHashSet(StringComparer.Ordinal);
         _selectedSchemaRuleIds.RemoveWhere(id => !availableIds.Contains(id));
-        if (_selectedSchemaRuleIds.Count == 0 && _schemaProposal is not null)
-            _selectedSchemaRuleIds.UnionWith(_schemaProposal.SelectedWorkingRuleIds.Where(availableIds.Contains));
         SchemaRuleGroupsPanel.Children.Clear();
         foreach (var group in SchemaRulePicker.Group(_workingRules))
         {
-            var groupPanel = new StackPanel { Spacing = 4, Margin = new Thickness(8, 4, 0, 4) };
+            var groupPanel = new StackPanel { Spacing = 4, Margin = new Thickness(8, 4, 0, 4), HorizontalAlignment = HorizontalAlignment.Stretch };
             foreach (var rule in group.Rules)
             {
                 var checkBox = new CheckBox
@@ -594,13 +592,9 @@ public partial class MainWindow : Window
             {
                 Header = $"{group.Kind} ({group.Rules.Count})",
                 IsExpanded = true,
-                Content = new ScrollViewer
-                {
-                    Height = 260,
-                    VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
-                    HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled,
-                    Content = groupPanel
-                }
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                Content = groupPanel
             });
         }
         UpdateSchemaSelectionText();
