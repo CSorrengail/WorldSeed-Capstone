@@ -87,6 +87,28 @@ public class SchemaTranslationServiceTests
         Assert.Equal("weapon", Assert.Single(turn.Proposal.DefinitionSources).DefinitionId);
     }
 
+    [Fact]
+    public void Groups_schema_candidates_by_kind_and_enforces_the_six_rule_limit()
+    {
+        var original = Assert.Single(CreateWorkingRuleSet().Rules);
+        var rules = new[]
+        {
+            original with { Id = "definition", Name = "Definition - Weapon", Kind = WorkingRuleKind.Definition },
+            original with { Id = "procedure", Name = "Attack procedure", Kind = WorkingRuleKind.Procedure },
+            original with { Id = "rule", Name = "Attack rule", Kind = WorkingRuleKind.Rule }
+        };
+
+        var groups = SchemaRulePicker.Group(rules);
+        var selected = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var rule in rules) Assert.True(SchemaRulePicker.TrySetSelected(selected, rule.Id, true, SchemaTranslationService.MaxWorkingRulesPerProposal));
+        foreach (var index in Enumerable.Range(0, 3)) Assert.True(SchemaRulePicker.TrySetSelected(selected, "extra-" + index, true, SchemaTranslationService.MaxWorkingRulesPerProposal));
+
+        Assert.Equal(new[] { WorkingRuleKind.Definition, WorkingRuleKind.Rule, WorkingRuleKind.Procedure }, groups.Select(group => group.Kind));
+        Assert.Equal("Definition - Weapon", Assert.Single(groups[0].Rules).Name);
+        Assert.False(SchemaRulePicker.TrySetSelected(selected, "too-many", true, SchemaTranslationService.MaxWorkingRulesPerProposal));
+        Assert.Equal(SchemaTranslationService.MaxWorkingRulesPerProposal, selected.Count);
+    }
+
     private static WorkingRuleSet CreateWorkingRuleSet()
     {
         var now = DateTimeOffset.Parse("2026-10-14T00:00:00Z");
