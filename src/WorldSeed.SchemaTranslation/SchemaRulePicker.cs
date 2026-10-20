@@ -25,6 +25,15 @@ public static class SchemaRulePicker
             .Where(group => group.Rules.Count > 0)
             .ToArray();
 
+    /// <summary>Removes only a redundant leading kind label because the surrounding group already supplies it.</summary>
+    public static string DisplayName(WorkingRule rule)
+    {
+        var prefix = rule.Kind + " - ";
+        return rule.Name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+            ? rule.Name[prefix.Length..].Trim()
+            : rule.Name;
+    }
+
     /// <summary>Changes a selection only when it remains within the caller-supplied bound.</summary>
     public static bool TrySetSelected(ISet<string> selectedIds, string ruleId, bool selected, int maximum)
     {
