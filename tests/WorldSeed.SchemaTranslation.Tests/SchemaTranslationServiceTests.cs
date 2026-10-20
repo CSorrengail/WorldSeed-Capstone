@@ -25,6 +25,19 @@ public class SchemaTranslationServiceTests
     }
 
     [Fact]
+    public async Task Sends_designer_schema_clarifications_back_to_the_model()
+    {
+        var model = new FakeModel("""{"action":"askClarifyingQuestion","clarifyingQuestion":"What weight categories are used?"}""");
+        var clarifications = new[] { new SchemaClarification("What weight categories are used?", "Light, medium, and heavy.") };
+
+        var turn = await new SchemaTranslationService(model).TranslateAsync(new SchemaTranslationRequest(CreateWorkingRuleSet(), Clarifications: clarifications));
+
+        Assert.Equal(SchemaTranslationAction.AskClarifyingQuestion, turn.Action);
+        Assert.Contains("schemaClarifications", model.Request!.Messages[1].Content);
+        Assert.Contains("Light, medium, and heavy.", model.Request.Messages[1].Content);
+    }
+
+    [Fact]
     public async Task Rejects_proposals_with_invented_or_unmapped_working_rule_links()
     {
         var model = new FakeModel("""{"action":"presentProposal","proposal":{"summary":"Bad mapping.","schema":{"id":"dangerous-magic","name":"Dangerous Magic","version":"0.1.0","entityTypes":[{"metadata":{"id":"caster","name":"Caster"}}]},"definitionSources":[{"definitionId":"caster","workingRuleIds":["invented-rule"]}]}}""");

@@ -27,12 +27,14 @@ public partial class MainWindow : Window
     private readonly List<ProjectRuleItem> _projectRules = [];
     private readonly List<WorkingRule> _workingRules = [];
     private readonly HashSet<string> _selectedSchemaRuleIds = new(StringComparer.Ordinal);
+    private readonly List<SchemaClarification> _schemaClarifications = [];
     private int _projectLoadGeneration;
     private bool _updatingProjectSelector;
     private string? _pendingDeletionProjectId;
     private DesignProject? _project;
     private WorkingRuleSet? _workingRuleSet;
     private ProjectSchemaProposal? _schemaProposal;
+    private string? _pendingSchemaQuestion;
     private readonly List<TextBox> _answerInputs = [];
     private IReadOnlyList<string> _activeQuestions = [];
 
@@ -386,6 +388,9 @@ public partial class MainWindow : Window
             await WorkingRuleStore().SaveAsync(result.RuleSet);
             _workingRuleSet = result.RuleSet;
             _schemaProposal = null;
+            _pendingSchemaQuestion = null;
+            _schemaClarifications.Clear();
+            SchemaQuestionPanel.IsVisible = false;
             RefreshWorkingRulesView();
             RefreshSchemaView();
             WorkingRulesStatusText.Text = $"Saved working proposal revision {_workingRuleSet.Revision} from {result.BatchCount} validated batch(es). It remains a project working proposal, not a game schema.";
@@ -445,6 +450,8 @@ public partial class MainWindow : Window
         try
         {
             _schemaProposal = await SchemaProposalStore().LoadAsync(projectId);
+            _schemaClarifications.Clear();
+            if (_schemaProposal?.Clarifications is not null) _schemaClarifications.AddRange(_schemaProposal.Clarifications);
             RefreshSchemaView();
         }
         catch (Exception ex)
@@ -456,8 +463,31 @@ public partial class MainWindow : Window
         }
     }
 
-    private async void BuildSchema_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    private async void BuildSchema_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => await BuildSchemaProposalAsync();
+
+    private async void SubmitSchemaAnswer_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
+        if (string.IsNullOrWhiteSpace(_pendingSchemaQuestion)) return;
+        var answer = SchemaAnswerText.Text?.Trim();
+        if (string.IsNullOrWhiteSpace(answer))
+        {
+            SchemaStatusText.Text = "Enter an answer before continuing the schema proposal.";
+            return;
+        }
+        _schemaClarifications.Add(new SchemaClarification(_pendingSchemaQuestion, answer));
+        _pendingSchemaQuestion = null;
+        SchemaQuestionPanel.IsVisible = false;
+        await BuildSchemaProposalAsync();
+    }
+
+    private async Task BuildSchemaProposalAsync()
+    {
+        if (!string.IsNullOrWhiteSpace(_pendingSchemaQuestion))
+        {
+            SchemaStatusText.Text = "Answer the schema clarification below before requesting another proposal.";
+            SchemaQuestionPanel.IsVisible = true;
+            return;
+        }
         if (_project is null || _workingRuleSet is null || ModelSelector.SelectedItem is not string model)
         {
             SchemaStatusText.Text = "Load a project, Working Rule Set, and local model first.";
@@ -480,11 +510,15 @@ public partial class MainWindow : Window
                 Rules = selected,
                 Concepts = _workingRuleSet.Concepts.Where(concept => selected.SelectMany(rule => rule.ConceptIds).Contains(concept.Id, StringComparer.Ordinal)).ToArray()
             };
-            var turn = await new SchemaTranslationService(capture).TranslateAsync(new SchemaTranslationRequest(selectedRuleSet));
+            var turn = await new SchemaTranslationService(capture).TranslateAsync(new SchemaTranslationRequest(selectedRuleSet, Clarifications: _schemaClarifications));
             if (turn.Action == SchemaTranslationAction.AskClarifyingQuestion)
             {
                 SchemaStatusText.Text = "The model needs clarification before it can propose this schema piece.";
-                SchemaText.Text = turn.ClarifyingQuestion ?? "No clarification question was supplied.";
+                _pendingSchemaQuestion = turn.ClarifyingQuestion ?? "No clarification question was supplied.";
+                SchemaQuestionText.Text = _pendingSchemaQuestion;
+                SchemaAnswerText.Text = string.Empty;
+                SchemaQuestionPanel.IsVisible = true;
+                SchemaText.Text = "No schema proposal was saved. Answer the question below, then continue with the same selected rules.";
                 return;
             }
             var proposal = turn.Proposal ?? throw new SchemaTranslationFormatException("The model did not return a schema proposal.");
@@ -500,8 +534,11 @@ public partial class MainWindow : Window
                 proposal.WorkingRuleSetRevision,
                 selectedIds.Order(StringComparer.Ordinal).ToArray(),
                 _schemaProposal?.CreatedAt ?? now,
-                now);
+                now,
+                _schemaClarifications.ToArray());
             await SchemaProposalStore().SaveAsync(_schemaProposal);
+            _pendingSchemaQuestion = null;
+            SchemaQuestionPanel.IsVisible = false;
             RefreshSchemaView();
             SchemaStatusText.Text = "Saved a validated schema proposal. It is non-canonical and remains tied to the current Working Rule Set revision.";
             AppLog.Info($"Saved schema proposal for project '{_project.Id}' from {selected.Length} Working Rule(s).");
@@ -557,7 +594,13 @@ public partial class MainWindow : Window
             {
                 Header = $"{group.Kind} ({group.Rules.Count})",
                 IsExpanded = true,
-                Content = groupPanel
+                Content = new ScrollViewer
+                {
+                    Height = 260,
+                    VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
+                    HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled,
+                    Content = groupPanel
+                }
             });
         }
         UpdateSchemaSelectionText();
@@ -568,7 +611,7 @@ public partial class MainWindow : Window
             return;
         }
         SchemaStatusText.Text = $"Proposal based on Working Rule Set revision {_schemaProposal.WorkingRuleSetRevision}; { _schemaProposal.SelectedWorkingRuleIds.Count } selected rule(s).";
-        SchemaText.Text = $"Summary\n{_schemaProposal.Summary}\n\nSelected Working Rules\n{string.Join("\n", _schemaProposal.SelectedWorkingRuleIds.Select(id => "- " + id))}\n\nDefinition sources\n{string.Join("\n", _schemaProposal.DefinitionSources.Select(source => $"- {source.DefinitionId}: {string.Join(", ", source.WorkingRuleIds)}"))}\n\nSchema JSON\n{PrettyJson(_schemaProposal.SchemaJson)}";
+        SchemaText.Text = $"Summary\n{_schemaProposal.Summary}\n\nSchema clarifications\n{FormatSchemaClarifications(_schemaProposal.Clarifications)}\n\nSelected Working Rules\n{string.Join("\n", _schemaProposal.SelectedWorkingRuleIds.Select(id => "- " + id))}\n\nDefinition sources\n{string.Join("\n", _schemaProposal.DefinitionSources.Select(source => $"- {source.DefinitionId}: {string.Join(", ", source.WorkingRuleIds)}"))}\n\nSchema JSON\n{PrettyJson(_schemaProposal.SchemaJson)}";
     }
 
     private void SchemaRuleCheckBox_Changed(object? sender, RoutedEventArgs e)
@@ -631,6 +674,8 @@ public partial class MainWindow : Window
         QuestionHeading.Text = "";
         _workingRuleSet = null;
         _schemaProposal = null;
+        _pendingSchemaQuestion = null;
+        _schemaClarifications.Clear();
         _workingRules.Clear();
         WorkingRuleList.ItemsSource = Array.Empty<WorkingRuleListItem>();
         WorkingRuleList.SelectedIndex = -1;
@@ -642,6 +687,9 @@ public partial class MainWindow : Window
         SchemaSelectionText.Text = $"No rules selected (up to {SchemaTranslationService.MaxWorkingRulesPerProposal}).";
         SchemaStatusText.Text = "Load a Working Rule Set, then select related rules to build a schema proposal.";
         SchemaText.Text = "No schema proposal is loaded.";
+        SchemaQuestionText.Text = string.Empty;
+        SchemaAnswerText.Text = string.Empty;
+        SchemaQuestionPanel.IsVisible = false;
     }
 
     private DesignSession? SessionFor(DesignSourceNote note) => _project?.Sessions.SingleOrDefault(session => session.SourceNotes.Any(source => source.Id == note.Id));
@@ -649,6 +697,9 @@ public partial class MainWindow : Window
     private static string FormatDraft(StructuredRuleDraft draft) => $"{draft.Title}\n{draft.Intent}\n\n" + string.Join("\n\n", draft.Rules.Select(rule => $"{rule.Name} ({rule.Kind})\n{rule.Text}\n\nSource evidence:\n{string.Join("\n", rule.SourceSupport.Select(support => $"• {support.SourceNoteId}: “{support.Excerpt}”"))}"));
     private static string FormatRule(RuleStatement rule) => $"{rule.Name}\nType: {rule.Kind}\n\nProposed rule\n{rule.Text}\n\nSource evidence\n{string.Join("\n", rule.SourceSupport.Select(support => $"• {support.SourceNoteId}: “{support.Excerpt}”"))}";
     private static string FormatWorkingRule(WorkingRule rule) => $"{rule.Name}\nType: {rule.Kind}\n\nWorking rule\n{rule.AuthoritativeText}\n\nDerived from source drafts\n{string.Join("\n", rule.SourceDraftRules.Select(reference => $"- {reference.SessionId} / {reference.RuleId}"))}\n\nExact source evidence\n{string.Join("\n", rule.Evidence.Select(evidence => $"- {evidence.SourceNoteId} ({evidence.PassageId ?? "source text"}): {evidence.Excerpt}"))}\n\nOpen questions\n{(rule.OpenQuestions.Count == 0 ? "None" : string.Join("\n", rule.OpenQuestions.Select(question => $"- {question}")))}\n\nSchema hints\n{(rule.SchemaHints.Count == 0 ? "None" : string.Join("\n", rule.SchemaHints.Select(hint => $"- {hint.Kind}: {hint.SuggestedName} - {hint.Rationale}")))}";
+    private static string FormatSchemaClarifications(IReadOnlyList<SchemaClarification>? clarifications) => clarifications is not { Count: > 0 }
+        ? "None"
+        : string.Join("\n\n", clarifications.Select((clarification, index) => $"{index + 1}. Question: {clarification.Question}\nAnswer: {clarification.Answer}"));
     private IDesignProjectStore ProjectStore() => _projectStore;
     private IWorkingRuleSetStore WorkingRuleStore() => _workingRuleStore;
     private IProjectSchemaProposalStore SchemaProposalStore() => _schemaProposalStore;
