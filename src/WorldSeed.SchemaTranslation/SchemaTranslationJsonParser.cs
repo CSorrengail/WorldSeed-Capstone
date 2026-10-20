@@ -32,6 +32,10 @@ public sealed class SchemaTranslationJsonParser
         if (action == SchemaTranslationAction.AskClarifyingQuestion) return new SchemaTranslationTurn(action, question, null);
         var proposal = root["proposal"] as JsonObject ?? throw new SchemaTranslationFormatException("A proposal response requires a proposal object.");
         var schema = proposal["schema"] as JsonObject ?? throw new SchemaTranslationFormatException("A schema proposal requires a schema object.");
+        // Some local models place this proposal-level traceability field inside schema. Moving it is lossless;
+        // the later checks still reject links to definitions that the schema did not actually define.
+        if (proposal["definitionSources"] is null && schema["definitionSources"] is JsonNode misplacedSources)
+            proposal["definitionSources"] = misplacedSources.DeepClone();
         NormalizeSchema(schema);
         var sources = ParseSources(proposal["definitionSources"]) ?? throw new SchemaTranslationFormatException("A schema proposal requires definition sources.");
         var issues = _schemaValidator.Validate(schema).Issues.Select(issue => issue.Message).ToList();
