@@ -5,6 +5,7 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using WorldSeed.DesignSessions;
 using WorldSeed.LlmIntegration;
 using WorldSeed.RuleDrafting;
@@ -500,6 +501,7 @@ public partial class MainWindow : Window
             return;
         }
         BuildSchemaButton.IsEnabled = false;
+        SchemaText.Text = string.Empty;
         SchemaStatusText.Text = $"Building a bounded schema proposal from {selected.Length} rule(s) with {model}...";
         var capture = new CapturingClient(new OllamaChatClient(_http, OllamaDefaults.CreateProfile("local", "Local", model)));
         try
@@ -576,10 +578,9 @@ public partial class MainWindow : Window
                     VerticalAlignment = VerticalAlignment.Center
                 };
                 checkBox.IsCheckedChanged += SchemaRuleCheckBox_Changed;
-                var wasUsed = _schemaProposal?.SelectedWorkingRuleIds.Contains(rule.Id, StringComparer.Ordinal) == true;
                 var status = new TextBlock
                 {
-                    Text = wasUsed ? "Included in saved proposal" : "Not in saved proposal",
+                    Text = SchemaProposalStatus(rule),
                     Margin = new Thickness(28, 0, 0, 4),
                     Opacity = 0.65,
                     FontSize = 12,
@@ -624,12 +625,51 @@ public partial class MainWindow : Window
     private void UpdateSchemaSelectionText()
     {
         var count = _selectedSchemaRuleIds.Count;
-        var prior = _schemaProposal?.SelectedWorkingRuleIds.Count(id => _selectedSchemaRuleIds.Contains(id)) ?? 0;
+        var prior = _workingRules.Count(rule => _selectedSchemaRuleIds.Contains(rule.Id) && IsCitedBySavedProposal(rule));
         SchemaSelectionText.Text = count == 0
             ? $"No rules selected (up to {SchemaTranslationService.MaxWorkingRulesPerProposal})."
-            : $"{count} of {SchemaTranslationService.MaxWorkingRulesPerProposal} rule(s) selected" + (prior > 0 ? $"; {prior} included in the saved proposal." : ".");
+            : $"{count} of {SchemaTranslationService.MaxWorkingRulesPerProposal} rule(s) selected" + (prior > 0 ? $"; {prior} cited by the saved proposal." : ".");
         BuildSchemaButton.IsEnabled = count > 0;
     }
+
+    private string SchemaProposalStatus(WorkingRule rule)
+    {
+        if (_schemaProposal is null) return "No saved proposal";
+        if (IsCitedBySavedProposal(rule)) return "Cited by saved proposal";
+        if (SchemaDefinesLike(rule)) return "Appears in saved schema (name match; source link missing)";
+        if (_schemaProposal.SelectedWorkingRuleIds.Contains(rule.Id, StringComparer.Ordinal)) return "Used as proposal input (not cited)";
+        return "Not in saved proposal";
+    }
+
+    private bool IsCitedBySavedProposal(WorkingRule rule) => _schemaProposal?.DefinitionSources.Any(source => source.WorkingRuleIds.Contains(rule.Id, StringComparer.Ordinal)) == true;
+
+    private bool SchemaDefinesLike(WorkingRule rule)
+    {
+        if (_schemaProposal is null) return false;
+        var expected = new HashSet<string>(StringComparer.Ordinal)
+        {
+            ComparableSchemaName(SchemaRulePicker.DisplayName(rule))
+        };
+        foreach (var hint in rule.SchemaHints) expected.Add(ComparableSchemaName(hint.SuggestedName));
+        try
+        {
+            var schema = JsonNode.Parse(_schemaProposal.SchemaJson) as JsonObject;
+            foreach (var collection in new[] { "schemaFragments", "entityTypes", "valueTypes", "relationships", "rules", "procedures", "validations" })
+                foreach (var definition in (schema?[collection] as JsonArray)?.OfType<JsonObject>() ?? [])
+                {
+                    var metadata = definition["metadata"] as JsonObject;
+                    var name = metadata?["name"]?.GetValue<string>() ?? definition["name"]?.GetValue<string>();
+                    if (!string.IsNullOrWhiteSpace(name) && expected.Contains(ComparableSchemaName(name))) return true;
+                }
+        }
+        catch (JsonException) { /* Saved schema diagnostics remain visible elsewhere. */ }
+        return false;
+    }
+
+    private static string ComparableSchemaName(string name) => string.Join(' ', name
+        .Split([' ', '-', '_', ':'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        .Where(word => !new[] { "definition", "rule", "procedure", "constraint" }.Contains(word, StringComparer.OrdinalIgnoreCase))
+        .Select(word => word.ToLowerInvariant()));
 
     private void RefreshWorkingRulesView()
     {
