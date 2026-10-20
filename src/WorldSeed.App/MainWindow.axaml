@@ -16,8 +16,8 @@
         </Grid>
       </TabItem>
       <TabItem Header="Schema">
-        <Grid ColumnDefinitions="330,*" ColumnSpacing="16">
-          <Border Padding="16"><Grid RowDefinitions="Auto,Auto,*,Auto" RowSpacing="10"><TextBlock Text="Selected working rules" FontSize="20"/><TextBlock Grid.Row="1" Text="Choose up to six related rules. WorldSeed will propose only the schema definitions needed for this small group." TextWrapping="Wrap" Opacity="0.8"/><ListBox Grid.Row="2" Name="SchemaRuleList" SelectionMode="Multiple"/><Button Grid.Row="3" Name="BuildSchemaButton" Content="Build schema proposal" Click="BuildSchema_Click"/></Grid></Border>
+        <Grid ColumnDefinitions="420,*" ColumnSpacing="16">
+          <Border Padding="16"><Grid RowDefinitions="Auto,Auto,Auto,*,Auto" RowSpacing="10"><TextBlock Text="Selected working rules" FontSize="20"/><TextBlock Grid.Row="1" Text="Choose up to six related rules. WorldSeed will propose only the schema definitions needed for this small group." TextWrapping="Wrap" Opacity="0.8"/><TextBlock Grid.Row="2" Name="SchemaSelectionText" Text="No rules selected." TextWrapping="Wrap"/><ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><StackPanel Name="SchemaRuleGroupsPanel" Spacing="8"/></ScrollViewer><Button Grid.Row="4" Name="BuildSchemaButton" Content="Build schema proposal" Click="BuildSchema_Click"/></Grid></Border>
           <Border Grid.Column="1" Padding="16"><Grid RowDefinitions="Auto,*" RowSpacing="10"><TextBlock Name="SchemaStatusText" Text="Load a Working Rule Set, then select related rules to build a schema proposal." TextWrapping="Wrap"/><TextBox Grid.Row="1" Name="SchemaText" Text="No schema proposal is loaded." IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Disabled"/></Grid></Border>
         </Grid>
       </TabItem>

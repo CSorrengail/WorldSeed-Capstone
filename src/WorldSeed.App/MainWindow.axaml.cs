@@ -1,4 +1,8 @@
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Interactivity;
+using Avalonia.Layout;
+using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using System.Text.Json;
 using WorldSeed.DesignSessions;
@@ -22,6 +26,7 @@ public partial class MainWindow : Window
     private readonly List<DesignProjectSummary> _projectSummaries = [];
     private readonly List<ProjectRuleItem> _projectRules = [];
     private readonly List<WorkingRule> _workingRules = [];
+    private readonly HashSet<string> _selectedSchemaRuleIds = new(StringComparer.Ordinal);
     private int _projectLoadGeneration;
     private bool _updatingProjectSelector;
     private string? _pendingDeletionProjectId;
@@ -458,7 +463,7 @@ public partial class MainWindow : Window
             SchemaStatusText.Text = "Load a project, Working Rule Set, and local model first.";
             return;
         }
-        var selected = SchemaRuleList.SelectedItems?.OfType<WorkingRuleListItem>().Select(item => item.Rule).ToArray() ?? [];
+        var selected = _workingRules.Where(rule => _selectedSchemaRuleIds.Contains(rule.Id)).ToArray();
         if (selected.Length == 0 || selected.Length > SchemaTranslationService.MaxWorkingRulesPerProposal)
         {
             SchemaStatusText.Text = $"Select between one and {SchemaTranslationService.MaxWorkingRulesPerProposal} related Working Rules.";
@@ -518,7 +523,44 @@ public partial class MainWindow : Window
 
     private void RefreshSchemaView()
     {
-        SchemaRuleList.ItemsSource = _workingRules.Select(rule => new WorkingRuleListItem(rule)).ToArray();
+        var availableIds = _workingRules.Select(rule => rule.Id).ToHashSet(StringComparer.Ordinal);
+        _selectedSchemaRuleIds.RemoveWhere(id => !availableIds.Contains(id));
+        if (_selectedSchemaRuleIds.Count == 0 && _schemaProposal is not null)
+            _selectedSchemaRuleIds.UnionWith(_schemaProposal.SelectedWorkingRuleIds.Where(availableIds.Contains));
+        SchemaRuleGroupsPanel.Children.Clear();
+        foreach (var group in SchemaRulePicker.Group(_workingRules))
+        {
+            var groupPanel = new StackPanel { Spacing = 4, Margin = new Thickness(8, 4, 0, 4) };
+            foreach (var rule in group.Rules)
+            {
+                var checkBox = new CheckBox
+                {
+                    Content = rule.Name,
+                    Tag = rule.Id,
+                    IsChecked = _selectedSchemaRuleIds.Contains(rule.Id),
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                checkBox.IsCheckedChanged += SchemaRuleCheckBox_Changed;
+                var wasUsed = _schemaProposal?.SelectedWorkingRuleIds.Contains(rule.Id, StringComparer.Ordinal) == true;
+                var status = new TextBlock
+                {
+                    Text = wasUsed ? "Included in saved proposal" : "Not in saved proposal",
+                    Margin = new Thickness(28, 0, 0, 4),
+                    Opacity = 0.65,
+                    FontSize = 12,
+                    TextWrapping = TextWrapping.Wrap
+                };
+                groupPanel.Children.Add(checkBox);
+                groupPanel.Children.Add(status);
+            }
+            SchemaRuleGroupsPanel.Children.Add(new Expander
+            {
+                Header = $"{group.Kind} ({group.Rules.Count})",
+                IsExpanded = true,
+                Content = groupPanel
+            });
+        }
+        UpdateSchemaSelectionText();
         if (_schemaProposal is null)
         {
             SchemaStatusText.Text = _workingRuleSet is null ? "Load a Working Rule Set, then select related rules to build a schema proposal." : $"Select one to {SchemaTranslationService.MaxWorkingRulesPerProposal} related Working Rules to build a bounded schema proposal.";
@@ -529,12 +571,36 @@ public partial class MainWindow : Window
         SchemaText.Text = $"Summary\n{_schemaProposal.Summary}\n\nSelected Working Rules\n{string.Join("\n", _schemaProposal.SelectedWorkingRuleIds.Select(id => "- " + id))}\n\nDefinition sources\n{string.Join("\n", _schemaProposal.DefinitionSources.Select(source => $"- {source.DefinitionId}: {string.Join(", ", source.WorkingRuleIds)}"))}\n\nSchema JSON\n{PrettyJson(_schemaProposal.SchemaJson)}";
     }
 
+    private void SchemaRuleCheckBox_Changed(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not CheckBox { Tag: string ruleId, IsChecked: bool isChecked } checkBox) return;
+        if (SchemaRulePicker.TrySetSelected(_selectedSchemaRuleIds, ruleId, isChecked, SchemaTranslationService.MaxWorkingRulesPerProposal))
+        {
+            UpdateSchemaSelectionText();
+            return;
+        }
+
+        checkBox.IsChecked = false;
+        SchemaStatusText.Text = $"You can select at most {SchemaTranslationService.MaxWorkingRulesPerProposal} related Working Rules for one proposal.";
+    }
+
+    private void UpdateSchemaSelectionText()
+    {
+        var count = _selectedSchemaRuleIds.Count;
+        var prior = _schemaProposal?.SelectedWorkingRuleIds.Count(id => _selectedSchemaRuleIds.Contains(id)) ?? 0;
+        SchemaSelectionText.Text = count == 0
+            ? $"No rules selected (up to {SchemaTranslationService.MaxWorkingRulesPerProposal})."
+            : $"{count} of {SchemaTranslationService.MaxWorkingRulesPerProposal} rule(s) selected" + (prior > 0 ? $"; {prior} included in the saved proposal." : ".");
+        BuildSchemaButton.IsEnabled = count > 0;
+    }
+
     private void RefreshWorkingRulesView()
     {
         var selected = WorkingRuleList.SelectedIndex is var index && index >= 0 && index < _workingRules.Count ? _workingRules[index].Id : null;
         _workingRules.Clear();
         if (_workingRuleSet is not null) _workingRules.AddRange(_workingRuleSet.Rules);
         WorkingRuleList.ItemsSource = _workingRules.Select(rule => new WorkingRuleListItem(rule)).ToArray();
+        if (_schemaProposal is null) _selectedSchemaRuleIds.Clear();
         WorkingRuleList.SelectedIndex = selected is null ? -1 : _workingRules.FindIndex(rule => rule.Id == selected);
         if (_workingRuleSet is null)
         {
@@ -571,8 +637,9 @@ public partial class MainWindow : Window
         WorkingRulesSummaryText.Text = "Create completed source drafts, then build one project-wide working proposal.";
         WorkingRulesStatusText.Text = "No project-level working proposal is loaded.";
         WorkingRuleText.Text = "Build or load a proposal to inspect its project-level rules and exact evidence.";
-        SchemaRuleList.ItemsSource = Array.Empty<WorkingRuleListItem>();
-        SchemaRuleList.SelectedIndex = -1;
+        _selectedSchemaRuleIds.Clear();
+        SchemaRuleGroupsPanel.Children.Clear();
+        SchemaSelectionText.Text = $"No rules selected (up to {SchemaTranslationService.MaxWorkingRulesPerProposal}).";
         SchemaStatusText.Text = "Load a Working Rule Set, then select related rules to build a schema proposal.";
         SchemaText.Text = "No schema proposal is loaded.";
     }
@@ -645,7 +712,7 @@ public partial class MainWindow : Window
     }
     private sealed record WorkingRuleListItem(WorkingRule Rule)
     {
-        public override string ToString() => $"{Rule.Name} - {Rule.Kind}";
+        public override string ToString() => Rule.Name;
     }
     private sealed record ProjectListItem(DesignProjectSummary Project)
     {
