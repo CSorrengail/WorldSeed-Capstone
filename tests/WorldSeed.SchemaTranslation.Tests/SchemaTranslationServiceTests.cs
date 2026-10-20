@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using WorldSeed.LlmIntegration;
 using WorldSeed.SchemaTranslation;
 using WorldSeed.WorkingRules;
@@ -162,6 +163,22 @@ public class SchemaTranslationServiceTests
         Assert.Equal(SchemaTranslationAction.PresentProposal, turn.Action);
         Assert.Equal(3, model.Requests.Count);
         Assert.Contains("armorWeight", model.Requests[2].Messages[^1].Content);
+    }
+
+    [Fact]
+    public void Normalizes_a_membered_primitive_value_type_to_a_record()
+    {
+        var modelOutput = """{"action":"presentProposal","proposal":{"summary":"A cooldown duration.","schema":{"id":"combat","name":"Combat","version":"0.1.0","entityTypes":[],"valueTypes":[{"id":"duration","name":"Duration","kind":"primitive","properties":[{"name":"value","valueType":{"kind":"primitive","name":"integer"},"required":true,"nullable":false}]}]},"definitionSources":[{"definitionId":"duration","workingRuleIds":["casting-adds-mark"]}]}}""";
+
+        var turn = new SchemaTranslationJsonParser().Parse(modelOutput, CreateWorkingRuleSet());
+
+        var proposal = Assert.IsType<SchemaTranslationProposal>(turn.Proposal);
+        var values = Assert.IsType<JsonArray>(proposal.Schema["valueTypes"]);
+        var duration = Assert.IsType<JsonObject>(Assert.Single(values));
+        var properties = Assert.IsType<JsonArray>(duration["properties"]);
+        var value = Assert.IsType<JsonObject>(Assert.Single(properties));
+        Assert.Equal("record", duration["kind"]!.GetValue<string>());
+        Assert.Equal("integer", value["valueType"]!["name"]!.GetValue<string>());
     }
 
     private static WorkingRuleSet CreateWorkingRuleSet()
