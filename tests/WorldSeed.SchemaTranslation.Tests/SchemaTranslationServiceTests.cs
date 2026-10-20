@@ -125,6 +125,18 @@ public class SchemaTranslationServiceTests
         Assert.Contains("materialCost", model.Requests[1].Messages[^1].Content);
     }
 
+    [Fact]
+    public void Lifts_misplaced_definition_sources_before_reporting_actual_schema_errors()
+    {
+        var modelOutput = """{"action":"presentProposal","proposal":{"summary":"Incomplete.","schema":{"id":"armor","name":"Armor","version":"0.1.0","entityTypes":[{"id":"armorClass","name":"Armor Class","definitions":[{"id":"weight","name":"Weight","properties":[{"name":"category","metadata":{"id":"category","name":"Category"},"valueType":{"kind":"definedValueType","valueTypeId":"armor-weights"},"required":true,"nullable":false}]}]}],"valueTypes":[{"id":"armor-weights","name":"Armor Weights","kind":"enumeration","entries":[]}],"definitionSources":[{"definitionId":"weight","workingRuleIds":["casting-adds-mark"]}]}}}""";
+
+        var exception = Assert.Throws<SchemaTranslationFormatException>(() => new SchemaTranslationJsonParser().Parse(modelOutput, CreateWorkingRuleSet()));
+
+        Assert.Contains("Enumeration value types require at least one entry", exception.Message);
+        Assert.Contains("Definition source 'weight' does not exist", exception.Message);
+        Assert.DoesNotContain("requires definition sources", exception.Message);
+    }
+
     private static WorkingRuleSet CreateWorkingRuleSet()
     {
         var now = DateTimeOffset.Parse("2026-10-14T00:00:00Z");
