@@ -74,6 +74,10 @@ public sealed class SchemaTranslationJsonParser
         NormalizeMetadata(definition, allowNameAsId: false);
         foreach (var property in (definition["properties"] as JsonArray)?.OfType<JsonObject>() ?? []) NormalizeProperty(property);
         foreach (var attribute in (definition["attributes"] as JsonArray)?.OfType<JsonObject>() ?? []) NormalizeProperty(attribute);
+        // A primitive cannot have members. Local models often correctly describe a composite value,
+        // then apply the familiar primitive label to it. Reclassifying that explicit shape as a record
+        // preserves every supplied definition without inventing a value type or a property.
+        if (String(definition["kind"]) == "primitive" && HasMembers(definition)) definition["kind"] = "record";
         if (String(definition["kind"]) == "enumeration" && definition["entries"] is JsonArray entries)
         {
             for (var index = 0; index < entries.Count; index++)
@@ -81,6 +85,9 @@ public sealed class SchemaTranslationJsonParser
                     entries[index] = new JsonObject { ["id"] = label, ["name"] = label };
         }
     }
+
+    private static bool HasMembers(JsonObject definition) =>
+        definition["properties"] is JsonArray { Count: > 0 } || definition["attributes"] is JsonArray { Count: > 0 };
 
     private static void NormalizeProperty(JsonObject property)
     {
