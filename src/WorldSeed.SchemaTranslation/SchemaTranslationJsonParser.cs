@@ -49,6 +49,16 @@ public sealed class SchemaTranslationJsonParser
             proposal["definitionSources"] = misplacedSources.DeepClone();
         NormalizeSchema(schema);
         var sources = ParseSources(proposal["definitionSources"])?.ToList() ?? throw new SchemaTranslationFormatException("A schema proposal requires definition sources.");
+        // The base schema is immutable context. If a local model echoes one of its definitions
+        // byte-for-byte, discard both that echo and its claimed source mapping. Otherwise an
+        // unrelated selected rule could be incorrectly recorded as the origin of old schema.
+        var echoedSavedIds = SchemaProposalMerger.ExactSavedDefinitionIds(baseSchema, schema);
+        if (echoedSavedIds.Count > 0)
+        {
+            RemoveDefinitions(schema, echoedSavedIds);
+            sources.RemoveAll(source => echoedSavedIds.Contains(source.DefinitionId));
+        }
+        if (!Definitions(schema).Any()) throw new SchemaTranslationFormatException("The model returned only definitions that are already saved. Reuse saved definitions by reference and return at least one new definition.");
         var validationSchema = SchemaProposalMerger.MergeSchemas(baseSchema, schema);
         var issues = _schemaValidator.Validate(validationSchema).Issues.Select(issue => issue.Message).ToList();
         var allowedRules = workingRuleSet.Rules.Select(rule => rule.Id).ToHashSet(StringComparer.Ordinal);
@@ -73,6 +83,17 @@ public sealed class SchemaTranslationJsonParser
     };
 
     private static DefinitionSource ParseSource(JsonObject source) => new(Required(source, "definitionId"), Strings(source, "workingRuleIds"));
+
+    private static void RemoveDefinitions(JsonObject schema, IReadOnlySet<string> ids)
+    {
+        foreach (var collection in SchemaDefinitionCollections)
+        {
+            if (schema[collection] is not JsonArray definitions) continue;
+            for (var index = definitions.Count - 1; index >= 0; index--)
+                if (definitions[index] is JsonObject definition && String((definition["metadata"] as JsonObject)?["id"]) is { } id && ids.Contains(id))
+                    definitions.RemoveAt(index);
+        }
+    }
 
     /// <summary>Completes only unambiguous provenance omissions: a one-rule request whose existing links all cite that same one rule.</summary>
     private static void CompleteSingleRuleSourceMappings(List<DefinitionSource> sources, IReadOnlySet<string> definitionIds, IReadOnlySet<string> allowedRules)

@@ -71,6 +71,17 @@ public static class SchemaProposalMerger
     public static IReadOnlyList<string> MergeWorkingRuleIds(IEnumerable<string> existing, IEnumerable<string> addition) =>
         existing.Concat(addition).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
 
+    /// <summary>Finds definitions that merely repeat an immutable saved definition without changing it.</summary>
+    public static IReadOnlySet<string> ExactSavedDefinitionIds(JsonObject? existingSchema, JsonObject addition)
+    {
+        if (existingSchema is null) return new HashSet<string>(StringComparer.Ordinal);
+        var existingById = DefinitionsById(existingSchema);
+        return DefinitionsById(addition)
+            .Where(pair => existingById.TryGetValue(pair.Key, out var existing) && JsonNode.DeepEquals(existing, pair.Value))
+            .Select(pair => pair.Key)
+            .ToHashSet(StringComparer.Ordinal);
+    }
+
     private static Dictionary<string, JsonObject> DefinitionsById(JsonObject schema) => DefinitionCollections
         .SelectMany(collection => (schema[collection] as JsonArray)?.OfType<JsonObject>() ?? [])
         .Select(definition => new { Id = DefinitionId(definition), Definition = definition })
