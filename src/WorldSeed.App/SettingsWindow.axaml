@@ -1,0 +1,11 @@
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:Class="WorldSeed.App.SettingsWindow" Title="WorldSeed Settings" Width="460" Height="270" MinWidth="400" MinHeight="230" WindowStartupLocation="CenterOwner">
+  <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="24" RowSpacing="12">
+    <TextBlock Text="Settings" FontSize="24"/>
+    <StackPanel Grid.Row="1" Spacing="6">
+      <TextBlock Text="Close after inactivity (minutes)"/>
+      <TextBox Name="IdleTimeoutInput" Width="100" HorizontalAlignment="Left"/>
+    </StackPanel>
+    <TextBlock Grid.Row="2" Text="WorldSeed closes when there has been no mouse, keyboard, or text activity for this many minutes. Enter 0 to disable automatic closing. This is a local desktop setting, not project data." TextWrapping="Wrap" Opacity="0.75"/>
+    <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10"><TextBlock Name="ValidationText" Foreground="IndianRed" VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="240"/><Button Content="Cancel" Click="Cancel_Click"/><Button Content="Save" Click="Save_Click"/></StackPanel>
+  </Grid>
+</Window>
