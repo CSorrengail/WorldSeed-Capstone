@@ -561,13 +561,14 @@ public partial class MainWindow : Window
         var capture = new CapturingClient(new OllamaChatClient(_http, OllamaDefaults.CreateProfile("local", "Local", model)));
         try
         {
+            var baseSchema = SavedSchemaForExtension();
             var selectedIds = selected.Select(rule => rule.Id).ToHashSet(StringComparer.Ordinal);
             var selectedRuleSet = _workingRuleSet with
             {
                 Rules = selected,
                 Concepts = _workingRuleSet.Concepts.Where(concept => selected.SelectMany(rule => rule.ConceptIds).Contains(concept.Id, StringComparer.Ordinal)).ToArray()
             };
-            var turn = await new SchemaTranslationService(capture).TranslateAsync(new SchemaTranslationRequest(selectedRuleSet, Clarifications: _schemaClarifications));
+            var turn = await new SchemaTranslationService(capture).TranslateAsync(new SchemaTranslationRequest(selectedRuleSet, baseSchema, _schemaClarifications));
             if (turn.Action == SchemaTranslationAction.AskClarifyingQuestion)
             {
                 SchemaStatusText.Text = "The model needs clarification before it can propose this schema piece.";
@@ -579,17 +580,20 @@ public partial class MainWindow : Window
                 return;
             }
             var proposal = turn.Proposal ?? throw new SchemaTranslationFormatException("The model did not return a schema proposal.");
+            var mergedSchema = SchemaProposalMerger.MergeSchemas(baseSchema, proposal.Schema);
+            var mergedSources = SchemaProposalMerger.MergeDefinitionSources(_schemaProposal?.DefinitionSources ?? Array.Empty<DefinitionSource>(), proposal.DefinitionSources);
+            var mergedRuleIds = SchemaProposalMerger.MergeWorkingRuleIds(_schemaProposal?.SelectedWorkingRuleIds ?? Array.Empty<string>(), selectedIds);
             var now = DateTimeOffset.UtcNow;
             _schemaProposal = new ProjectSchemaProposal(
                 "schema-proposal-" + _project.Id,
                 _project.Id,
                 "0.1",
-                proposal.Summary,
-                proposal.Schema.ToJsonString(new JsonSerializerOptions { WriteIndented = true }),
-                proposal.DefinitionSources,
+                _schemaProposal is null ? proposal.Summary : $"Accumulated schema proposal. Latest addition: {proposal.Summary}",
+                mergedSchema.ToJsonString(new JsonSerializerOptions { WriteIndented = true }),
+                mergedSources,
                 proposal.WorkingRuleSetId,
                 proposal.WorkingRuleSetRevision,
-                selectedIds.Order(StringComparer.Ordinal).ToArray(),
+                mergedRuleIds,
                 _schemaProposal?.CreatedAt ?? now,
                 now,
                 _schemaClarifications.ToArray());
@@ -623,7 +627,8 @@ public partial class MainWindow : Window
         foreach (var group in SchemaRulePicker.Group(_workingRules))
         {
             var groupPanel = new StackPanel { Spacing = 4, Margin = new Thickness(8, 4, 0, 4), HorizontalAlignment = HorizontalAlignment.Stretch };
-            foreach (var rule in group.Rules)
+            // Keep unfinished candidates first. Retained, mapped rules move to the bottom without being hidden.
+            foreach (var rule in group.Rules.OrderBy(IsSchemaProcessed))
             {
                 var checkBox = new CheckBox
                 {
@@ -696,6 +701,8 @@ public partial class MainWindow : Window
         return "Not in saved proposal";
     }
 
+    private bool IsSchemaProcessed(WorkingRule rule) => IsCitedBySavedProposal(rule) || SchemaDefinesLike(rule);
+
     private bool IsCitedBySavedProposal(WorkingRule rule) => _schemaProposal?.DefinitionSources.Any(source => source.WorkingRuleIds.Contains(rule.Id, StringComparer.Ordinal)) == true;
 
     private bool SchemaDefinesLike(WorkingRule rule)
@@ -719,6 +726,20 @@ public partial class MainWindow : Window
         }
         catch (JsonException) { /* Saved schema diagnostics remain visible elsewhere. */ }
         return false;
+    }
+
+    private JsonObject? SavedSchemaForExtension()
+    {
+        if (_schemaProposal is null) return null;
+        try
+        {
+            return JsonNode.Parse(_schemaProposal.SchemaJson) as JsonObject
+                ?? throw new SchemaTranslationFormatException("The saved schema proposal is not a JSON object. It cannot be safely extended.");
+        }
+        catch (JsonException exception)
+        {
+            throw new SchemaTranslationFormatException("The saved schema proposal is invalid JSON. It cannot be safely extended: " + exception.Message);
+        }
     }
 
     private static string ComparableSchemaName(string name) => string.Join(' ', name

@@ -9,12 +9,17 @@ public sealed class SchemaTranslationJsonParser
 {
     private readonly GameSchemaValidator _schemaValidator = new();
 
-    public SchemaTranslationTurn Parse(string content, WorkingRuleSet workingRuleSet)
+    public SchemaTranslationTurn Parse(string content, WorkingRuleSet workingRuleSet, JsonObject? baseSchema = null)
     {
         JsonObject root;
-        try { root = JsonNode.Parse(content)?.AsObject() ?? throw new SchemaTranslationFormatException("The model did not return a JSON object."); }
+        try
+        {
+            root = JsonNode.Parse(content)?.AsObject() ?? throw new SchemaTranslationFormatException("The model did not return a JSON object.");
+            Materialize(root);
+        }
         catch (JsonException) when (LooksIncomplete(content)) { throw new SchemaTranslationFormatException("The model response ended before its JSON object was complete, usually because it reached its output limit."); }
         catch (JsonException) { throw new SchemaTranslationFormatException("The model did not return valid JSON."); }
+        catch (ArgumentException exception) when (exception.ParamName == "propertyName") { throw new SchemaTranslationFormatException("The model response contains the same JSON property more than once."); }
         catch (InvalidOperationException) { throw new SchemaTranslationFormatException("The model did not return a JSON object."); }
         if (root["action"] is null && root["presentProposal"] is JsonObject alternateProposal)
         {
@@ -38,7 +43,8 @@ public sealed class SchemaTranslationJsonParser
             proposal["definitionSources"] = misplacedSources.DeepClone();
         NormalizeSchema(schema);
         var sources = ParseSources(proposal["definitionSources"]) ?? throw new SchemaTranslationFormatException("A schema proposal requires definition sources.");
-        var issues = _schemaValidator.Validate(schema).Issues.Select(issue => issue.Message).ToList();
+        var validationSchema = SchemaProposalMerger.MergeSchemas(baseSchema, schema);
+        var issues = _schemaValidator.Validate(validationSchema).Issues.Select(issue => issue.Message).ToList();
         var allowedRules = workingRuleSet.Rules.Select(rule => rule.Id).ToHashSet(StringComparer.Ordinal);
         var definitionIds = Definitions(schema).ToHashSet(StringComparer.Ordinal);
         foreach (var source in sources)
@@ -109,6 +115,19 @@ public sealed class SchemaTranslationJsonParser
     {
         var trimmed = content.Trim();
         return trimmed.StartsWith('{') && !trimmed.EndsWith('}');
+    }
+    /// <summary>JsonNode initializes nested object dictionaries lazily; walk the tree so duplicate JSON names fail inside Parse's format-error handling.</summary>
+    private static void Materialize(JsonNode? node)
+    {
+        switch (node)
+        {
+            case JsonObject objectNode:
+                foreach (var property in objectNode) Materialize(property.Value);
+                break;
+            case JsonArray arrayNode:
+                foreach (var item in arrayNode) Materialize(item);
+                break;
+        }
     }
     private static IEnumerable<string> Definitions(JsonObject schema) => new[] { "schemaFragments", "entityTypes", "valueTypes", "relationships", "rules", "procedures", "validations" }.SelectMany(name => schema[name] is JsonArray definitions ? definitions.OfType<JsonObject>().Select(definition => String((definition["metadata"] as JsonObject)?["id"])).Where(id => id is not null).Cast<string>() : []);
     private static string Required(JsonObject node, string name) => String(node[name]) ?? throw new SchemaTranslationFormatException($"'{name}' is required.");

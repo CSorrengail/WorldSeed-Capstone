@@ -90,7 +90,7 @@ if defined FORCE_DOCKER_BUILD (
 if defined VERBOSE (
   call "%ROOT%deploy\worldseed-local.bat"
 ) else (
-  call "%ROOT%deploy\worldseed-local.bat" >nul
+  call "%ROOT%deploy\worldseed-local.bat" >nul 2>nul
 )
 if errorlevel 1 (
   echo.
@@ -123,7 +123,7 @@ if defined VERBOSE (
   echo Building the WorldSeed desktop application...
   dotnet build "%APP_PROJECT%" --nologo
 ) else (
-  dotnet build "%APP_PROJECT%" --nologo >nul
+  dotnet build "%APP_PROJECT%" --nologo >nul 2>nul
 )
 if errorlevel 1 exit /b %errorlevel%
 
