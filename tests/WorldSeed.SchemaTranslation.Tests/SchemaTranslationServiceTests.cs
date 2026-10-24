@@ -157,8 +157,10 @@ public class SchemaTranslationServiceTests
         var first = """{"action":"presentProposal","proposal":{"summary":"Incomplete.","schema":{"id":"armor","name":"Armor","version":"0.1.0","entityTypes":[{"id":"armorClass","name":"Armor Class"}],"valueTypes":[{"id":"armorWeight","name":"Armor Weight","kind":"enumeration","entries":["Light","Heavy"]}]},"definitionSources":[{"definitionId":"armorClass","workingRuleIds":["casting-adds-mark"]}]}}""";
         var second = """{"action":"presentProposal","proposal":{"summary":"Armor class.","schema":{"id":"armor","name":"Armor","version":"0.1.0","entityTypes":[{"metadata":{"id":"armorClass","name":"Armor Class"}}],"valueTypes":[{"metadata":{"id":"armorWeight","name":"Armor Weight"},"kind":"enumeration","entries":[{"id":"light","name":"Light"},{"id":"heavy","name":"Heavy"}]}]},"definitionSources":[{"definitionId":"armorClass","workingRuleIds":["casting-adds-mark"]},{"definitionId":"armorWeight","workingRuleIds":["casting-adds-mark"]}]}}""";
         var model = new FakeModel(first, first, second);
+        var original = Assert.Single(CreateWorkingRuleSet().Rules);
+        var multiRuleSet = CreateWorkingRuleSet() with { Rules = [original, original with { Id = "another-selected-rule" }] };
 
-        var turn = await new SchemaTranslationService(model).TranslateAsync(new SchemaTranslationRequest(CreateWorkingRuleSet()));
+        var turn = await new SchemaTranslationService(model).TranslateAsync(new SchemaTranslationRequest(multiRuleSet));
 
         Assert.Equal(SchemaTranslationAction.PresentProposal, turn.Action);
         Assert.Equal(3, model.Requests.Count);
@@ -210,6 +212,20 @@ public class SchemaTranslationServiceTests
         Assert.Equal(new[] { "ability" }, merged["entityTypes"]!.AsArray().OfType<JsonObject>().Select(node => node["metadata"]!["id"]!.GetValue<string>()));
         Assert.Equal(new[] { "cooldownDuration" }, merged["valueTypes"]!.AsArray().OfType<JsonObject>().Select(node => node["metadata"]!["id"]!.GetValue<string>()));
         Assert.Equal(new[] { "cooldownDuration", "ability" }, sources.Select(source => source.DefinitionId));
+    }
+
+    [Fact]
+    public void Normalizes_misplaced_schema_arrays_and_unambiguous_single_rule_mappings()
+    {
+        var ruleSet = CreateWorkingRuleSet() with { Rules = [Assert.Single(CreateWorkingRuleSet().Rules) with { Id = "b001-r004" }] };
+        var baseSchema = JsonNode.Parse("""{"id":"project","name":"Project","version":"0.5","entityTypes":[]}""")!.AsObject();
+        var modelOutput = """{"action":"presentProposal","proposal":{"summary":"Armor class weight.","schema":{"entityTypes":[{"id":"armorClass","name":"Armor Class","properties":[{"name":"weight","valueType":{"kind":"definedValueType","valueTypeId":"armorClassWeight"},"metadata":{"id":"weight","name":"Weight"},"required":true,"nullable":false}]}]},"valueTypes":[{"id":"armorClassWeight","name":"Armor Class Weight","kind":"enumeration","entries":[{"id":"light","name":"Light"}]}],"definitionSources":[{"definitionId":"armorClassWeight","workingRuleIds":["b001-r004"]}]}}""";
+
+        var turn = new SchemaTranslationJsonParser().Parse(modelOutput, ruleSet, baseSchema);
+
+        Assert.Single(turn.Proposal!.Schema["valueTypes"]!.AsArray());
+        Assert.Equal(new[] { "armorClass", "armorClassWeight" }, turn.Proposal.DefinitionSources.Select(source => source.DefinitionId).Order());
+        Assert.All(turn.Proposal.DefinitionSources, source => Assert.Equal(new[] { "b001-r004" }, source.WorkingRuleIds));
     }
 
     private static WorkingRuleSet CreateWorkingRuleSet()
