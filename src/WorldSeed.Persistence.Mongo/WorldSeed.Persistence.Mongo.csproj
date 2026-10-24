@@ -8,6 +8,7 @@
     <PackageReference Include="MongoDB.Driver" Version="2.30.0" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\WorldSeed.GameData\WorldSeed.GameData.csproj" />
     <ProjectReference Include="..\WorldSeed.SchemaTranslation\WorldSeed.SchemaTranslation.csproj" />
     <ProjectReference Include="..\WorldSeed.DesignSessions\WorldSeed.DesignSessions.csproj" />
     <ProjectReference Include="..\WorldSeed.WorkingRules\WorldSeed.WorkingRules.csproj" />

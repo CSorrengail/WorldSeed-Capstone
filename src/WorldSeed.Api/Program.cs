@@ -1,5 +1,6 @@
 using MongoDB.Driver;
 using WorldSeed.DesignSessions;
+using WorldSeed.GameData;
 using WorldSeed.Persistence.Mongo;
 using WorldSeed.SchemaTranslation;
 using WorldSeed.WorkingRules;
@@ -17,6 +18,10 @@ builder.Services.AddSingleton<MongoWorkingRuleSetStore>();
 builder.Services.AddSingleton<IWorkingRuleSetStore>(services => services.GetRequiredService<MongoWorkingRuleSetStore>());
 builder.Services.AddSingleton<MongoProjectSchemaProposalStore>();
 builder.Services.AddSingleton<IProjectSchemaProposalStore>(services => services.GetRequiredService<MongoProjectSchemaProposalStore>());
+builder.Services.AddSingleton<MongoActiveGameSchemaStore>();
+builder.Services.AddSingleton<IActiveGameSchemaStore>(services => services.GetRequiredService<MongoActiveGameSchemaStore>());
+builder.Services.AddSingleton<MongoProjectGameDataStore>();
+builder.Services.AddSingleton<IProjectGameDataStore>(services => services.GetRequiredService<MongoProjectGameDataStore>());
 builder.Services.AddSingleton<WorkingRuleSetValidator>();
 builder.Services.AddCors(options => options.AddDefaultPolicy(policy => policy.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()));
 
@@ -26,6 +31,8 @@ using (var scope = app.Services.CreateScope())
 {
     await scope.ServiceProvider.GetRequiredService<MongoWorkingRuleSetStore>().EnsureIndexesAsync();
     await scope.ServiceProvider.GetRequiredService<MongoProjectSchemaProposalStore>().EnsureIndexesAsync();
+    await scope.ServiceProvider.GetRequiredService<MongoActiveGameSchemaStore>().EnsureIndexesAsync();
+    await scope.ServiceProvider.GetRequiredService<MongoProjectGameDataStore>().EnsureIndexesAsync();
 }
 
 app.MapGet("/health", async (MongoDesignProjectStore store, CancellationToken cancellationToken) =>
@@ -47,8 +54,10 @@ projects.MapPut("/{projectId}", async (string projectId, DesignProject project, 
     await store.SaveAsync(project, cancellationToken);
     return Results.NoContent();
 });
-projects.MapDelete("/{projectId}", async (string projectId, IDesignProjectStore store, IWorkingRuleSetStore ruleSets, IProjectSchemaProposalStore schemaProposals, CancellationToken cancellationToken) =>
+projects.MapDelete("/{projectId}", async (string projectId, IDesignProjectStore store, IWorkingRuleSetStore ruleSets, IProjectSchemaProposalStore schemaProposals, IActiveGameSchemaStore activeSchemas, IProjectGameDataStore gameData, CancellationToken cancellationToken) =>
 {
+    await gameData.DeleteAsync(projectId, cancellationToken);
+    await activeSchemas.DeleteAsync(projectId, cancellationToken);
     await schemaProposals.DeleteAsync(projectId, cancellationToken);
     await ruleSets.DeleteAsync(projectId, cancellationToken);
     await store.DeleteAsync(projectId, cancellationToken);
@@ -97,6 +106,63 @@ projects.MapPut("/{projectId}/schema-proposal", async (string projectId, Project
 projects.MapDelete("/{projectId}/schema-proposal", async (string projectId, IProjectSchemaProposalStore store, CancellationToken cancellationToken) =>
 {
     await store.DeleteAsync(projectId, cancellationToken);
+    return Results.NoContent();
+});
+
+projects.MapGet("/{projectId}/active-schema", async (string projectId, IActiveGameSchemaStore store, CancellationToken cancellationToken) =>
+{
+    var schema = await store.LoadAsync(projectId, cancellationToken);
+    return schema is null ? Results.NotFound() : Results.Ok(schema);
+});
+projects.MapPost("/{projectId}/active-schema", async (string projectId, IDesignProjectStore projectsStore, IProjectSchemaProposalStore proposals, IActiveGameSchemaStore activeSchemas, IProjectGameDataStore gameData, CancellationToken cancellationToken) =>
+{
+    if (await projectsStore.LoadAsync(projectId, cancellationToken) is null) return Results.NotFound("The project does not exist.");
+    var proposal = await proposals.LoadAsync(projectId, cancellationToken);
+    if (proposal is null) return Results.BadRequest("A saved schema proposal is required before a schema can be activated.");
+
+    var current = await activeSchemas.LoadAsync(projectId, cancellationToken);
+    var existingData = await gameData.LoadAsync(projectId, cancellationToken);
+    ActiveGameSchema active;
+    try
+    {
+        active = GameDataService.Activate(proposal, current, existingData is not null, DateTimeOffset.UtcNow);
+    }
+    catch (GameDataFormatException exception)
+    {
+        return Results.BadRequest(exception.Message);
+    }
+
+    await activeSchemas.SaveAsync(active, cancellationToken);
+    if (existingData is null)
+        await gameData.SaveAsync(GameDataService.CreateEmpty(active, DateTimeOffset.UtcNow), cancellationToken);
+    return Results.Ok(active);
+});
+
+projects.MapGet("/{projectId}/game-data", async (string projectId, IProjectGameDataStore store, CancellationToken cancellationToken) =>
+{
+    var data = await store.LoadAsync(projectId, cancellationToken);
+    return data is null ? Results.NotFound() : Results.Ok(data);
+});
+projects.MapPut("/{projectId}/game-data", async (string projectId, ProjectGameData submitted, IDesignProjectStore projectsStore, IActiveGameSchemaStore activeSchemas, IProjectGameDataStore gameData, CancellationToken cancellationToken) =>
+{
+    if (!string.Equals(projectId, submitted.ProjectId, StringComparison.Ordinal)) return Results.BadRequest("The URL project id must match the game data projectId.");
+    if (await projectsStore.LoadAsync(projectId, cancellationToken) is null) return Results.NotFound("The project does not exist.");
+    var active = await activeSchemas.LoadAsync(projectId, cancellationToken);
+    if (active is null) return Results.BadRequest("An active schema is required before game data can be saved.");
+
+    var existing = await gameData.LoadAsync(projectId, cancellationToken);
+    var normalized = submitted with
+    {
+        Id = existing?.Id ?? $"game-data-{projectId}",
+        FormatVersion = "0.1",
+        ActiveGameSchemaId = active.Id,
+        ActiveGameSchemaRevision = active.Revision,
+        CreatedAt = existing?.CreatedAt ?? DateTimeOffset.UtcNow,
+        UpdatedAt = DateTimeOffset.UtcNow
+    };
+    var validation = GameDataService.Validate(active, normalized);
+    if (!validation.IsValid) return Results.BadRequest(validation.Issues);
+    await gameData.SaveAsync(normalized, cancellationToken);
     return Results.NoContent();
 });
 
