@@ -12,11 +12,8 @@ public static class SchemaProposalMerger
         ArgumentNullException.ThrowIfNull(addition);
         if (existingSchema is null) return (JsonObject)addition.DeepClone();
 
-        var existingIds = DefinitionIds(existingSchema).ToHashSet(StringComparer.Ordinal);
-        foreach (var id in DefinitionIds(addition))
-            if (!existingIds.Add(id)) throw new SchemaTranslationFormatException($"Proposed definition '{id}' already exists in the saved schema. Return only genuinely new definitions.");
-
         var merged = (JsonObject)existingSchema.DeepClone();
+        var definitionsById = DefinitionsById(merged);
         foreach (var collection in DefinitionCollections)
         {
             if (addition[collection] is not JsonArray additions || additions.Count == 0) continue;
@@ -25,7 +22,28 @@ public static class SchemaProposalMerger
                 definitions = [];
                 merged[collection] = definitions;
             }
-            foreach (var definition in additions) definitions.Add(definition?.DeepClone());
+            foreach (var definition in additions)
+            {
+                if (definition is not JsonObject definitionObject)
+                {
+                    definitions.Add(definition?.DeepClone());
+                    continue;
+                }
+
+                var id = DefinitionId(definitionObject);
+                if (id is not null && definitionsById.TryGetValue(id, out var existing))
+                {
+                    // Local models sometimes echo immutable base-schema context verbatim. An exact echo is
+                    // safe to ignore: source mappings are merged separately, and references still resolve
+                    // against the saved definition. Anything different remains a conflict, not a guessable
+                    // field-level merge.
+                    if (JsonNode.DeepEquals(existing, definitionObject)) continue;
+                    throw new SchemaTranslationFormatException($"Proposed definition '{id}' conflicts with the saved schema. Return a new id, or reference the saved definition instead of redefining it.");
+                }
+
+                definitions.Add(definitionObject.DeepClone());
+                if (id is not null) definitionsById[id] = definitionObject;
+            }
         }
         return merged;
     }
@@ -53,9 +71,12 @@ public static class SchemaProposalMerger
     public static IReadOnlyList<string> MergeWorkingRuleIds(IEnumerable<string> existing, IEnumerable<string> addition) =>
         existing.Concat(addition).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
 
-    private static IEnumerable<string> DefinitionIds(JsonObject schema) => DefinitionCollections
+    private static Dictionary<string, JsonObject> DefinitionsById(JsonObject schema) => DefinitionCollections
         .SelectMany(collection => (schema[collection] as JsonArray)?.OfType<JsonObject>() ?? [])
-        .Select(definition => (definition["metadata"] as JsonObject)?["id"]?.GetValue<string>())
-        .Where(id => !string.IsNullOrWhiteSpace(id))
-        .Cast<string>();
+        .Select(definition => new { Id = DefinitionId(definition), Definition = definition })
+        .Where(entry => entry.Id is not null)
+        .ToDictionary(entry => entry.Id!, entry => entry.Definition, StringComparer.Ordinal);
+
+    private static string? DefinitionId(JsonObject definition) =>
+        (definition["metadata"] as JsonObject)?["id"]?.GetValue<string>();
 }

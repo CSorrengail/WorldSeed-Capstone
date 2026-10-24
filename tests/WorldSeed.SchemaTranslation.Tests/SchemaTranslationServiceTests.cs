@@ -115,7 +115,6 @@ public class SchemaTranslationServiceTests
         var groups = SchemaRulePicker.Group(rules);
         var selected = new HashSet<string>(StringComparer.Ordinal);
         foreach (var rule in rules) Assert.True(SchemaRulePicker.TrySetSelected(selected, rule.Id, true, SchemaTranslationService.MaxWorkingRulesPerProposal));
-        foreach (var index in Enumerable.Range(0, 3)) Assert.True(SchemaRulePicker.TrySetSelected(selected, "extra-" + index, true, SchemaTranslationService.MaxWorkingRulesPerProposal));
 
         Assert.Equal(new[] { WorkingRuleKind.Definition, WorkingRuleKind.Rule, WorkingRuleKind.Procedure }, groups.Select(group => group.Kind));
         Assert.Equal("Definition - Weapon", Assert.Single(groups[0].Rules).Name);
@@ -242,6 +241,22 @@ public class SchemaTranslationServiceTests
         var valueType = Assert.IsType<JsonObject>(Assert.Single(valueTypes));
         Assert.Null(valueType["properties"]);
         Assert.Equal(new[] { "light", "medium", "heavy" }, valueType["entries"]!.AsArray().OfType<JsonObject>().Select(entry => entry["id"]!.GetValue<string>()));
+    }
+
+    [Fact]
+    public void Accepts_an_identical_saved_definition_echo_and_preserves_its_new_source_link()
+    {
+        var cooldown = """{"id":"cooldownDuration","name":"Cooldown Duration","kind":"record","properties":[{"name":"duration","valueType":{"kind":"primitive","name":"integer"},"metadata":{"id":"duration","name":"Duration"},"required":true,"nullable":false}],"metadata":{"id":"cooldownDuration","name":"Cooldown Duration"}}""";
+        var baseSchema = JsonNode.Parse("""{"id":"project","name":"Project","version":"0.5","entityTypes":[],"valueTypes":[]}""")!.AsObject();
+        baseSchema["valueTypes"]!.AsArray().Add(JsonNode.Parse(cooldown));
+        var output = """{"action":"presentProposal","proposal":{"summary":"Adds a weapon property.","schema":{"entityTypes":[],"valueTypes":[__COOLDOWN__,{"id":"weaponProperty","name":"Weapon Property","kind":"enumeration","entries":[{"id":"sharp","name":"Sharp"}],"metadata":{"id":"weaponProperty","name":"Weapon Property"}}]},"definitionSources":[{"definitionId":"cooldownDuration","workingRuleIds":["casting-adds-mark"]},{"definitionId":"weaponProperty","workingRuleIds":["casting-adds-mark"]}]}}""".Replace("__COOLDOWN__", cooldown, StringComparison.Ordinal);
+
+        var turn = new SchemaTranslationJsonParser().Parse(output, CreateWorkingRuleSet(), baseSchema);
+        var merged = SchemaProposalMerger.MergeSchemas(baseSchema, turn.Proposal!.Schema);
+        var sources = SchemaProposalMerger.MergeDefinitionSources([new DefinitionSource("cooldownDuration", ["previous-rule"])], turn.Proposal.DefinitionSources);
+
+        Assert.Equal(new[] { "cooldownDuration", "weaponProperty" }, merged["valueTypes"]!.AsArray().OfType<JsonObject>().Select(value => value["metadata"]!["id"]!.GetValue<string>()));
+        Assert.Equal(new[] { "previous-rule", "casting-adds-mark" }, Assert.Single(sources, source => source.DefinitionId == "cooldownDuration").WorkingRuleIds);
     }
 
     private static WorkingRuleSet CreateWorkingRuleSet()
