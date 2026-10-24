@@ -24,7 +24,7 @@ public sealed class SchemaTranslationService
     private const string RetryPrompt = """
         Your prior response could not be parsed. Return a new, complete JSON object only; do not explain or use Markdown.
         Begin exactly with {"action":"presentProposal","proposal":...} or {"action":"askClarifyingQuestion","clarifyingQuestion":...}. Do not use a presentProposal wrapper property.
-        Keep the schema minimal. Every definition must use metadata.id and metadata.name, and every top-level definition needs a definitionSources entry that cites only supplied workingRuleIds. Enumeration entries are objects with id and name, never bare strings. Remove any definition you cannot map to a supplied Working Rule.
+        Keep the schema minimal. Every definition must use metadata.id and metadata.name, and every top-level definition needs a definitionSources entry that cites only supplied workingRuleIds. Put every definition array inside proposal.schema: for example, proposal.schema must contain both entityTypes and valueTypes, never put valueTypes beside schema. If armorClass and armorClassWeight are both returned, definitionSources needs one entry for armorClass and one for armorClassWeight. Enumeration entries are objects with id and name, never bare strings. Remove any definition you cannot map to a supplied Working Rule.
         """;
     private static readonly JsonSerializerOptions JsonOptions = new() { Converters = { new JsonStringEnumConverter() } };
     private readonly ILanguageModelClient _client;

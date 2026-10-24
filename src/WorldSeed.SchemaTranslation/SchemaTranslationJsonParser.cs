@@ -7,6 +7,7 @@ namespace WorldSeed.SchemaTranslation;
 
 public sealed class SchemaTranslationJsonParser
 {
+    private static readonly string[] SchemaDefinitionCollections = ["schemaFragments", "entityTypes", "valueTypes", "relationships", "rules", "procedures", "validations"];
     private readonly GameSchemaValidator _schemaValidator = new();
 
     public SchemaTranslationTurn Parse(string content, WorkingRuleSet workingRuleSet, JsonObject? baseSchema = null)
@@ -37,16 +38,22 @@ public sealed class SchemaTranslationJsonParser
         if (action == SchemaTranslationAction.AskClarifyingQuestion) return new SchemaTranslationTurn(action, question, null);
         var proposal = root["proposal"] as JsonObject ?? throw new SchemaTranslationFormatException("A proposal response requires a proposal object.");
         var schema = proposal["schema"] as JsonObject ?? throw new SchemaTranslationFormatException("A schema proposal requires a schema object.");
+        // Some local models correctly construct a definition array, but place it beside schema. Moving a
+        // known schema array is lossless and keeps it subject to the same validation below.
+        foreach (var collection in SchemaDefinitionCollections)
+            if (schema[collection] is null && proposal[collection] is JsonNode misplacedDefinitions)
+                schema[collection] = misplacedDefinitions.DeepClone();
         // Some local models place this proposal-level traceability field inside schema. Moving it is lossless;
         // the later checks still reject links to definitions that the schema did not actually define.
         if (proposal["definitionSources"] is null && schema["definitionSources"] is JsonNode misplacedSources)
             proposal["definitionSources"] = misplacedSources.DeepClone();
         NormalizeSchema(schema);
-        var sources = ParseSources(proposal["definitionSources"]) ?? throw new SchemaTranslationFormatException("A schema proposal requires definition sources.");
+        var sources = ParseSources(proposal["definitionSources"])?.ToList() ?? throw new SchemaTranslationFormatException("A schema proposal requires definition sources.");
         var validationSchema = SchemaProposalMerger.MergeSchemas(baseSchema, schema);
         var issues = _schemaValidator.Validate(validationSchema).Issues.Select(issue => issue.Message).ToList();
         var allowedRules = workingRuleSet.Rules.Select(rule => rule.Id).ToHashSet(StringComparer.Ordinal);
         var definitionIds = Definitions(schema).ToHashSet(StringComparer.Ordinal);
+        CompleteSingleRuleSourceMappings(sources, definitionIds, allowedRules);
         foreach (var source in sources)
         {
             if (!definitionIds.Contains(source.DefinitionId)) issues.Add($"Definition source '{source.DefinitionId}' does not exist in the proposed schema.");
@@ -66,6 +73,17 @@ public sealed class SchemaTranslationJsonParser
     };
 
     private static DefinitionSource ParseSource(JsonObject source) => new(Required(source, "definitionId"), Strings(source, "workingRuleIds"));
+
+    /// <summary>Completes only unambiguous provenance omissions: a one-rule request whose existing links all cite that same one rule.</summary>
+    private static void CompleteSingleRuleSourceMappings(List<DefinitionSource> sources, IReadOnlySet<string> definitionIds, IReadOnlySet<string> allowedRules)
+    {
+        if (allowedRules.Count != 1 || sources.Count == 0) return;
+        var soleRule = allowedRules.Single();
+        if (sources.Any(source => source.WorkingRuleIds.Count == 0 || source.WorkingRuleIds.Any(id => !string.Equals(id, soleRule, StringComparison.Ordinal)))) return;
+        var mapped = sources.Select(source => source.DefinitionId).ToHashSet(StringComparer.Ordinal);
+        foreach (var id in definitionIds.Where(id => !mapped.Contains(id)).Order(StringComparer.Ordinal))
+            sources.Add(new DefinitionSource(id, [soleRule]));
+    }
 
     /// <summary>Normalizes lossless model presentation variants before validation; it never creates game-specific definitions.</summary>
     private static void NormalizeSchema(JsonObject schema)
