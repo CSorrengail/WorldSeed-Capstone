@@ -181,6 +181,37 @@ public class SchemaTranslationServiceTests
         Assert.Equal("integer", value["valueType"]!["name"]!.GetValue<string>());
     }
 
+    [Fact]
+    public async Task Retries_when_model_json_contains_a_duplicate_property_name()
+    {
+        var duplicate = """{"action":"presentProposal","proposal":{"summary":"First","summary":"Second","schema":{"id":"dangerous-magic","name":"Dangerous Magic","version":"0.1.0","entityTypes":[{"metadata":{"id":"caster","name":"Caster"}}]},"definitionSources":[{"definitionId":"caster","workingRuleIds":["casting-adds-mark"]}]}}""";
+        var valid = """{"action":"presentProposal","proposal":{"summary":"A caster schema.","schema":{"id":"dangerous-magic","name":"Dangerous Magic","version":"0.1.0","entityTypes":[{"metadata":{"id":"caster","name":"Caster"}}]},"definitionSources":[{"definitionId":"caster","workingRuleIds":["casting-adds-mark"]}]}}""";
+        var model = new FakeModel(duplicate, valid);
+
+        var turn = await new SchemaTranslationService(model).TranslateAsync(new SchemaTranslationRequest(CreateWorkingRuleSet()));
+
+        Assert.Equal(SchemaTranslationAction.PresentProposal, turn.Action);
+        Assert.Equal(2, model.Requests.Count);
+        Assert.Contains("same JSON property", model.Requests[1].Messages[^1].Content);
+    }
+
+    [Fact]
+    public async Task Validates_new_schema_additions_against_the_saved_base_and_merges_them()
+    {
+        var baseSchema = JsonNode.Parse("""{"id":"dangerous-magic","name":"Dangerous Magic","version":"0.1.0","entityTypes":[],"valueTypes":[{"metadata":{"id":"cooldownDuration","name":"Cooldown Duration"},"kind":"record","properties":[]}]}""")!.AsObject();
+        var addition = """{"action":"presentProposal","proposal":{"summary":"An ability schema.","schema":{"id":"dangerous-magic","name":"Dangerous Magic","version":"0.1.0","entityTypes":[{"metadata":{"id":"ability","name":"Ability"},"properties":[{"metadata":{"id":"cooldown","name":"Cooldown"},"valueType":{"kind":"definedValueType","valueTypeId":"cooldownDuration"},"required":false,"nullable":true}]}]},"definitionSources":[{"definitionId":"ability","workingRuleIds":["casting-adds-mark"]}]}}""";
+        var model = new FakeModel(addition);
+
+        var turn = await new SchemaTranslationService(model).TranslateAsync(new SchemaTranslationRequest(CreateWorkingRuleSet(), baseSchema));
+        var merged = SchemaProposalMerger.MergeSchemas(baseSchema, turn.Proposal!.Schema);
+        var sources = SchemaProposalMerger.MergeDefinitionSources([new DefinitionSource("cooldownDuration", ["previous-rule"])], turn.Proposal.DefinitionSources);
+
+        Assert.Contains("baseSchema", model.Request!.Messages[1].Content);
+        Assert.Equal(new[] { "ability" }, merged["entityTypes"]!.AsArray().OfType<JsonObject>().Select(node => node["metadata"]!["id"]!.GetValue<string>()));
+        Assert.Equal(new[] { "cooldownDuration" }, merged["valueTypes"]!.AsArray().OfType<JsonObject>().Select(node => node["metadata"]!["id"]!.GetValue<string>()));
+        Assert.Equal(new[] { "cooldownDuration", "ability" }, sources.Select(source => source.DefinitionId));
+    }
+
     private static WorkingRuleSet CreateWorkingRuleSet()
     {
         var now = DateTimeOffset.Parse("2026-10-14T00:00:00Z");
