@@ -121,6 +121,25 @@ public static class GameDataService
         return gameData;
     }
 
+    /// <summary>
+    /// An automatically-created empty document does not count as authored data and may be
+    /// safely replaced when its active schema changes. Relationships count as authored too.
+    /// </summary>
+    public static bool HasAuthoredContent(ProjectGameData? gameData)
+    {
+        if (gameData is null) return false;
+        try
+        {
+            var data = ParseObject(gameData.DataJson, "Game data is not a JSON object.");
+            return (data["entityInstances"] as JsonArray)?.Count > 0 || (data["relationshipInstances"] as JsonArray)?.Count > 0;
+        }
+        catch (GameDataFormatException)
+        {
+            // Retain malformed documents rather than overwriting something that may need recovery.
+            return true;
+        }
+    }
+
     /// <summary>Returns every schema or active-snapshot issue without altering the submitted data.</summary>
     public static SchemaValidationResult Validate(ActiveGameSchema activeSchema, ProjectGameData gameData)
     {

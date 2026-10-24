@@ -9,6 +9,7 @@ using Avalonia.Threading;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using WorldSeed.DesignSessions;
+using WorldSeed.GameData;
 using WorldSeed.LlmIntegration;
 using WorldSeed.RuleDrafting;
 using WorldSeed.SchemaTranslation;
@@ -26,6 +27,7 @@ public partial class MainWindow : Window
     private readonly IDesignProjectStore _projectStore;
     private readonly IWorkingRuleSetStore _workingRuleStore;
     private readonly IProjectSchemaProposalStore _schemaProposalStore;
+    private readonly HttpGameDataWorkspaceClient _gameDataWorkspace;
     private readonly WorldSeedSettingsStore _settingsStore = new();
     private readonly DispatcherTimer _inactivityTimer = new() { Interval = TimeSpan.FromSeconds(10) };
     private readonly List<DesignProjectSummary> _projectSummaries = [];
@@ -33,12 +35,16 @@ public partial class MainWindow : Window
     private readonly List<WorkingRule> _workingRules = [];
     private readonly List<string> _schemaQueueRuleIds = [];
     private readonly List<SchemaClarification> _schemaClarifications = [];
+    private readonly List<GameDataEntityTypeItem> _gameDataEntityTypes = [];
+    private readonly List<GameDataEntityInstanceItem> _gameDataEntityInstances = [];
     private int _projectLoadGeneration;
     private bool _updatingProjectSelector;
     private string? _pendingDeletionProjectId;
     private DesignProject? _project;
     private WorkingRuleSet? _workingRuleSet;
     private ProjectSchemaProposal? _schemaProposal;
+    private ActiveGameSchema? _activeGameSchema;
+    private ProjectGameData? _projectGameData;
     private string? _pendingSchemaQuestion;
     private bool _processingSchemaQueue;
     private readonly List<TextBox> _answerInputs = [];
@@ -54,6 +60,7 @@ public partial class MainWindow : Window
         _projectStore = new HttpDesignProjectStore(_apiHttp);
         _workingRuleStore = new HttpWorkingRuleSetStore(_apiHttp);
         _schemaProposalStore = new HttpProjectSchemaProposalStore(_apiHttp);
+        _gameDataWorkspace = new HttpGameDataWorkspaceClient(_apiHttp);
         InitializeComponent();
         _settings = _settingsStore.Load();
         _inactivityTimer.Tick += InactivityTimer_Tick;
@@ -224,6 +231,7 @@ public partial class MainWindow : Window
             {
                 await LoadWorkingRuleSetAsync(_project.Id);
                 await LoadSchemaProposalAsync(_project.Id);
+                await LoadGameDataWorkspaceAsync(_project.Id);
                 RefreshNotes(); ShowSelectedSource();
                 ProjectLocationText.Text = "Project database: http://localhost:5080 (Docker local stack)";
                 _updatingProjectSelector = true;
@@ -523,6 +531,57 @@ public partial class MainWindow : Window
         }
     }
 
+    private async Task LoadGameDataWorkspaceAsync(string projectId)
+    {
+        try
+        {
+            _activeGameSchema = await _gameDataWorkspace.LoadActiveSchemaAsync(projectId);
+            _projectGameData = _activeGameSchema is null ? null : await _gameDataWorkspace.LoadGameDataAsync(projectId);
+            RefreshGameDataView();
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("Load game data workspace", ex);
+            _activeGameSchema = null;
+            _projectGameData = null;
+            RefreshGameDataView();
+            GameDataStatusText.Text = "Could not load the game-data workspace. See the diagnostic log.";
+        }
+    }
+
+    private async void ActivateSchema_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_project is null || _schemaProposal is null)
+        {
+            SchemaStatusText.Text = "Save a schema proposal before making it active.";
+            return;
+        }
+        ActivateSchemaButton.IsEnabled = false;
+        ActivateSchemaFromDataButton.IsEnabled = false;
+        try
+        {
+            _activeGameSchema = await _gameDataWorkspace.ActivateAsync(_project.Id);
+            _projectGameData = await _gameDataWorkspace.LoadGameDataAsync(_project.Id);
+            RefreshGameDataView();
+            RefreshSchemaView();
+            var detail = _projectGameData is null ? "No game-data document was returned." : "An empty game-data document is ready for entries.";
+            SchemaStatusText.Text = $"Active schema revision {_activeGameSchema.Revision} is ready. {detail}";
+            AppLog.Info($"Activated schema revision {_activeGameSchema.Revision} for project '{_project.Id}'.");
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("Activate saved schema proposal", ex);
+            var detail = ex is HttpRequestException ? ex.Message : "See the diagnostic log.";
+            SchemaStatusText.Text = "Could not activate the saved schema proposal. " + detail;
+            GameDataStatusText.Text = "Activation failed. Existing game data was not changed.";
+        }
+        finally
+        {
+            RefreshSchemaActivationControls();
+            RefreshGameDataControls();
+        }
+    }
+
     private async void BuildSchema_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => await ProcessSchemaQueueAsync();
 
     private void ClearSchemaQueue_Click(object? sender, RoutedEventArgs e)
@@ -711,12 +770,23 @@ public partial class MainWindow : Window
         }
         if (_schemaProposal is null)
         {
+            RefreshSchemaActivationControls();
             SchemaStatusText.Text = _workingRuleSet is null ? "Load a Working Rule Set, then add rules to the schema queue." : "Add Working Rules to the queue. Each item will be proposed and saved separately.";
             SchemaText.Text = "No schema proposal is loaded.";
             return;
         }
+        RefreshSchemaActivationControls();
         SchemaStatusText.Text = $"Proposal based on Working Rule Set revision {_schemaProposal.WorkingRuleSetRevision}; { _schemaProposal.SelectedWorkingRuleIds.Count } selected rule(s).";
         SchemaText.Text = $"Summary\n{_schemaProposal.Summary}\n\nSchema clarifications\n{FormatSchemaClarifications(_schemaProposal.Clarifications)}\n\nSelected Working Rules\n{string.Join("\n", _schemaProposal.SelectedWorkingRuleIds.Select(id => "- " + id))}\n\nDefinition sources\n{string.Join("\n", _schemaProposal.DefinitionSources.Select(source => $"- {source.DefinitionId}: {string.Join(", ", source.WorkingRuleIds)}"))}\n\nSchema JSON\n{PrettyJson(_schemaProposal.SchemaJson)}";
+    }
+
+    private void RefreshSchemaActivationControls()
+    {
+        var enabled = _schemaProposal is not null && !_processingSchemaQueue;
+        ActivateSchemaButton.IsEnabled = enabled;
+        ActivateSchemaButton.Content = _activeGameSchema is null ? "Use saved proposal as active schema" : "Update active schema from saved proposal";
+        ActivateSchemaFromDataButton.IsEnabled = enabled;
+        ActivateSchemaFromDataButton.Content = ActivateSchemaButton.Content;
     }
 
     private void AddSchemaRuleToQueue_Click(object? sender, RoutedEventArgs e)
@@ -860,6 +930,246 @@ public partial class MainWindow : Window
         if (WorkingRuleList.SelectedIndex is var index && index >= 0 && index < _workingRules.Count) WorkingRuleText.Text = FormatWorkingRule(_workingRules[index]);
     }
 
+    private void RefreshGameDataView()
+    {
+        var selectedTypeId = GameDataEntityTypeList.SelectedIndex is var typeIndex && typeIndex >= 0 && typeIndex < _gameDataEntityTypes.Count
+            ? _gameDataEntityTypes[typeIndex].Id
+            : null;
+        var selectedInstanceId = GameDataEntityList.SelectedIndex is var instanceIndex && instanceIndex >= 0 && instanceIndex < _gameDataEntityInstances.Count
+            ? _gameDataEntityInstances[instanceIndex].Id
+            : null;
+        _gameDataEntityTypes.Clear();
+        _gameDataEntityInstances.Clear();
+
+        if (_activeGameSchema is null || _projectGameData is null)
+        {
+            ActiveSchemaText.Text = _activeGameSchema is null
+                ? "Activate a saved schema proposal to begin entering game data."
+                : "The active schema is loaded, but its game-data document is unavailable.";
+            GameDataEntityTypeList.ItemsSource = Array.Empty<GameDataEntityTypeItem>();
+            GameDataEntityList.ItemsSource = Array.Empty<GameDataEntityInstanceItem>();
+            GameDataEntityEditor.Text = "Select an entry or add one from an entity type.";
+            GameDataJsonText.Text = "Activate a schema to create a game-data document.";
+            GameDataStatusText.Text = _activeGameSchema is null ? "No active schema is loaded." : "No game-data document is loaded.";
+            RefreshGameDataControls();
+            return;
+        }
+
+        try
+        {
+            var schema = ParseJsonObject(_activeGameSchema.SchemaJson, "The active schema snapshot is not a JSON object.");
+            var data = ParseJsonObject(_projectGameData.DataJson, "The saved game-data document is not a JSON object.");
+            foreach (var entity in (schema["entityTypes"] as JsonArray)?.OfType<JsonObject>() ?? [])
+            {
+                var metadata = entity["metadata"] as JsonObject;
+                var id = metadata?["id"]?.GetValue<string>();
+                var name = metadata?["name"]?.GetValue<string>() ?? id;
+                if (!string.IsNullOrWhiteSpace(id) && !string.IsNullOrWhiteSpace(name)) _gameDataEntityTypes.Add(new GameDataEntityTypeItem(id, name));
+            }
+            foreach (var instance in (data["entityInstances"] as JsonArray)?.OfType<JsonObject>() ?? [])
+            {
+                var id = instance["id"]?.GetValue<string>();
+                var entityTypeId = instance["entityTypeId"]?.GetValue<string>();
+                if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(entityTypeId)) continue;
+                var typeName = _gameDataEntityTypes.SingleOrDefault(type => type.Id == entityTypeId)?.Name ?? entityTypeId;
+                _gameDataEntityInstances.Add(new GameDataEntityInstanceItem(id, entityTypeId, typeName));
+            }
+            ActiveSchemaText.Text = $"{_activeGameSchema.Name}\nRevision {_activeGameSchema.Revision}; based on Working Rule Set revision {_activeGameSchema.WorkingRuleSetRevision}.";
+            GameDataEntityTypeList.ItemsSource = _gameDataEntityTypes.ToArray();
+            GameDataEntityList.ItemsSource = _gameDataEntityInstances.ToArray();
+            GameDataEntityTypeList.SelectedIndex = selectedTypeId is null ? -1 : _gameDataEntityTypes.FindIndex(type => type.Id == selectedTypeId);
+            GameDataEntityList.SelectedIndex = selectedInstanceId is null ? -1 : _gameDataEntityInstances.FindIndex(item => item.Id == selectedInstanceId);
+            GameDataJsonText.Text = PrettyJson(_projectGameData.DataJson);
+            GameDataStatusText.Text = $"{_gameDataEntityInstances.Count} saved entr{(_gameDataEntityInstances.Count == 1 ? "y" : "ies")}. Edit one entry at a time, then validate and save the complete document.";
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("Render game data workspace", ex);
+            GameDataStatusText.Text = "Could not display the saved game-data document. See the diagnostic log.";
+            GameDataJsonText.Text = _projectGameData.DataJson;
+        }
+        RefreshGameDataControls();
+    }
+
+    private void RefreshGameDataControls()
+    {
+        var hasDocument = _activeGameSchema is not null && _projectGameData is not null;
+        AddGameDataEntityButton.IsEnabled = hasDocument && GameDataEntityTypeList.SelectedIndex >= 0;
+        RemoveGameDataEntityButton.IsEnabled = hasDocument && GameDataEntityList.SelectedIndex >= 0;
+        ApplyGameDataEntityButton.IsEnabled = hasDocument && GameDataEntityList.SelectedIndex >= 0;
+        ValidateAndSaveGameDataButton.IsEnabled = hasDocument;
+        RefreshSchemaActivationControls();
+    }
+
+    private void GameDataEntityList_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        var index = GameDataEntityList.SelectedIndex;
+        if (_projectGameData is null || index < 0 || index >= _gameDataEntityInstances.Count)
+        {
+            RefreshGameDataControls();
+            return;
+        }
+        try
+        {
+            var root = ParseJsonObject(_projectGameData.DataJson, "The saved game-data document is not a JSON object.");
+            var selected = _gameDataEntityInstances[index];
+            var entry = (root["entityInstances"] as JsonArray)?.OfType<JsonObject>().SingleOrDefault(candidate => candidate["id"]?.GetValue<string>() == selected.Id);
+            GameDataEntityEditor.Text = entry is null ? "Selected entry is no longer present." : PrettyJson(entry.ToJsonString());
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("Select game-data entry", ex);
+            GameDataEntityEditor.Text = "Could not load this entry. See the diagnostic log.";
+        }
+        RefreshGameDataControls();
+    }
+
+    private void GameDataEntityTypeList_SelectionChanged(object? sender, SelectionChangedEventArgs e) => RefreshGameDataControls();
+
+    private void AddGameDataEntity_Click(object? sender, RoutedEventArgs e)
+    {
+        var index = GameDataEntityTypeList.SelectedIndex;
+        if (_projectGameData is null || index < 0 || index >= _gameDataEntityTypes.Count) return;
+        try
+        {
+            var root = ParseJsonObject(_projectGameData.DataJson, "The saved game-data document is not a JSON object.");
+            var entries = root["entityInstances"] as JsonArray ?? throw new GameDataFormatException("Game data requires an entityInstances array.");
+            var type = _gameDataEntityTypes[index];
+            var id = $"{type.Id}-{Guid.NewGuid():N}"[..Math.Min(type.Id.Length + 9, type.Id.Length + 33)];
+            entries.Add(new JsonObject { ["id"] = id, ["entityTypeId"] = type.Id, ["values"] = new JsonObject() });
+            SetGameDataDocument(root);
+            RefreshGameDataView();
+            GameDataEntityList.SelectedIndex = _gameDataEntityInstances.FindIndex(item => item.Id == id);
+            GameDataStatusText.Text = $"Added a new {type.Name} entry. Fill its values, then validate and save.";
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("Add game-data entity", ex);
+            GameDataStatusText.Text = "Could not add the entry. See the diagnostic log.";
+        }
+    }
+
+    private void RemoveGameDataEntity_Click(object? sender, RoutedEventArgs e)
+    {
+        var index = GameDataEntityList.SelectedIndex;
+        if (_projectGameData is null || index < 0 || index >= _gameDataEntityInstances.Count) return;
+        try
+        {
+            var root = ParseJsonObject(_projectGameData.DataJson, "The saved game-data document is not a JSON object.");
+            var id = _gameDataEntityInstances[index].Id;
+            var entries = root["entityInstances"] as JsonArray ?? throw new GameDataFormatException("Game data requires an entityInstances array.");
+            var entryIndex = entries.Select((node, itemIndex) => (node, itemIndex)).FirstOrDefault(item => item.node is JsonObject entry && entry["id"]?.GetValue<string>() == id).itemIndex;
+            if (entryIndex >= entries.Count || entries[entryIndex] is not JsonObject entry || entry["id"]?.GetValue<string>() != id) entryIndex = -1;
+            if (entryIndex < 0) throw new GameDataFormatException("The selected entry no longer exists.");
+            entries.RemoveAt(entryIndex);
+            SetGameDataDocument(root);
+            RefreshGameDataView();
+            GameDataStatusText.Text = "Removed the selected entry. Validate and save to persist the change.";
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("Remove game-data entity", ex);
+            GameDataStatusText.Text = "Could not remove the entry. See the diagnostic log.";
+        }
+    }
+
+    private void ApplyGameDataEntity_Click(object? sender, RoutedEventArgs e)
+    {
+        if (TryApplySelectedGameDataEntry(out var message))
+            GameDataStatusText.Text = message;
+        else
+            GameDataStatusText.Text = message;
+    }
+
+    private async void ValidateAndSaveGameData_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_activeGameSchema is null || _projectGameData is null) return;
+        if (!TryApplySelectedGameDataEntry(out var applyMessage))
+        {
+            GameDataStatusText.Text = applyMessage;
+            return;
+        }
+        try
+        {
+            var validation = GameDataService.Validate(_activeGameSchema, _projectGameData);
+            if (!validation.IsValid)
+            {
+                GameDataStatusText.Text = "Validation failed: " + string.Join(" ", validation.Issues.Select(issue => issue.Message));
+                return;
+            }
+            ValidateAndSaveGameDataButton.IsEnabled = false;
+            await _gameDataWorkspace.SaveGameDataAsync(_projectGameData);
+            GameDataStatusText.Text = "Game data is valid and saved in the local database.";
+            AppLog.Info($"Saved validated game data for project '{_projectGameData.ProjectId}'.");
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("Save game data", ex);
+            GameDataStatusText.Text = "Could not save game data. " + (ex is HttpRequestException ? ex.Message : "See the diagnostic log.");
+        }
+        finally
+        {
+            RefreshGameDataControls();
+        }
+    }
+
+    private bool TryApplySelectedGameDataEntry(out string message)
+    {
+        message = "";
+        var index = GameDataEntityList.SelectedIndex;
+        if (_projectGameData is null || index < 0 || index >= _gameDataEntityInstances.Count)
+        {
+            message = "Select an entry before applying changes.";
+            return false;
+        }
+        try
+        {
+            var edited = ParseJsonObject(GameDataEntityEditor.Text ?? string.Empty, "An entry must be a JSON object.");
+            var id = edited["id"]?.GetValue<string>();
+            var entityTypeId = edited["entityTypeId"]?.GetValue<string>();
+            if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(entityTypeId) || edited["values"] is not JsonObject)
+                throw new GameDataFormatException("An entry requires a non-empty id, an entityTypeId, and a values object.");
+            if (_gameDataEntityTypes.All(type => type.Id != entityTypeId))
+                throw new GameDataFormatException($"'{entityTypeId}' is not an entity type in the active schema.");
+            var root = ParseJsonObject(_projectGameData.DataJson, "The saved game-data document is not a JSON object.");
+            var entries = root["entityInstances"] as JsonArray ?? throw new GameDataFormatException("Game data requires an entityInstances array.");
+            var originalId = _gameDataEntityInstances[index].Id;
+            var entryIndex = entries.Select((node, itemIndex) => (node, itemIndex)).FirstOrDefault(item => item.node is JsonObject entry && entry["id"]?.GetValue<string>() == originalId).itemIndex;
+            if (entryIndex >= entries.Count || entries[entryIndex] is not JsonObject entry || entry["id"]?.GetValue<string>() != originalId) entryIndex = -1;
+            if (entryIndex < 0) throw new GameDataFormatException("The selected entry no longer exists.");
+            if (entries.OfType<JsonObject>().Any(entry => entry["id"]?.GetValue<string>() == id && entry["id"]?.GetValue<string>() != originalId))
+                throw new GameDataFormatException("Every entity entry needs a unique id.");
+            entries[entryIndex] = edited;
+            SetGameDataDocument(root);
+            RefreshGameDataView();
+            GameDataEntityList.SelectedIndex = _gameDataEntityInstances.FindIndex(item => item.Id == id);
+            message = "Applied entry changes. Validate and save to persist them.";
+            return true;
+        }
+        catch (GameDataFormatException ex)
+        {
+            message = ex.Message;
+            return false;
+        }
+        catch (JsonException)
+        {
+            message = "The entry editor must contain complete JSON before changes can be applied.";
+            return false;
+        }
+    }
+
+    private void SetGameDataDocument(JsonObject root)
+    {
+        if (_projectGameData is null) return;
+        _projectGameData = _projectGameData with { DataJson = root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }), UpdatedAt = DateTimeOffset.UtcNow };
+    }
+
+    private static JsonObject ParseJsonObject(string json, string message)
+    {
+        try { return JsonNode.Parse(json) as JsonObject ?? throw new GameDataFormatException(message); }
+        catch (JsonException) { throw new GameDataFormatException(message); }
+    }
+
     private void ClearProjectView()
     {
         SourceNotesList.SelectedIndex = -1;
@@ -871,6 +1181,8 @@ public partial class MainWindow : Window
         QuestionHeading.Text = "";
         _workingRuleSet = null;
         _schemaProposal = null;
+        _activeGameSchema = null;
+        _projectGameData = null;
         _pendingSchemaQuestion = null;
         _schemaClarifications.Clear();
         _workingRules.Clear();
@@ -890,6 +1202,15 @@ public partial class MainWindow : Window
         SchemaQuestionText.Text = string.Empty;
         SchemaAnswerText.Text = string.Empty;
         SchemaQuestionPanel.IsVisible = false;
+        _gameDataEntityTypes.Clear();
+        _gameDataEntityInstances.Clear();
+        GameDataEntityTypeList.ItemsSource = Array.Empty<GameDataEntityTypeItem>();
+        GameDataEntityList.ItemsSource = Array.Empty<GameDataEntityInstanceItem>();
+        GameDataEntityEditor.Text = "Select an entry or add one from an entity type.";
+        GameDataJsonText.Text = "Activate a schema to create a game-data document.";
+        ActiveSchemaText.Text = "Activate a saved schema proposal to begin entering game data.";
+        GameDataStatusText.Text = "No active schema is loaded.";
+        RefreshGameDataControls();
     }
 
     private DesignSession? SessionFor(DesignSourceNote note) => _project?.Sessions.SingleOrDefault(session => session.SourceNotes.Any(source => source.Id == note.Id));
@@ -969,6 +1290,14 @@ public partial class MainWindow : Window
     private sealed record ProjectListItem(DesignProjectSummary Project)
     {
         public override string ToString() => Project.Name;
+    }
+    private sealed record GameDataEntityTypeItem(string Id, string Name)
+    {
+        public override string ToString() => Name;
+    }
+    private sealed record GameDataEntityInstanceItem(string Id, string EntityTypeId, string EntityTypeName)
+    {
+        public override string ToString() => $"{EntityTypeName}: {Id}";
     }
     private sealed class CapturingClient(ILanguageModelClient inner) : ILanguageModelClient { public LlmChatResponse? Last { get; private set; } public async Task<LlmChatResponse> CompleteAsync(LlmChatRequest request, CancellationToken cancellationToken = default) => Last = await inner.CompleteAsync(request, cancellationToken); }
 }

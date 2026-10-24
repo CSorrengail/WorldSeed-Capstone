@@ -43,6 +43,19 @@ public class GameDataServiceTests
         Assert.Contains(validation.Issues, issue => issue.Message.Contains("revision", StringComparison.OrdinalIgnoreCase));
     }
 
+    [Fact]
+    public void Treats_an_automatically_created_empty_document_as_not_authored()
+    {
+        var active = GameDataService.Activate(CreateProposal(), null, false, Now);
+        var empty = GameDataService.CreateEmpty(active, Now);
+
+        Assert.False(GameDataService.HasAuthoredContent(empty));
+
+        var root = JsonNode.Parse(empty.DataJson)!.AsObject();
+        root["entityInstances"]!.AsArray().Add(new JsonObject { ["id"] = "weapon-1", ["entityTypeId"] = "weapon", ["values"] = new JsonObject { ["name"] = "Sword" } });
+        Assert.True(GameDataService.HasAuthoredContent(empty with { DataJson = root.ToJsonString() }));
+    }
+
     private static ProjectSchemaProposal CreateProposal() => new(
         "proposal-sot",
         "project-sot",
