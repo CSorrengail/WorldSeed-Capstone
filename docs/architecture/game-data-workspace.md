@@ -44,8 +44,9 @@ separate check that the document is attached to the exact active-schema snapshot
 
 ## First vertical slice
 
-The first UI iteration will let a designer activate the SoT schema proposal, create
-and edit schema-defined entries, validate them before saving, and inspect the JSON
-when diagnosing a problem. It will not ask an LLM to invent entries yet. Future LLM
+The first UI iteration lets a designer activate the SoT schema proposal, create
+and edit schema-defined entries, validate them before saving, and inspect or edit the
+full document when a generic construct such as a relationship has no dedicated form
+yet. It will not ask an LLM to invent entries yet. Future LLM
 generation will create reviewable suggestions in this workspace, with source or
 design rationale, before any saved game data changes.

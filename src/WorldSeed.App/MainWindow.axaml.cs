@@ -998,6 +998,8 @@ public partial class MainWindow : Window
         RemoveGameDataEntityButton.IsEnabled = hasDocument && GameDataEntityList.SelectedIndex >= 0;
         ApplyGameDataEntityButton.IsEnabled = hasDocument && GameDataEntityList.SelectedIndex >= 0;
         ValidateAndSaveGameDataButton.IsEnabled = hasDocument;
+        ApplyFullGameDataButton.IsEnabled = hasDocument;
+        GameDataJsonText.IsReadOnly = !hasDocument;
         RefreshSchemaActivationControls();
     }
 
@@ -1079,6 +1081,22 @@ public partial class MainWindow : Window
             GameDataStatusText.Text = message;
         else
             GameDataStatusText.Text = message;
+    }
+
+    private void ApplyFullGameData_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_projectGameData is null) return;
+        try
+        {
+            var root = ParseJsonObject(GameDataJsonText.Text ?? string.Empty, "The full game-data editor must contain a JSON object.");
+            SetGameDataDocument(root);
+            RefreshGameDataView();
+            GameDataStatusText.Text = "Applied full-document changes. Validate and save to persist them.";
+        }
+        catch (GameDataFormatException ex)
+        {
+            GameDataStatusText.Text = ex.Message;
+        }
     }
 
     private async void ValidateAndSaveGameData_Click(object? sender, RoutedEventArgs e)
