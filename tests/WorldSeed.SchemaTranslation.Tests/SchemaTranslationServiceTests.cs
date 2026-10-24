@@ -228,6 +228,22 @@ public class SchemaTranslationServiceTests
         Assert.All(turn.Proposal.DefinitionSources, source => Assert.Equal(new[] { "b001-r004" }, source.WorkingRuleIds));
     }
 
+    [Fact]
+    public void Normalizes_enumeration_labels_mistakenly_placed_in_properties()
+    {
+        var ruleSet = CreateWorkingRuleSet() with { Rules = [Assert.Single(CreateWorkingRuleSet().Rules) with { Id = "b001-r004" }] };
+        var baseSchema = JsonNode.Parse("""{"id":"project","name":"Project","version":"0.5","entityTypes":[]}""")!.AsObject();
+        var modelOutput = """{"action":"presentProposal","proposal":{"summary":"Armor class weight.","schema":{"entityTypes":[],"valueTypes":[{"id":"armorClassWeight","name":"Armor Class Weight","kind":"enumeration","properties":[{"id":"light","name":"Light"},{"id":"medium","name":"Medium"},{"id":"heavy","name":"Heavy"}],"metadata":{"id":"armorClassWeight","name":"Armor Class Weight"}}]},"definitionSources":[{"definitionId":"armorClassWeight","workingRuleIds":["b001-r004"]}]}}""";
+
+        var turn = new SchemaTranslationJsonParser().Parse(modelOutput, ruleSet, baseSchema);
+
+        var proposal = Assert.IsType<SchemaTranslationProposal>(turn.Proposal);
+        var valueTypes = Assert.IsType<JsonArray>(proposal.Schema["valueTypes"]);
+        var valueType = Assert.IsType<JsonObject>(Assert.Single(valueTypes));
+        Assert.Null(valueType["properties"]);
+        Assert.Equal(new[] { "light", "medium", "heavy" }, valueType["entries"]!.AsArray().OfType<JsonObject>().Select(entry => entry["id"]!.GetValue<string>()));
+    }
+
     private static WorkingRuleSet CreateWorkingRuleSet()
     {
         var now = DateTimeOffset.Parse("2026-10-14T00:00:00Z");

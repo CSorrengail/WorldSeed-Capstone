@@ -95,6 +95,7 @@ public sealed class SchemaTranslationJsonParser
 
     private static void NormalizeDefinition(JsonObject definition)
     {
+        NormalizeEnumerationEntriesPlacedInProperties(definition);
         NormalizeMetadata(definition, allowNameAsId: false);
         foreach (var property in (definition["properties"] as JsonArray)?.OfType<JsonObject>() ?? []) NormalizeProperty(property);
         foreach (var attribute in (definition["attributes"] as JsonArray)?.OfType<JsonObject>() ?? []) NormalizeProperty(attribute);
@@ -108,6 +109,33 @@ public sealed class SchemaTranslationJsonParser
                 if (String(entries[index]) is { } label)
                     entries[index] = new JsonObject { ["id"] = label, ["name"] = label };
         }
+    }
+
+    /// <summary>Moves simple enum labels from a model's mistaken properties array into entries without creating or discarding game data.</summary>
+    private static void NormalizeEnumerationEntriesPlacedInProperties(JsonObject definition)
+    {
+        if (String(definition["kind"]) != "enumeration" || definition["entries"] is JsonArray { Count: > 0 } || definition["properties"] is not JsonArray { Count: > 0 } properties) return;
+        if (properties.OfType<JsonObject>().Count() != properties.Count || properties.OfType<JsonObject>().Any(entry => !IsSimpleEnumerationEntry(entry))) return;
+
+        var entries = new JsonArray();
+        foreach (var property in properties.OfType<JsonObject>())
+        {
+            var entry = (JsonObject)property.DeepClone();
+            entry.Remove("metadata");
+            entries.Add(entry);
+        }
+        definition.Remove("properties");
+        definition["entries"] = entries;
+    }
+
+    private static bool IsSimpleEnumerationEntry(JsonObject entry)
+    {
+        if (entry.Any(property => property.Key is not ("id" or "name" or "metadata"))) return false;
+        if (String(entry["id"]) is not { } id || String(entry["name"]) is not { } name) return false;
+        if (entry["metadata"] is not JsonObject metadata) return true;
+        if (metadata.Any(property => property.Key is not ("id" or "name"))) return false;
+        return (String(metadata["id"]) is null || String(metadata["id"]) == id)
+            && (String(metadata["name"]) is null || String(metadata["name"]) == name);
     }
 
     private static bool HasMembers(JsonObject definition) =>
