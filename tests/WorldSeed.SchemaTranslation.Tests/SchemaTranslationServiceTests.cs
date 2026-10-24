@@ -244,7 +244,7 @@ public class SchemaTranslationServiceTests
     }
 
     [Fact]
-    public void Accepts_an_identical_saved_definition_echo_and_preserves_its_new_source_link()
+    public void Discards_an_identical_saved_definition_echo_and_its_untrusted_source_link()
     {
         var cooldown = """{"id":"cooldownDuration","name":"Cooldown Duration","kind":"record","properties":[{"name":"duration","valueType":{"kind":"primitive","name":"integer"},"metadata":{"id":"duration","name":"Duration"},"required":true,"nullable":false}],"metadata":{"id":"cooldownDuration","name":"Cooldown Duration"}}""";
         var baseSchema = JsonNode.Parse("""{"id":"project","name":"Project","version":"0.5","entityTypes":[],"valueTypes":[]}""")!.AsObject();
@@ -256,7 +256,8 @@ public class SchemaTranslationServiceTests
         var sources = SchemaProposalMerger.MergeDefinitionSources([new DefinitionSource("cooldownDuration", ["previous-rule"])], turn.Proposal.DefinitionSources);
 
         Assert.Equal(new[] { "cooldownDuration", "weaponProperty" }, merged["valueTypes"]!.AsArray().OfType<JsonObject>().Select(value => value["metadata"]!["id"]!.GetValue<string>()));
-        Assert.Equal(new[] { "previous-rule", "casting-adds-mark" }, Assert.Single(sources, source => source.DefinitionId == "cooldownDuration").WorkingRuleIds);
+        Assert.Equal(new[] { "previous-rule" }, Assert.Single(sources, source => source.DefinitionId == "cooldownDuration").WorkingRuleIds);
+        Assert.Equal(new[] { "weaponProperty" }, turn.Proposal.DefinitionSources.Select(source => source.DefinitionId));
     }
 
     private static WorkingRuleSet CreateWorkingRuleSet()
