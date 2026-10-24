@@ -48,6 +48,16 @@ public static class SchemaRulePicker
         selectedIds.Add(ruleId);
         return true;
     }
+
+    /// <summary>Adds a rule once while preserving FIFO order for the desktop schema-work queue.</summary>
+    public static bool TryEnqueue(IList<string> queuedIds, string ruleId)
+    {
+        ArgumentNullException.ThrowIfNull(queuedIds);
+        ArgumentException.ThrowIfNullOrWhiteSpace(ruleId);
+        if (queuedIds.Contains(ruleId, StringComparer.Ordinal)) return false;
+        queuedIds.Add(ruleId);
+        return true;
+    }
 }
 
 public sealed record SchemaRuleGroup(WorkingRuleKind Kind, IReadOnlyList<WorkingRule> Rules);
