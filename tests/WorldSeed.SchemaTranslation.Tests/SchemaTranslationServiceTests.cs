@@ -102,7 +102,7 @@ public class SchemaTranslationServiceTests
     }
 
     [Fact]
-    public void Groups_schema_candidates_by_kind_and_enforces_the_six_rule_limit()
+    public void Groups_schema_candidates_and_preserves_a_duplicate_free_queue_order()
     {
         var original = Assert.Single(CreateWorkingRuleSet().Rules);
         var rules = new[]
@@ -121,6 +121,12 @@ public class SchemaTranslationServiceTests
         Assert.Equal("Weapon", SchemaRulePicker.DisplayName(groups[0].Rules[0]));
         Assert.False(SchemaRulePicker.TrySetSelected(selected, "too-many", true, SchemaTranslationService.MaxWorkingRulesPerProposal));
         Assert.Equal(SchemaTranslationService.MaxWorkingRulesPerProposal, selected.Count);
+
+        var queue = new List<string>();
+        Assert.True(SchemaRulePicker.TryEnqueue(queue, "procedure"));
+        Assert.True(SchemaRulePicker.TryEnqueue(queue, "definition"));
+        Assert.False(SchemaRulePicker.TryEnqueue(queue, "procedure"));
+        Assert.Equal(new[] { "procedure", "definition" }, queue);
     }
 
     [Fact]

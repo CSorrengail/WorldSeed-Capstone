@@ -31,7 +31,7 @@ public partial class MainWindow : Window
     private readonly List<DesignProjectSummary> _projectSummaries = [];
     private readonly List<ProjectRuleItem> _projectRules = [];
     private readonly List<WorkingRule> _workingRules = [];
-    private readonly HashSet<string> _selectedSchemaRuleIds = new(StringComparer.Ordinal);
+    private readonly List<string> _schemaQueueRuleIds = [];
     private readonly List<SchemaClarification> _schemaClarifications = [];
     private int _projectLoadGeneration;
     private bool _updatingProjectSelector;
@@ -40,11 +40,14 @@ public partial class MainWindow : Window
     private WorkingRuleSet? _workingRuleSet;
     private ProjectSchemaProposal? _schemaProposal;
     private string? _pendingSchemaQuestion;
+    private bool _processingSchemaQueue;
     private readonly List<TextBox> _answerInputs = [];
     private IReadOnlyList<string> _activeQuestions = [];
     private WorldSeedSettings _settings = WorldSeedSettings.Default;
     private DateTimeOffset _lastInteractionAt = DateTimeOffset.UtcNow;
     private bool _settingsDialogOpen;
+
+    private enum SchemaQueueItemResult { Saved, NeedsClarification, Failed }
 
     public MainWindow()
     {
@@ -444,6 +447,7 @@ public partial class MainWindow : Window
             await WorkingRuleStore().SaveAsync(result.RuleSet);
             _workingRuleSet = result.RuleSet;
             _schemaProposal = null;
+            _schemaQueueRuleIds.Clear();
             _pendingSchemaQuestion = null;
             _schemaClarifications.Clear();
             SchemaQuestionPanel.IsVisible = false;
@@ -519,7 +523,15 @@ public partial class MainWindow : Window
         }
     }
 
-    private async void BuildSchema_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => await BuildSchemaProposalAsync();
+    private async void BuildSchema_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => await ProcessSchemaQueueAsync();
+
+    private void ClearSchemaQueue_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_processingSchemaQueue || !string.IsNullOrWhiteSpace(_pendingSchemaQuestion)) return;
+        _schemaQueueRuleIds.Clear();
+        RefreshSchemaView();
+        SchemaStatusText.Text = "Schema work queue cleared.";
+    }
 
     private async void SubmitSchemaAnswer_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
@@ -533,10 +545,10 @@ public partial class MainWindow : Window
         _schemaClarifications.Add(new SchemaClarification(_pendingSchemaQuestion, answer));
         _pendingSchemaQuestion = null;
         SchemaQuestionPanel.IsVisible = false;
-        await BuildSchemaProposalAsync();
+        await ProcessSchemaQueueAsync();
     }
 
-    private async Task BuildSchemaProposalAsync()
+    private async Task ProcessSchemaQueueAsync()
     {
         if (!string.IsNullOrWhiteSpace(_pendingSchemaQuestion))
         {
@@ -549,43 +561,70 @@ public partial class MainWindow : Window
             SchemaStatusText.Text = "Load a project, Working Rule Set, and local model first.";
             return;
         }
-        var selected = _workingRules.Where(rule => _selectedSchemaRuleIds.Contains(rule.Id)).ToArray();
-        if (selected.Length == 0 || selected.Length > SchemaTranslationService.MaxWorkingRulesPerProposal)
+        if (_schemaQueueRuleIds.Count == 0)
         {
-            SchemaStatusText.Text = $"Select between one and {SchemaTranslationService.MaxWorkingRulesPerProposal} related Working Rules.";
+            SchemaStatusText.Text = "Add one or more Working Rules to the schema work queue first.";
             return;
         }
+        _processingSchemaQueue = true;
         BuildSchemaButton.IsEnabled = false;
-        SchemaText.Text = string.Empty;
-        SchemaStatusText.Text = $"Building a bounded schema proposal from {selected.Length} rule(s) with {model}...";
+        try
+        {
+            while (_schemaQueueRuleIds.Count > 0)
+            {
+                var ruleId = _schemaQueueRuleIds[0];
+                var rule = _workingRules.SingleOrDefault(candidate => candidate.Id == ruleId);
+                if (rule is null)
+                {
+                    _schemaQueueRuleIds.RemoveAt(0);
+                    continue;
+                }
+                SchemaStatusText.Text = $"Processing {SchemaRulePicker.DisplayName(rule)} ({_schemaQueueRuleIds.Count} queued) with {model}...";
+                SchemaText.Text = string.Empty;
+                RefreshSchemaQueueControls();
+                var result = await ProcessSchemaQueueItemAsync(rule, model);
+                if (result != SchemaQueueItemResult.Saved) return;
+                _schemaQueueRuleIds.RemoveAt(0);
+                RefreshSchemaView();
+            }
+            SchemaStatusText.Text = "Finished the schema work queue. The saved proposal remains non-canonical and tied to this Working Rule Set revision.";
+        }
+        finally
+        {
+            _processingSchemaQueue = false;
+            RefreshSchemaQueueControls();
+        }
+    }
+
+    private async Task<SchemaQueueItemResult> ProcessSchemaQueueItemAsync(WorkingRule rule, string model)
+    {
         var capture = new CapturingClient(new OllamaChatClient(_http, OllamaDefaults.CreateProfile("local", "Local", model)));
         try
         {
             var baseSchema = SavedSchemaForExtension();
-            var selectedIds = selected.Select(rule => rule.Id).ToHashSet(StringComparer.Ordinal);
-            var selectedRuleSet = _workingRuleSet with
+            var selectedRuleSet = _workingRuleSet! with
             {
-                Rules = selected,
-                Concepts = _workingRuleSet.Concepts.Where(concept => selected.SelectMany(rule => rule.ConceptIds).Contains(concept.Id, StringComparer.Ordinal)).ToArray()
+                Rules = [rule],
+                Concepts = _workingRuleSet.Concepts.Where(concept => rule.ConceptIds.Contains(concept.Id, StringComparer.Ordinal)).ToArray()
             };
             var turn = await new SchemaTranslationService(capture).TranslateAsync(new SchemaTranslationRequest(selectedRuleSet, baseSchema, _schemaClarifications));
             if (turn.Action == SchemaTranslationAction.AskClarifyingQuestion)
             {
-                SchemaStatusText.Text = "The model needs clarification before it can propose this schema piece.";
+                SchemaStatusText.Text = "The model needs clarification before it can process the current queued rule.";
                 _pendingSchemaQuestion = turn.ClarifyingQuestion ?? "No clarification question was supplied.";
                 SchemaQuestionText.Text = _pendingSchemaQuestion;
                 SchemaAnswerText.Text = string.Empty;
                 SchemaQuestionPanel.IsVisible = true;
-                SchemaText.Text = "No schema proposal was saved. Answer the question below, then continue with the same selected rules.";
-                return;
+                SchemaText.Text = "Queue paused. Answer the question below to continue the current rule, then the remaining queue.";
+                return SchemaQueueItemResult.NeedsClarification;
             }
             var proposal = turn.Proposal ?? throw new SchemaTranslationFormatException("The model did not return a schema proposal.");
             var mergedSchema = SchemaProposalMerger.MergeSchemas(baseSchema, proposal.Schema);
             var mergedSources = SchemaProposalMerger.MergeDefinitionSources(_schemaProposal?.DefinitionSources ?? Array.Empty<DefinitionSource>(), proposal.DefinitionSources);
-            var mergedRuleIds = SchemaProposalMerger.MergeWorkingRuleIds(_schemaProposal?.SelectedWorkingRuleIds ?? Array.Empty<string>(), selectedIds);
+            var mergedRuleIds = SchemaProposalMerger.MergeWorkingRuleIds(_schemaProposal?.SelectedWorkingRuleIds ?? Array.Empty<string>(), [rule.Id]);
             var now = DateTimeOffset.UtcNow;
             _schemaProposal = new ProjectSchemaProposal(
-                "schema-proposal-" + _project.Id,
+                "schema-proposal-" + _project!.Id,
                 _project.Id,
                 "0.1",
                 _schemaProposal is null ? proposal.Summary : $"Accumulated schema proposal. Latest addition: {proposal.Summary}",
@@ -600,29 +639,30 @@ public partial class MainWindow : Window
             await SchemaProposalStore().SaveAsync(_schemaProposal);
             _pendingSchemaQuestion = null;
             SchemaQuestionPanel.IsVisible = false;
-            RefreshSchemaView();
-            SchemaStatusText.Text = "Saved a validated schema proposal. It is non-canonical and remains tied to the current Working Rule Set revision.";
-            AppLog.Info($"Saved schema proposal for project '{_project.Id}' from {selected.Length} Working Rule(s).");
+            AppLog.Info($"Saved schema proposal addition for project '{_project.Id}' from queued Working Rule '{rule.Id}'.");
+            return SchemaQueueItemResult.Saved;
         }
         catch (SchemaTranslationFormatException ex)
         {
-            AppLog.Error("Validate schema proposal", ex);
-            SchemaStatusText.Text = "The model returned a schema proposal WorldSeed could not safely use. Nothing was saved.";
+            AppLog.Error("Validate queued schema proposal", ex);
+            SchemaStatusText.Text = "The current queued rule could not be saved. It remains at the front of the queue.";
             SchemaText.Text = $"Format detail: {ex.Message}\n\nRaw model output (for diagnosis):\n{Preview(capture.Last?.Content)}";
+            return SchemaQueueItemResult.Failed;
         }
         catch (Exception ex)
         {
-            AppLog.Error("Build schema proposal", ex);
-            SchemaStatusText.Text = "Schema translation failed before a usable proposal was produced.";
+            AppLog.Error("Build queued schema proposal", ex);
+            SchemaStatusText.Text = "Schema translation failed before a usable proposal was produced. The current rule remains queued.";
             SchemaText.Text = $"{ex.GetType().Name}: {ex.Message}\n\nDiagnostic log: {AppLog.CurrentPath}";
+            return SchemaQueueItemResult.Failed;
         }
-        finally { BuildSchemaButton.IsEnabled = true; }
     }
 
     private void RefreshSchemaView()
     {
         var availableIds = _workingRules.Select(rule => rule.Id).ToHashSet(StringComparer.Ordinal);
-        _selectedSchemaRuleIds.RemoveWhere(id => !availableIds.Contains(id));
+        _schemaQueueRuleIds.RemoveAll(id => !availableIds.Contains(id));
+        RefreshSchemaQueueControls();
         SchemaRuleGroupsPanel.Children.Clear();
         foreach (var group in SchemaRulePicker.Group(_workingRules))
         {
@@ -630,23 +670,34 @@ public partial class MainWindow : Window
             // Keep unfinished candidates first. Retained, mapped rules move to the bottom without being hidden.
             foreach (var rule in group.Rules.OrderBy(IsSchemaProcessed))
             {
-                var checkBox = new CheckBox
+                var addButton = new Button
                 {
-                    Content = SchemaRulePicker.DisplayName(rule),
+                    Content = _schemaQueueRuleIds.Contains(rule.Id, StringComparer.Ordinal) ? "Queued" : "Add to queue",
                     Tag = rule.Id,
-                    IsChecked = _selectedSchemaRuleIds.Contains(rule.Id),
+                    IsEnabled = !_processingSchemaQueue && !_schemaQueueRuleIds.Contains(rule.Id, StringComparer.Ordinal),
+                    HorizontalAlignment = HorizontalAlignment.Left,
+                    Padding = new Thickness(10, 4)
+                };
+                addButton.Click += AddSchemaRuleToQueue_Click;
+                var name = new TextBlock
+                {
+                    Text = SchemaRulePicker.DisplayName(rule),
+                    FontSize = 14,
+                    TextWrapping = TextWrapping.Wrap,
                     VerticalAlignment = VerticalAlignment.Center
                 };
-                checkBox.IsCheckedChanged += SchemaRuleCheckBox_Changed;
                 var status = new TextBlock
                 {
                     Text = SchemaProposalStatus(rule),
-                    Margin = new Thickness(28, 0, 0, 4),
+                    Margin = new Thickness(0, 0, 0, 4),
                     Opacity = 0.65,
                     FontSize = 12,
                     TextWrapping = TextWrapping.Wrap
                 };
-                groupPanel.Children.Add(checkBox);
+                var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+                row.Children.Add(addButton);
+                row.Children.Add(name);
+                groupPanel.Children.Add(row);
                 groupPanel.Children.Add(status);
             }
             SchemaRuleGroupsPanel.Children.Add(new Expander
@@ -658,10 +709,9 @@ public partial class MainWindow : Window
                 Content = groupPanel
             });
         }
-        UpdateSchemaSelectionText();
         if (_schemaProposal is null)
         {
-            SchemaStatusText.Text = _workingRuleSet is null ? "Load a Working Rule Set, then select related rules to build a schema proposal." : $"Select one to {SchemaTranslationService.MaxWorkingRulesPerProposal} related Working Rules to build a bounded schema proposal.";
+            SchemaStatusText.Text = _workingRuleSet is null ? "Load a Working Rule Set, then add rules to the schema queue." : "Add Working Rules to the queue. Each item will be proposed and saved separately.";
             SchemaText.Text = "No schema proposal is loaded.";
             return;
         }
@@ -669,27 +719,64 @@ public partial class MainWindow : Window
         SchemaText.Text = $"Summary\n{_schemaProposal.Summary}\n\nSchema clarifications\n{FormatSchemaClarifications(_schemaProposal.Clarifications)}\n\nSelected Working Rules\n{string.Join("\n", _schemaProposal.SelectedWorkingRuleIds.Select(id => "- " + id))}\n\nDefinition sources\n{string.Join("\n", _schemaProposal.DefinitionSources.Select(source => $"- {source.DefinitionId}: {string.Join(", ", source.WorkingRuleIds)}"))}\n\nSchema JSON\n{PrettyJson(_schemaProposal.SchemaJson)}";
     }
 
-    private void SchemaRuleCheckBox_Changed(object? sender, RoutedEventArgs e)
+    private void AddSchemaRuleToQueue_Click(object? sender, RoutedEventArgs e)
     {
-        if (sender is not CheckBox { Tag: string ruleId, IsChecked: bool isChecked } checkBox) return;
-        if (SchemaRulePicker.TrySetSelected(_selectedSchemaRuleIds, ruleId, isChecked, SchemaTranslationService.MaxWorkingRulesPerProposal))
+        if (_processingSchemaQueue || sender is not Button { Tag: string ruleId }) return;
+        if (SchemaRulePicker.TryEnqueue(_schemaQueueRuleIds, ruleId))
         {
-            UpdateSchemaSelectionText();
-            return;
+            RefreshSchemaView();
+            SchemaStatusText.Text = $"Added {SchemaRulePicker.DisplayName(_workingRules.Single(rule => rule.Id == ruleId))} to the schema work queue.";
         }
-
-        checkBox.IsChecked = false;
-        SchemaStatusText.Text = $"You can select at most {SchemaTranslationService.MaxWorkingRulesPerProposal} related Working Rules for one proposal.";
     }
 
-    private void UpdateSchemaSelectionText()
+    private void RemoveSchemaRuleFromQueue_Click(object? sender, RoutedEventArgs e)
     {
-        var count = _selectedSchemaRuleIds.Count;
-        var prior = _workingRules.Count(rule => _selectedSchemaRuleIds.Contains(rule.Id) && IsCitedBySavedProposal(rule));
-        SchemaSelectionText.Text = count == 0
-            ? $"No rules selected (up to {SchemaTranslationService.MaxWorkingRulesPerProposal})."
-            : $"{count} of {SchemaTranslationService.MaxWorkingRulesPerProposal} rule(s) selected" + (prior > 0 ? $"; {prior} cited by the saved proposal." : ".");
-        BuildSchemaButton.IsEnabled = count > 0;
+        if (_processingSchemaQueue || sender is not Button { Tag: string ruleId }) return;
+        _schemaQueueRuleIds.Remove(ruleId);
+        RefreshSchemaView();
+    }
+
+    private void RefreshSchemaQueueControls()
+    {
+        SchemaQueuePanel.Children.Clear();
+        if (_schemaQueueRuleIds.Count == 0)
+        {
+            SchemaQueuePanel.Children.Add(new TextBlock { Text = "Queue is empty. Add Working Rules below.", Opacity = 0.65, TextWrapping = TextWrapping.Wrap });
+        }
+        else
+        {
+            for (var index = 0; index < _schemaQueueRuleIds.Count; index++)
+            {
+                var ruleId = _schemaQueueRuleIds[index];
+                var rule = _workingRules.SingleOrDefault(candidate => candidate.Id == ruleId);
+                if (rule is null) continue;
+                var label = new TextBlock
+                {
+                    Text = $"{index + 1}. {SchemaRulePicker.DisplayName(rule)}" + (index == 0 ? " (next)" : string.Empty),
+                    TextWrapping = TextWrapping.Wrap,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                var remove = new Button
+                {
+                    Content = "Remove",
+                    Tag = ruleId,
+                    IsEnabled = !_processingSchemaQueue && string.IsNullOrWhiteSpace(_pendingSchemaQuestion),
+                    Padding = new Thickness(8, 3)
+                };
+                remove.Click += RemoveSchemaRuleFromQueue_Click;
+                var row = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 8 };
+                row.Children.Add(label);
+                Grid.SetColumn(remove, 1);
+                row.Children.Add(remove);
+                SchemaQueuePanel.Children.Add(row);
+            }
+        }
+        var queued = _schemaQueueRuleIds.Count;
+        SchemaQueueText.Text = queued == 0
+            ? "No working rules are queued."
+            : $"{queued} rule(s) queued. Each is sent to the model individually.";
+        BuildSchemaButton.IsEnabled = queued > 0 && !_processingSchemaQueue && string.IsNullOrWhiteSpace(_pendingSchemaQuestion);
+        ClearSchemaQueueButton.IsEnabled = queued > 0 && !_processingSchemaQueue && string.IsNullOrWhiteSpace(_pendingSchemaQuestion);
     }
 
     private string SchemaProposalStatus(WorkingRule rule)
@@ -753,7 +840,7 @@ public partial class MainWindow : Window
         _workingRules.Clear();
         if (_workingRuleSet is not null) _workingRules.AddRange(_workingRuleSet.Rules);
         WorkingRuleList.ItemsSource = _workingRules.Select(rule => new WorkingRuleListItem(rule)).ToArray();
-        if (_schemaProposal is null) _selectedSchemaRuleIds.Clear();
+        if (_schemaProposal is null) _schemaQueueRuleIds.Clear();
         WorkingRuleList.SelectedIndex = selected is null ? -1 : _workingRules.FindIndex(rule => rule.Id == selected);
         if (_workingRuleSet is null)
         {
@@ -792,9 +879,12 @@ public partial class MainWindow : Window
         WorkingRulesSummaryText.Text = "Create completed source drafts, then build one project-wide working proposal.";
         WorkingRulesStatusText.Text = "No project-level working proposal is loaded.";
         WorkingRuleText.Text = "Build or load a proposal to inspect its project-level rules and exact evidence.";
-        _selectedSchemaRuleIds.Clear();
+        _schemaQueueRuleIds.Clear();
         SchemaRuleGroupsPanel.Children.Clear();
-        SchemaSelectionText.Text = $"No rules selected (up to {SchemaTranslationService.MaxWorkingRulesPerProposal}).";
+        SchemaQueuePanel.Children.Clear();
+        SchemaQueueText.Text = "No working rules are queued.";
+        BuildSchemaButton.IsEnabled = false;
+        ClearSchemaQueueButton.IsEnabled = false;
         SchemaStatusText.Text = "Load a Working Rule Set, then select related rules to build a schema proposal.";
         SchemaText.Text = "No schema proposal is loaded.";
         SchemaQuestionText.Text = string.Empty;
