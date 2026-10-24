@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text;
 using WorldSeed.SchemaValidation;
 using WorldSeed.WorkingRules;
 
@@ -20,7 +21,18 @@ public sealed class SchemaTranslationJsonParser
         }
         catch (JsonException) when (LooksIncomplete(content)) { throw new SchemaTranslationFormatException("The model response ended before its JSON object was complete, usually because it reached its output limit."); }
         catch (JsonException) { throw new SchemaTranslationFormatException("The model did not return valid JSON."); }
-        catch (ArgumentException exception) when (exception.ParamName == "propertyName") { throw new SchemaTranslationFormatException("The model response contains the same JSON property more than once."); }
+        catch (ArgumentException exception) when (exception.ParamName == "propertyName")
+        {
+            var repaired = TryRepairKnownDuplicateProperties(content);
+            if (repaired is null) throw new SchemaTranslationFormatException("The model response contains the same JSON property more than once.");
+            try
+            {
+                root = JsonNode.Parse(repaired)?.AsObject() ?? throw new SchemaTranslationFormatException("The model did not return a JSON object.");
+                Materialize(root);
+            }
+            catch (JsonException) { throw new SchemaTranslationFormatException("The model did not return valid JSON."); }
+            catch (ArgumentException repairException) when (repairException.ParamName == "propertyName") { throw new SchemaTranslationFormatException("The model response contains the same JSON property more than once."); }
+        }
         catch (InvalidOperationException) { throw new SchemaTranslationFormatException("The model did not return a JSON object."); }
         if (root["action"] is null && root["presentProposal"] is JsonObject alternateProposal)
         {
@@ -124,6 +136,7 @@ public sealed class SchemaTranslationJsonParser
         // then apply the familiar primitive label to it. Reclassifying that explicit shape as a record
         // preserves every supplied definition without inventing a value type or a property.
         if (String(definition["kind"]) == "primitive" && HasMembers(definition)) definition["kind"] = "record";
+        NormalizeNamedPrimitiveValueType(definition);
         if (String(definition["kind"]) == "enumeration" && definition["entries"] is JsonArray entries)
         {
             for (var index = 0; index < entries.Count; index++)
@@ -162,6 +175,16 @@ public sealed class SchemaTranslationJsonParser
     private static bool HasMembers(JsonObject definition) =>
         definition["properties"] is JsonArray { Count: > 0 } || definition["attributes"] is JsonArray { Count: > 0 };
 
+    /// <summary>Represents a named primitive definition as the valid alias form without changing its value semantics.</summary>
+    private static void NormalizeNamedPrimitiveValueType(JsonObject definition)
+    {
+        if (String(definition["kind"]) != "primitive" || HasMembers(definition)) return;
+        var primitiveName = String(definition["name"]);
+        if (primitiveName is null || !new[] { "string", "integer", "decimal", "boolean", "date", "dateTime", "any" }.Contains(primitiveName)) return;
+        definition["kind"] = "alias";
+        definition["targetType"] = new JsonObject { ["kind"] = "primitive", ["name"] = primitiveName };
+    }
+
     private static void NormalizeProperty(JsonObject property)
     {
         NormalizeMetadata(property, allowNameAsId: true);
@@ -195,6 +218,97 @@ public sealed class SchemaTranslationJsonParser
                 foreach (var item in arrayNode) Materialize(item);
                 break;
         }
+    }
+
+    /// <summary>
+    /// Recovers only two lossless duplicate-property forms common in local-model output: repeated,
+    /// identical values and a value-type's display name followed by its primitive name. Other
+    /// duplicate keys remain an error because choosing one could change the designer's schema.
+    /// </summary>
+    private static string? TryRepairKnownDuplicateProperties(string content)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(content);
+            using var stream = new MemoryStream();
+            using var writer = new Utf8JsonWriter(stream);
+            if (!WriteRepairedJson(document.RootElement, writer)) return null;
+            writer.Flush();
+            return Encoding.UTF8.GetString(stream.GetBuffer(), 0, (int)stream.Length);
+        }
+        catch (JsonException) { return null; }
+    }
+
+    private static bool WriteRepairedJson(JsonElement element, Utf8JsonWriter writer)
+    {
+        switch (element.ValueKind)
+        {
+            case JsonValueKind.Object:
+                var properties = element.EnumerateObject().ToArray();
+                var duplicateGroups = properties.GroupBy(property => property.Name, StringComparer.Ordinal).Where(group => group.Count() > 1).ToArray();
+                if (duplicateGroups.Length == 0)
+                {
+                    writer.WriteStartObject();
+                    foreach (var property in properties)
+                    {
+                        writer.WritePropertyName(property.Name);
+                        if (!WriteRepairedJson(property.Value, writer)) return false;
+                    }
+                    writer.WriteEndObject();
+                    return true;
+                }
+                if (IsNamedPrimitiveWithDuplicateName(properties, out var displayName, out var primitiveName))
+                {
+                    writer.WriteStartObject();
+                    foreach (var property in properties)
+                    {
+                        if (property.Name is "name" or "kind") continue;
+                        writer.WritePropertyName(property.Name);
+                        if (!WriteRepairedJson(property.Value, writer)) return false;
+                    }
+                    writer.WriteString("name", displayName);
+                    writer.WriteString("kind", "alias");
+                    writer.WritePropertyName("targetType");
+                    writer.WriteStartObject();
+                    writer.WriteString("kind", "primitive");
+                    writer.WriteString("name", primitiveName);
+                    writer.WriteEndObject();
+                    writer.WriteEndObject();
+                    return true;
+                }
+                if (duplicateGroups.All(group => group.Select(property => property.Value.GetRawText()).Distinct(StringComparer.Ordinal).Count() == 1))
+                {
+                    writer.WriteStartObject();
+                    foreach (var property in properties.DistinctBy(property => property.Name, StringComparer.Ordinal))
+                    {
+                        writer.WritePropertyName(property.Name);
+                        if (!WriteRepairedJson(property.Value, writer)) return false;
+                    }
+                    writer.WriteEndObject();
+                    return true;
+                }
+                return false;
+            case JsonValueKind.Array:
+                writer.WriteStartArray();
+                foreach (var item in element.EnumerateArray()) if (!WriteRepairedJson(item, writer)) return false;
+                writer.WriteEndArray();
+                return true;
+            default:
+                element.WriteTo(writer);
+                return true;
+        }
+    }
+
+    private static bool IsNamedPrimitiveWithDuplicateName(JsonProperty[] properties, out string displayName, out string primitiveName)
+    {
+        displayName = string.Empty;
+        primitiveName = string.Empty;
+        var names = properties.Where(property => property.NameEquals("name") && property.Value.ValueKind == JsonValueKind.String).Select(property => property.Value.GetString()).Where(name => !string.IsNullOrWhiteSpace(name)).Cast<string>().ToArray();
+        if (names.Length != 2 || properties.Count(property => property.NameEquals("kind")) != 1 || !properties.Single(property => property.NameEquals("kind")).Value.ValueEquals("primitive")) return false;
+        if (!new[] { "string", "integer", "decimal", "boolean", "date", "dateTime", "any" }.Contains(names[1])) return false;
+        displayName = names[0];
+        primitiveName = names[1];
+        return true;
     }
     private static IEnumerable<string> Definitions(JsonObject schema) => new[] { "schemaFragments", "entityTypes", "valueTypes", "relationships", "rules", "procedures", "validations" }.SelectMany(name => schema[name] is JsonArray definitions ? definitions.OfType<JsonObject>().Select(definition => String((definition["metadata"] as JsonObject)?["id"])).Where(id => id is not null).Cast<string>() : []);
     private static string Required(JsonObject node, string name) => String(node[name]) ?? throw new SchemaTranslationFormatException($"'{name}' is required.");
