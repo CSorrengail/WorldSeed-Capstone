@@ -197,6 +197,21 @@ public class SchemaTranslationServiceTests
     }
 
     [Fact]
+    public void Repairs_a_named_primitive_value_type_with_a_repeated_name_key()
+    {
+        var output = """{"action":"presentProposal","proposal":{"summary":"A combat item cost.","schema":{"id":"combat","name":"Combat","version":"0.5","entityTypes":[],"valueTypes":[{"id":"combatItemCost","name":"Combat Item Cost","kind":"primitive","name":"integer"}]},"definitionSources":[{"definitionId":"combatItemCost","workingRuleIds":["casting-adds-mark"]}]}}""";
+
+        var turn = new SchemaTranslationJsonParser().Parse(output, CreateWorkingRuleSet());
+
+        var proposal = Assert.IsType<SchemaTranslationProposal>(turn.Proposal);
+        var valueTypes = Assert.IsType<JsonArray>(proposal.Schema["valueTypes"]);
+        var cost = Assert.IsType<JsonObject>(Assert.Single(valueTypes));
+        Assert.Equal("alias", cost["kind"]!.GetValue<string>());
+        Assert.Equal("integer", cost["targetType"]!["name"]!.GetValue<string>());
+        Assert.Equal("Combat Item Cost", cost["metadata"]!["name"]!.GetValue<string>());
+    }
+
+    [Fact]
     public async Task Validates_new_schema_additions_against_the_saved_base_and_merges_them()
     {
         var baseSchema = JsonNode.Parse("""{"id":"dangerous-magic","name":"Dangerous Magic","version":"0.1.0","entityTypes":[],"valueTypes":[{"metadata":{"id":"cooldownDuration","name":"Cooldown Duration"},"kind":"record","properties":[]}]}""")!.AsObject();
