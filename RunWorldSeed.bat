@@ -16,6 +16,11 @@ if /I "%~1"=="--rebuild" (
   shift
   goto parse_arguments
 )
+if /I "%~1"=="--restart" (
+  set "RESTART_DESKTOP=1"
+  shift
+  goto parse_arguments
+)
 if /I "%~1"=="-v" (
   set "VERBOSE=1"
   shift
@@ -26,7 +31,7 @@ if /I "%~1"=="--verbose" (
   shift
   goto parse_arguments
 )
-echo Usage: RunWorldSeed.bat [--check] [--rebuild] [-v^|--verbose]
+echo Usage: RunWorldSeed.bat [--check] [--rebuild] [--restart] [-v^|--verbose]
 exit /b 1
 
 :arguments_valid
@@ -40,6 +45,10 @@ exit /b %errorlevel%
 powershell -NoProfile -Command "$path = [IO.Path]::GetFullPath('%APP_EXECUTABLE%'); if (Get-Process -Name WorldSeed.App -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $path }) { exit 0 }; exit 1"
 exit /b %errorlevel%
 
+:stop_existing_app
+powershell -NoProfile -Command "$path = [IO.Path]::GetFullPath('%APP_EXECUTABLE%'); $processes = Get-Process -Name WorldSeed.App -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $path }; if ($null -eq $processes) { exit 0 }; $processes | Stop-Process -Force; Start-Sleep -Milliseconds 700; if (Get-Process -Name WorldSeed.App -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $path }) { exit 1 }; exit 0"
+exit /b %errorlevel%
+
 :start
 if defined CHECK_ONLY goto check
 where dotnet >nul 2>nul
@@ -51,9 +60,18 @@ if errorlevel 1 (
 
 call :app_is_running
 if not errorlevel 1 (
+  if defined RESTART_DESKTOP (
+    if defined VERBOSE echo Stopping the existing WorldSeed desktop application...
+    call :stop_existing_app
+    if errorlevel 1 (
+      echo WorldSeed could not stop the existing desktop application.
+      exit /b 1
+    )
+  ) else (
   echo The WorldSeed desktop application is already running.
-  echo Close that window before using RunWorldSeed.bat --rebuild.
+  echo Run RunWorldSeed.bat --restart to close only this WorldSeed instance and launch a new one.
   exit /b 0
+  )
 )
 
 if not defined FORCE_DOCKER_BUILD (

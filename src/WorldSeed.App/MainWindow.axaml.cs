@@ -1,9 +1,11 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
+using Avalonia.Threading;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using WorldSeed.DesignSessions;
@@ -24,6 +26,8 @@ public partial class MainWindow : Window
     private readonly IDesignProjectStore _projectStore;
     private readonly IWorkingRuleSetStore _workingRuleStore;
     private readonly IProjectSchemaProposalStore _schemaProposalStore;
+    private readonly WorldSeedSettingsStore _settingsStore = new();
+    private readonly DispatcherTimer _inactivityTimer = new() { Interval = TimeSpan.FromSeconds(10) };
     private readonly List<DesignProjectSummary> _projectSummaries = [];
     private readonly List<ProjectRuleItem> _projectRules = [];
     private readonly List<WorkingRule> _workingRules = [];
@@ -38,6 +42,9 @@ public partial class MainWindow : Window
     private string? _pendingSchemaQuestion;
     private readonly List<TextBox> _answerInputs = [];
     private IReadOnlyList<string> _activeQuestions = [];
+    private WorldSeedSettings _settings = WorldSeedSettings.Default;
+    private DateTimeOffset _lastInteractionAt = DateTimeOffset.UtcNow;
+    private bool _settingsDialogOpen;
 
     public MainWindow()
     {
@@ -45,8 +52,56 @@ public partial class MainWindow : Window
         _workingRuleStore = new HttpWorkingRuleSetStore(_apiHttp);
         _schemaProposalStore = new HttpProjectSchemaProposalStore(_apiHttp);
         InitializeComponent();
+        _settings = _settingsStore.Load();
+        _inactivityTimer.Tick += InactivityTimer_Tick;
+        _inactivityTimer.Start();
     }
-    protected override void OnOpened(EventArgs e) { base.OnOpened(e); AppLog.Info("Application opened."); _ = InitializeAsync(); }
+    protected override void OnOpened(EventArgs e) { base.OnOpened(e); RegisterInteraction(); AppLog.Info("Application opened."); _ = InitializeAsync(); }
+    protected override void OnPointerMoved(PointerEventArgs e) { RegisterInteraction(); base.OnPointerMoved(e); }
+    protected override void OnPointerPressed(PointerPressedEventArgs e) { RegisterInteraction(); base.OnPointerPressed(e); }
+    protected override void OnPointerWheelChanged(PointerWheelEventArgs e) { RegisterInteraction(); base.OnPointerWheelChanged(e); }
+    protected override void OnKeyDown(KeyEventArgs e) { RegisterInteraction(); base.OnKeyDown(e); }
+    protected override void OnTextInput(TextInputEventArgs e) { RegisterInteraction(); base.OnTextInput(e); }
+
+    private void RegisterInteraction() => _lastInteractionAt = DateTimeOffset.UtcNow;
+
+    private void InactivityTimer_Tick(object? sender, EventArgs e)
+    {
+        if (_settingsDialogOpen || _settings.IdleTimeoutMinutes == 0) return;
+        var timeout = TimeSpan.FromMinutes(_settings.IdleTimeoutMinutes);
+        if (DateTimeOffset.UtcNow - _lastInteractionAt < timeout) return;
+        _inactivityTimer.Stop();
+        AppLog.Info($"Closing application after {_settings.IdleTimeoutMinutes} minutes without interaction.");
+        Close();
+    }
+
+    private async void OpenSettings_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_settingsDialogOpen) return;
+        _settingsDialogOpen = true;
+        RegisterInteraction();
+        try
+        {
+            var window = new SettingsWindow(_settings.IdleTimeoutMinutes);
+            if (await window.ShowDialog<bool>(this) is not true) return;
+            _settings = new WorldSeedSettings(window.IdleTimeoutMinutes);
+            _settingsStore.Save(_settings);
+            RegisterInteraction();
+            var behavior = _settings.IdleTimeoutMinutes == 0 ? "Automatic closing is disabled." : $"WorldSeed will close after {_settings.IdleTimeoutMinutes} minutes without interaction.";
+            StatusText.Text = behavior;
+            AppLog.Info(behavior);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("Save desktop settings", ex);
+            StatusText.Text = "WorldSeed could not save the desktop settings. See the diagnostic log.";
+        }
+        finally
+        {
+            _settingsDialogOpen = false;
+            RegisterInteraction();
+        }
+    }
 
     private async Task InitializeAsync()
     {
@@ -760,6 +815,7 @@ public partial class MainWindow : Window
     }
     protected override void OnClosed(EventArgs e)
     {
+        _inactivityTimer.Stop();
         EndIncompleteSessionsOnClose();
         _http.Dispose();
         _apiHttp.Dispose();
