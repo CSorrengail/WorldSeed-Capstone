@@ -125,7 +125,7 @@ projects.MapPost("/{projectId}/active-schema", async (string projectId, IDesignP
     ActiveGameSchema active;
     try
     {
-        active = GameDataService.Activate(proposal, current, existingData is not null, DateTimeOffset.UtcNow);
+        active = GameDataService.Activate(proposal, current, GameDataService.HasAuthoredContent(existingData), DateTimeOffset.UtcNow);
     }
     catch (GameDataFormatException exception)
     {
@@ -133,7 +133,7 @@ projects.MapPost("/{projectId}/active-schema", async (string projectId, IDesignP
     }
 
     await activeSchemas.SaveAsync(active, cancellationToken);
-    if (existingData is null)
+    if (existingData is null || existingData.ActiveGameSchemaRevision != active.Revision || !string.Equals(existingData.ActiveGameSchemaId, active.Id, StringComparison.Ordinal))
         await gameData.SaveAsync(GameDataService.CreateEmpty(active, DateTimeOffset.UtcNow), cancellationToken);
     return Results.Ok(active);
 });

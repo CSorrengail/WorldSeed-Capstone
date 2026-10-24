@@ -15,6 +15,7 @@
   <ItemGroup>
     <ProjectReference Include="..\WorldSeed.LlmIntegration\WorldSeed.LlmIntegration.csproj" />
     <ProjectReference Include="..\WorldSeed.DesignSessions\WorldSeed.DesignSessions.csproj" />
+    <ProjectReference Include="..\WorldSeed.GameData\WorldSeed.GameData.csproj" />
     <ProjectReference Include="..\WorldSeed.RuleDrafting\WorldSeed.RuleDrafting.csproj" />
     <ProjectReference Include="..\WorldSeed.SourceIngestion\WorldSeed.SourceIngestion.csproj" />
     <ProjectReference Include="..\WorldSeed.SchemaTranslation\WorldSeed.SchemaTranslation.csproj" />
