@@ -11,7 +11,7 @@ public sealed record SchemaClarification(string Question, string Answer);
 public sealed record SchemaTranslationProposal(string Summary, JsonObject Schema, IReadOnlyList<DefinitionSource> DefinitionSources, string WorkingRuleSetId, int WorkingRuleSetRevision);
 public sealed record SchemaTranslationTurn(SchemaTranslationAction Action, string? ClarifyingQuestion, SchemaTranslationProposal? Proposal);
 /// <summary>Optional StructureGoal is system-generated planning context; it narrows one bounded translation without changing any Working Rule.</summary>
-public sealed record SchemaTranslationRequest(WorkingRuleSet WorkingRuleSet, JsonObject? BaseSchema = null, IReadOnlyList<SchemaClarification>? Clarifications = null, string? StructureGoal = null);
+public sealed record SchemaTranslationRequest(WorkingRuleSet WorkingRuleSet, JsonObject? BaseSchema = null, IReadOnlyList<SchemaClarification>? Clarifications = null, string? StructureGoal = null, SchemaChangeRequest? ChangeRequest = null);
 public sealed class SchemaTranslationFormatException(string message) : Exception(message);
 
 /// <summary>One mutable, non-canonical schema proposal for a project, stored separately from its Working Rule Set.</summary>

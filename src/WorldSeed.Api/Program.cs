@@ -18,6 +18,8 @@ builder.Services.AddSingleton<MongoWorkingRuleSetStore>();
 builder.Services.AddSingleton<IWorkingRuleSetStore>(services => services.GetRequiredService<MongoWorkingRuleSetStore>());
 builder.Services.AddSingleton<MongoProjectSchemaProposalStore>();
 builder.Services.AddSingleton<IProjectSchemaProposalStore>(services => services.GetRequiredService<MongoProjectSchemaProposalStore>());
+builder.Services.AddSingleton<MongoProjectSchemaChangeRequestStore>();
+builder.Services.AddSingleton<IProjectSchemaChangeRequestStore>(services => services.GetRequiredService<MongoProjectSchemaChangeRequestStore>());
 builder.Services.AddSingleton<MongoActiveGameSchemaStore>();
 builder.Services.AddSingleton<IActiveGameSchemaStore>(services => services.GetRequiredService<MongoActiveGameSchemaStore>());
 builder.Services.AddSingleton<MongoProjectGameDataStore>();
@@ -31,6 +33,7 @@ using (var scope = app.Services.CreateScope())
 {
     await scope.ServiceProvider.GetRequiredService<MongoWorkingRuleSetStore>().EnsureIndexesAsync();
     await scope.ServiceProvider.GetRequiredService<MongoProjectSchemaProposalStore>().EnsureIndexesAsync();
+    await scope.ServiceProvider.GetRequiredService<MongoProjectSchemaChangeRequestStore>().EnsureIndexesAsync();
     await scope.ServiceProvider.GetRequiredService<MongoActiveGameSchemaStore>().EnsureIndexesAsync();
     await scope.ServiceProvider.GetRequiredService<MongoProjectGameDataStore>().EnsureIndexesAsync();
 }
@@ -54,11 +57,12 @@ projects.MapPut("/{projectId}", async (string projectId, DesignProject project, 
     await store.SaveAsync(project, cancellationToken);
     return Results.NoContent();
 });
-projects.MapDelete("/{projectId}", async (string projectId, IDesignProjectStore store, IWorkingRuleSetStore ruleSets, IProjectSchemaProposalStore schemaProposals, IActiveGameSchemaStore activeSchemas, IProjectGameDataStore gameData, CancellationToken cancellationToken) =>
+projects.MapDelete("/{projectId}", async (string projectId, IDesignProjectStore store, IWorkingRuleSetStore ruleSets, IProjectSchemaProposalStore schemaProposals, IProjectSchemaChangeRequestStore schemaChangeRequests, IActiveGameSchemaStore activeSchemas, IProjectGameDataStore gameData, CancellationToken cancellationToken) =>
 {
     await gameData.DeleteAsync(projectId, cancellationToken);
     await activeSchemas.DeleteAsync(projectId, cancellationToken);
     await schemaProposals.DeleteAsync(projectId, cancellationToken);
+    await schemaChangeRequests.DeleteAsync(projectId, cancellationToken);
     await ruleSets.DeleteAsync(projectId, cancellationToken);
     await store.DeleteAsync(projectId, cancellationToken);
     return Results.NoContent();
@@ -104,6 +108,22 @@ projects.MapPut("/{projectId}/schema-proposal", async (string projectId, Project
     return Results.NoContent();
 });
 projects.MapDelete("/{projectId}/schema-proposal", async (string projectId, IProjectSchemaProposalStore store, CancellationToken cancellationToken) =>
+{
+    await store.DeleteAsync(projectId, cancellationToken);
+    return Results.NoContent();
+});
+
+projects.MapGet("/{projectId}/schema-change-requests", async (string projectId, IProjectSchemaChangeRequestStore store, CancellationToken cancellationToken) =>
+    Results.Ok(await store.ListAsync(projectId, cancellationToken)));
+projects.MapPut("/{projectId}/schema-change-requests/{requestId}", async (string projectId, string requestId, SchemaChangeRequest request, IDesignProjectStore projectsStore, IProjectSchemaChangeRequestStore store, CancellationToken cancellationToken) =>
+{
+    if (!string.Equals(projectId, request.ProjectId, StringComparison.Ordinal) || !string.Equals(requestId, request.Id, StringComparison.Ordinal))
+        return Results.BadRequest("The URL identifiers must match the schema-change request.");
+    if (await projectsStore.LoadAsync(projectId, cancellationToken) is null) return Results.NotFound("The project does not exist.");
+    await store.SaveAsync(request, cancellationToken);
+    return Results.NoContent();
+});
+projects.MapDelete("/{projectId}/schema-change-requests", async (string projectId, IProjectSchemaChangeRequestStore store, CancellationToken cancellationToken) =>
 {
     await store.DeleteAsync(projectId, cancellationToken);
     return Results.NoContent();
