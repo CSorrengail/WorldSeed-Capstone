@@ -40,6 +40,23 @@ public class SchemaTranslationServiceTests
     }
 
     [Fact]
+    public async Task Allows_a_focused_schema_change_to_update_an_existing_definition()
+    {
+        var baseSchema = JsonNode.Parse("""{"id":"dangerous-magic","name":"Dangerous Magic","version":"0.1.0","entityTypes":[{"metadata":{"id":"caster","name":"Caster"},"properties":[]}]}""")!.AsObject();
+        var output = """{"action":"presentProposal","proposal":{"summary":"Adds focus.","schema":{"id":"dangerous-magic","name":"Dangerous Magic","version":"0.1.0","entityTypes":[{"metadata":{"id":"caster","name":"Caster"},"properties":[{"metadata":{"id":"focus","name":"Focus"},"valueType":{"kind":"primitive","name":"integer"},"required":false,"nullable":true}]}]},"definitionSources":[{"definitionId":"caster","workingRuleIds":["schema-change-test"]}]}}""";
+        var request = SchemaChangeRequestService.Create("project", "Add Caster Focus", "Casters may have optional focus.", SchemaChangeRequestOrigin.Designer, DateTimeOffset.UtcNow);
+        var ruleSet = CreateWorkingRuleSet() with { Rules = [Assert.Single(CreateWorkingRuleSet().Rules) with { Id = "schema-change-test", Name = request.Title, AuthoritativeText = request.ProposedRule }] };
+        var model = new FakeModel(output);
+
+        var turn = await new SchemaTranslationService(model).TranslateAsync(new SchemaTranslationRequest(ruleSet, baseSchema, ChangeRequest: request));
+
+        var merged = SchemaProposalMerger.MergeSchemas(baseSchema, turn.Proposal!.Schema, allowExistingDefinitionUpdates: true);
+        var caster = Assert.IsType<JsonObject>(Assert.Single(Assert.IsType<JsonArray>(merged["entityTypes"])));
+        Assert.Single(Assert.IsType<JsonArray>(caster["properties"]));
+        Assert.Contains("schemaChangeRequest", model.Request!.Messages[1].Content);
+    }
+
+    [Fact]
     public async Task Rejects_proposals_with_invented_or_unmapped_working_rule_links()
     {
         var model = new FakeModel("""{"action":"presentProposal","proposal":{"summary":"Bad mapping.","schema":{"id":"dangerous-magic","name":"Dangerous Magic","version":"0.1.0","entityTypes":[{"metadata":{"id":"caster","name":"Caster"}}]},"definitionSources":[{"definitionId":"caster","workingRuleIds":["invented-rule"]}]}}""");

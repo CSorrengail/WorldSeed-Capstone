@@ -7,7 +7,11 @@ public static class SchemaProposalMerger
 {
     private static readonly string[] DefinitionCollections = ["schemaFragments", "entityTypes", "valueTypes", "relationships", "rules", "procedures", "validations"];
 
-    public static JsonObject MergeSchemas(JsonObject? existingSchema, JsonObject addition)
+    /// <summary>
+    /// Combines a normal addition, or replaces only definitions explicitly returned by a
+    /// designer-approved schema-change request. Normal rule translation remains append-only.
+    /// </summary>
+    public static JsonObject MergeSchemas(JsonObject? existingSchema, JsonObject addition, bool allowExistingDefinitionUpdates = false)
     {
         ArgumentNullException.ThrowIfNull(addition);
         if (existingSchema is null) return (JsonObject)addition.DeepClone();
@@ -38,7 +42,14 @@ public static class SchemaProposalMerger
                     // against the saved definition. Anything different remains a conflict, not a guessable
                     // field-level merge.
                     if (JsonNode.DeepEquals(existing, definitionObject)) continue;
-                    throw new SchemaTranslationFormatException($"Proposed definition '{id}' conflicts with the saved schema. Return a new id, or reference the saved definition instead of redefining it.");
+                    if (!allowExistingDefinitionUpdates)
+                        throw new SchemaTranslationFormatException($"Proposed definition '{id}' conflicts with the saved schema. Return a new id, or reference the saved definition instead of redefining it.");
+
+                    EnsureExistingMembersAreRetained(id, existing, definitionObject);
+                    existing.Clear();
+                    foreach (var property in definitionObject)
+                        existing[property.Key] = property.Value?.DeepClone();
+                    continue;
                 }
 
                 definitions.Add(definitionObject.DeepClone());
@@ -90,4 +101,24 @@ public static class SchemaProposalMerger
 
     private static string? DefinitionId(JsonObject definition) =>
         (definition["metadata"] as JsonObject)?["id"]?.GetValue<string>();
+
+    private static void EnsureExistingMembersAreRetained(string definitionId, JsonObject existing, JsonObject proposed)
+    {
+        foreach (var collection in new[] { "properties", "entries" })
+        {
+            var existingIds = MemberIds(existing, collection);
+            if (existingIds.Count == 0) continue;
+            var proposedIds = MemberIds(proposed, collection);
+            var omitted = existingIds.Where(id => !proposedIds.Contains(id)).ToArray();
+            if (omitted.Length > 0)
+                throw new SchemaTranslationFormatException($"Schema change for '{definitionId}' omits existing {collection}: {string.Join(", ", omitted)}. Return the complete changed definition so WorldSeed does not discard them.");
+        }
+    }
+
+    private static IReadOnlySet<string> MemberIds(JsonObject definition, string collection) =>
+        (definition[collection] as JsonArray)?.OfType<JsonObject>()
+            .Select(member => DefinitionId(member) ?? member["id"]?.GetValue<string>())
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Cast<string>()
+            .ToHashSet(StringComparer.Ordinal) ?? [];
 }

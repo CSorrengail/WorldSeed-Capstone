@@ -27,6 +27,7 @@ public partial class MainWindow : Window
     private readonly IDesignProjectStore _projectStore;
     private readonly IWorkingRuleSetStore _workingRuleStore;
     private readonly IProjectSchemaProposalStore _schemaProposalStore;
+    private readonly IProjectSchemaChangeRequestStore _schemaChangeRequestStore;
     private readonly HttpGameDataWorkspaceClient _gameDataWorkspace;
     private readonly WorldSeedSettingsStore _settingsStore = new();
     private readonly DispatcherTimer _inactivityTimer = new() { Interval = TimeSpan.FromSeconds(10) };
@@ -35,6 +36,7 @@ public partial class MainWindow : Window
     private readonly List<WorkingRule> _workingRules = [];
     private readonly List<string> _schemaQueueRuleIds = [];
     private readonly List<SchemaClarification> _schemaClarifications = [];
+    private readonly List<SchemaChangeRequest> _schemaChangeRequests = [];
     private readonly List<GameDataEntityTypeItem> _gameDataEntityTypes = [];
     private readonly List<GameDataEntityInstanceItem> _gameDataEntityInstances = [];
     private int _projectLoadGeneration;
@@ -48,6 +50,7 @@ public partial class MainWindow : Window
     private string? _pendingSchemaQuestion;
     private bool _processingSchemaQueue;
     private bool _buildingGameStructures;
+    private bool _applyingSchemaChange;
     private readonly List<TextBox> _answerInputs = [];
     private IReadOnlyList<string> _activeQuestions = [];
     private WorldSeedSettings _settings = WorldSeedSettings.Default;
@@ -61,6 +64,7 @@ public partial class MainWindow : Window
         _projectStore = new HttpDesignProjectStore(_apiHttp);
         _workingRuleStore = new HttpWorkingRuleSetStore(_apiHttp);
         _schemaProposalStore = new HttpProjectSchemaProposalStore(_apiHttp);
+        _schemaChangeRequestStore = new HttpProjectSchemaChangeRequestStore(_apiHttp);
         _gameDataWorkspace = new HttpGameDataWorkspaceClient(_apiHttp);
         InitializeComponent();
         _settings = _settingsStore.Load();
@@ -232,6 +236,7 @@ public partial class MainWindow : Window
             {
                 await LoadWorkingRuleSetAsync(_project.Id);
                 await LoadSchemaProposalAsync(_project.Id);
+                await LoadSchemaChangeRequestsAsync(_project.Id);
                 await LoadGameDataWorkspaceAsync(_project.Id);
                 RefreshNotes(); ShowSelectedSource();
                 ProjectLocationText.Text = "Project database: http://localhost:5080 (Docker local stack)";
@@ -301,8 +306,9 @@ public partial class MainWindow : Window
             ModelSelector.ItemsSource = models.Select(model => model.Name).ToArray();
             ModelSelector.SelectedItem = models.Any(model => model.Name == "gemma3:12b") ? "gemma3:12b" : models.FirstOrDefault()?.Name;
             StatusText.Text = models.Count == 0 ? "No local models found." : "Local models refreshed.";
+            RefreshSchemaChangeRequests();
         }
-        catch { StatusText.Text = "Could not reach Ollama. Start it, then refresh."; }
+        catch { StatusText.Text = "Could not reach Ollama. Start it, then refresh."; RefreshSchemaChangeRequests(); }
     }
 
     private async void CheckLocalModels_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => await RefreshModelsAsync();
@@ -532,6 +538,23 @@ public partial class MainWindow : Window
         }
     }
 
+    private async Task LoadSchemaChangeRequestsAsync(string projectId)
+    {
+        try
+        {
+            _schemaChangeRequests.Clear();
+            _schemaChangeRequests.AddRange(await SchemaChangeRequestStore().ListAsync(projectId));
+            RefreshSchemaChangeRequests();
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("Load schema-change requests", ex);
+            _schemaChangeRequests.Clear();
+            RefreshSchemaChangeRequests();
+            SchemaChangeRequestsText.Text = "Could not load saved schema-change requests. See the diagnostic log.";
+        }
+    }
+
     private async Task LoadGameDataWorkspaceAsync(string projectId)
     {
         try
@@ -587,6 +610,103 @@ public partial class MainWindow : Window
     private async void BuildSchema_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => await ProcessSchemaQueueAsync();
 
     private async void BuildGameStructures_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => await BuildGameStructuresAsync();
+
+    private async void ApplySchemaChange_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_project is null || _workingRuleSet is null || ModelSelector.SelectedItem is not string model)
+        {
+            SchemaStatusText.Text = "Load A Project, Working Rule Set, And Local Model Before Adding A Schema Rule.";
+            return;
+        }
+
+        SchemaChangeRequest request;
+        try
+        {
+            request = SchemaChangeRequestService.Create(
+                _project.Id,
+                SchemaChangeTitleText.Text ?? string.Empty,
+                SchemaChangeRuleText.Text ?? string.Empty,
+                SchemaChangeRequestOrigin.Designer,
+                DateTimeOffset.UtcNow);
+        }
+        catch (ArgumentException ex)
+        {
+            SchemaStatusText.Text = ex.Message;
+            return;
+        }
+
+        _applyingSchemaChange = true;
+        RefreshSchemaChangeRequests();
+        try
+        {
+            await SchemaChangeRequestStore().SaveAsync(request);
+            _schemaChangeRequests.Insert(0, request);
+            request = SchemaChangeRequestService.MarkApplying(request, DateTimeOffset.UtcNow);
+            await ReplaceSchemaChangeRequestAsync(request);
+
+            SchemaStatusText.Text = $"Applying Schema Change: {request.Title}.";
+            SchemaText.Text = "WorldSeed Is Applying The Approved Rule To The Current Schema Proposal.";
+            var syntheticRule = new WorkingRule(
+                request.Id, request.Title, WorkingRuleKind.Rule, request.ProposedRule,
+                [], [], [], [], null, [], []);
+            var result = await ProcessSchemaRulesAsync([syntheticRule], model, null, request);
+            if (result != SchemaQueueItemResult.Saved)
+            {
+                request = SchemaChangeRequestService.MarkFailed(request, _pendingSchemaQuestion is null ? "The schema change could not be translated safely." : "The schema change needs clarification. Resubmit it with the requested detail.", DateTimeOffset.UtcNow);
+                await ReplaceSchemaChangeRequestAsync(request);
+                return;
+            }
+
+            request = SchemaChangeRequestService.MarkApplied(request, DateTimeOffset.UtcNow);
+            await ReplaceSchemaChangeRequestAsync(request);
+            SchemaChangeTitleText.Text = string.Empty;
+            SchemaChangeRuleText.Text = string.Empty;
+            await TryActivateSchemaChangeAsync(request);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("Apply schema change request", ex);
+            request = SchemaChangeRequestService.MarkFailed(request, ex.Message, DateTimeOffset.UtcNow);
+            try { await ReplaceSchemaChangeRequestAsync(request); } catch (Exception saveEx) { AppLog.Error("Record schema-change failure", saveEx); }
+            SchemaStatusText.Text = "Could Not Apply The Schema Change. The Request Was Kept For Diagnosis.";
+            SchemaText.Text = $"{ex.GetType().Name}: {ex.Message}\n\nDiagnostic Log: {AppLog.CurrentPath}";
+        }
+        finally
+        {
+            _applyingSchemaChange = false;
+            RefreshSchemaChangeRequests();
+            RefreshSchemaView();
+            RefreshGameDataView();
+        }
+    }
+
+    private async Task ReplaceSchemaChangeRequestAsync(SchemaChangeRequest request)
+    {
+        await SchemaChangeRequestStore().SaveAsync(request);
+        var index = _schemaChangeRequests.FindIndex(candidate => candidate.Id == request.Id);
+        if (index < 0) _schemaChangeRequests.Insert(0, request);
+        else _schemaChangeRequests[index] = request;
+        RefreshSchemaChangeRequests();
+    }
+
+    private async Task TryActivateSchemaChangeAsync(SchemaChangeRequest request)
+    {
+        if (_project is null) return;
+        try
+        {
+            _activeGameSchema = await _gameDataWorkspace.ActivateAsync(_project.Id);
+            _projectGameData = await _gameDataWorkspace.LoadGameDataAsync(_project.Id);
+            SchemaStatusText.Text = $"Applied And Activated Schema Change: {request.Title}.";
+            AppLog.Info($"Applied and activated schema-change request '{request.Id}' for project '{_project.Id}'.");
+        }
+        catch (Exception ex)
+        {
+            // The proposal itself is safely saved. An authored data set can require a later migration,
+            // so activation is deliberately reported rather than silently discarding that data.
+            AppLog.Error("Activate applied schema change", ex);
+            SchemaStatusText.Text = $"Applied Schema Change: {request.Title}. Activate It Manually After Resolving Any Migration Notice.";
+        }
+    }
 
     private void ClearSchemaQueue_Click(object? sender, RoutedEventArgs e)
     {
@@ -740,7 +860,7 @@ public partial class MainWindow : Window
     private Task<SchemaQueueItemResult> ProcessSchemaQueueItemAsync(WorkingRule rule, string model) =>
         ProcessSchemaRulesAsync([rule], model, null);
 
-    private async Task<SchemaQueueItemResult> ProcessSchemaRulesAsync(IReadOnlyList<WorkingRule> rules, string model, string? structureGoal)
+    private async Task<SchemaQueueItemResult> ProcessSchemaRulesAsync(IReadOnlyList<WorkingRule> rules, string model, string? structureGoal, SchemaChangeRequest? changeRequest = null)
     {
         var capture = new CapturingClient(new OllamaChatClient(_http, OllamaDefaults.CreateProfile("local", "Local", model)));
         try
@@ -751,7 +871,7 @@ public partial class MainWindow : Window
                 Rules = rules,
                 Concepts = _workingRuleSet.Concepts.Where(concept => rules.SelectMany(rule => rule.ConceptIds).Contains(concept.Id, StringComparer.Ordinal)).ToArray()
             };
-            var turn = await new SchemaTranslationService(capture).TranslateAsync(new SchemaTranslationRequest(selectedRuleSet, baseSchema, _schemaClarifications, structureGoal));
+            var turn = await new SchemaTranslationService(capture).TranslateAsync(new SchemaTranslationRequest(selectedRuleSet, baseSchema, _schemaClarifications, structureGoal, changeRequest));
             if (turn.Action == SchemaTranslationAction.AskClarifyingQuestion)
             {
                 SchemaStatusText.Text = "The model needs clarification before it can process the current queued rule.";
@@ -763,7 +883,7 @@ public partial class MainWindow : Window
                 return SchemaQueueItemResult.NeedsClarification;
             }
             var proposal = turn.Proposal ?? throw new SchemaTranslationFormatException("The model did not return a schema proposal.");
-            var mergedSchema = SchemaProposalMerger.MergeSchemas(baseSchema, proposal.Schema);
+            var mergedSchema = SchemaProposalMerger.MergeSchemas(baseSchema, proposal.Schema, changeRequest is not null);
             var mergedSources = SchemaProposalMerger.MergeDefinitionSources(_schemaProposal?.DefinitionSources ?? Array.Empty<DefinitionSource>(), proposal.DefinitionSources);
             var mergedRuleIds = SchemaProposalMerger.MergeWorkingRuleIds(_schemaProposal?.SelectedWorkingRuleIds ?? Array.Empty<string>(), rules.Select(rule => rule.Id));
             var now = DateTimeOffset.UtcNow;
@@ -982,6 +1102,27 @@ public partial class MainWindow : Window
         BuildGameStructuresButton.IsEnabled = readyForStructureBuild && !_processingSchemaQueue && !_buildingGameStructures && string.IsNullOrWhiteSpace(_pendingSchemaQuestion);
         BuildSchemaButton.IsEnabled = queued > 0 && !_processingSchemaQueue && !_buildingGameStructures && string.IsNullOrWhiteSpace(_pendingSchemaQuestion);
         ClearSchemaQueueButton.IsEnabled = queued > 0 && !_processingSchemaQueue && !_buildingGameStructures && string.IsNullOrWhiteSpace(_pendingSchemaQuestion);
+    }
+
+    private void RefreshSchemaChangeRequests()
+    {
+        ApplySchemaChangeButton.IsEnabled = _project is not null
+            && _workingRuleSet is not null
+            && ModelSelector.SelectedItem is string
+            && !_applyingSchemaChange
+            && !_processingSchemaQueue
+            && !_buildingGameStructures;
+        if (_schemaChangeRequests.Count == 0)
+        {
+            SchemaChangeRequestsText.Text = "No Schema Changes Have Been Requested.";
+            return;
+        }
+
+        SchemaChangeRequestsText.Text = string.Join("\n", _schemaChangeRequests
+            .OrderByDescending(request => request.UpdatedAt)
+            .Take(5)
+            .Select(request => $"{request.Status}: {request.Title}" +
+                (string.IsNullOrWhiteSpace(request.FailureDetail) ? string.Empty : $" — {request.FailureDetail}")));
     }
 
     private string SchemaProposalStatus(WorkingRule rule)
@@ -1440,6 +1581,11 @@ public partial class MainWindow : Window
         SchemaQuestionText.Text = string.Empty;
         SchemaAnswerText.Text = string.Empty;
         SchemaQuestionPanel.IsVisible = false;
+        _schemaChangeRequests.Clear();
+        SchemaChangeTitleText.Text = string.Empty;
+        SchemaChangeRuleText.Text = string.Empty;
+        SchemaChangeRequestsText.Text = "No Schema Changes Have Been Requested.";
+        ApplySchemaChangeButton.IsEnabled = false;
         _gameDataEntityTypes.Clear();
         _gameDataEntityInstances.Clear();
         GameDataEntityTypeList.ItemsSource = Array.Empty<GameDataEntityTypeItem>();
@@ -1463,6 +1609,7 @@ public partial class MainWindow : Window
     private IDesignProjectStore ProjectStore() => _projectStore;
     private IWorkingRuleSetStore WorkingRuleStore() => _workingRuleStore;
     private IProjectSchemaProposalStore SchemaProposalStore() => _schemaProposalStore;
+    private IProjectSchemaChangeRequestStore SchemaChangeRequestStore() => _schemaChangeRequestStore;
     private static string Preview(string? text)
     {
         if (string.IsNullOrWhiteSpace(text)) return "No model response was received.";

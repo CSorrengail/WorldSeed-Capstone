@@ -11,7 +11,7 @@ public sealed class SchemaTranslationJsonParser
     private static readonly string[] SchemaDefinitionCollections = ["schemaFragments", "entityTypes", "valueTypes", "relationships", "rules", "procedures", "validations"];
     private readonly GameSchemaValidator _schemaValidator = new();
 
-    public SchemaTranslationTurn Parse(string content, WorkingRuleSet workingRuleSet, JsonObject? baseSchema = null)
+    public SchemaTranslationTurn Parse(string content, WorkingRuleSet workingRuleSet, JsonObject? baseSchema = null, bool allowExistingDefinitionUpdates = false)
     {
         JsonObject root;
         try
@@ -71,7 +71,7 @@ public sealed class SchemaTranslationJsonParser
             sources.RemoveAll(source => echoedSavedIds.Contains(source.DefinitionId));
         }
         if (!Definitions(schema).Any()) throw new SchemaTranslationFormatException("The model returned only definitions that are already saved. Reuse saved definitions by reference and return at least one new definition.");
-        var validationSchema = SchemaProposalMerger.MergeSchemas(baseSchema, schema);
+        var validationSchema = SchemaProposalMerger.MergeSchemas(baseSchema, schema, allowExistingDefinitionUpdates);
         var issues = _schemaValidator.Validate(validationSchema).Issues.Select(issue => issue.Message).ToList();
         var allowedRules = workingRuleSet.Rules.Select(rule => rule.Id).ToHashSet(StringComparer.Ordinal);
         var definitionIds = Definitions(schema).ToHashSet(StringComparer.Ordinal);
