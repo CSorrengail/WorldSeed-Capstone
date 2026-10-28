@@ -2,7 +2,7 @@
   <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="24" RowSpacing="12">
     <TextBlock Text="Settings" FontSize="24"/>
     <StackPanel Grid.Row="1" Spacing="6">
-      <TextBlock Text="Close after inactivity (minutes)"/>
+      <TextBlock Text="Close After Inactivity (Minutes)"/>
       <TextBox Name="IdleTimeoutInput" Width="100" HorizontalAlignment="Left"/>
     </StackPanel>
     <TextBlock Grid.Row="2" Text="WorldSeed closes when there has been no mouse, keyboard, or text activity for this many minutes. Enter 0 to disable automatic closing. This is a local desktop setting, not project data." TextWrapping="Wrap" Opacity="0.75"/>
