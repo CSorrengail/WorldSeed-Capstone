@@ -20,6 +20,7 @@ public class SchemaTranslationServiceTests
         Assert.Equal("working-rules-dangerous-magic", turn.Proposal.WorkingRuleSetId);
         Assert.Equal(3, turn.Proposal.WorkingRuleSetRevision);
         Assert.Contains("small selected group", model.Request!.Messages[0].Content);
+        Assert.Contains("instance-bearing concept", model.Request.Messages[0].Content);
         Assert.Contains("workingRuleIds", model.Request.Messages[0].Content);
         Assert.Equal(SchemaTranslationService.MaxOutputTokens, model.Request.MaxOutputTokens);
         Assert.DoesNotContain("Evidence", model.Request.Messages[1].Content);

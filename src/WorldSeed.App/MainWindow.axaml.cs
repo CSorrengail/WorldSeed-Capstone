@@ -265,7 +265,7 @@ public partial class MainWindow : Window
         if (_pendingDeletionProjectId != _project.Id)
         {
             _pendingDeletionProjectId = _project.Id;
-            DeleteProjectButton.Content = "Confirm delete";
+            DeleteProjectButton.Content = "Confirm Delete";
             StatusText.Text = $"Click Confirm delete to permanently remove '{_project.Name}' from this folder.";
             return;
         }
@@ -557,7 +557,6 @@ public partial class MainWindow : Window
             return;
         }
         ActivateSchemaButton.IsEnabled = false;
-        ActivateSchemaFromDataButton.IsEnabled = false;
         try
         {
             _activeGameSchema = await _gameDataWorkspace.ActivateAsync(_project.Id);
@@ -731,7 +730,7 @@ public partial class MainWindow : Window
             {
                 var addButton = new Button
                 {
-                    Content = _schemaQueueRuleIds.Contains(rule.Id, StringComparer.Ordinal) ? "Queued" : "Add to queue",
+                    Content = _schemaQueueRuleIds.Contains(rule.Id, StringComparer.Ordinal) ? "Queued" : "Add To Queue",
                     Tag = rule.Id,
                     IsEnabled = !_processingSchemaQueue && !_schemaQueueRuleIds.Contains(rule.Id, StringComparer.Ordinal),
                     HorizontalAlignment = HorizontalAlignment.Left,
@@ -776,17 +775,44 @@ public partial class MainWindow : Window
             return;
         }
         RefreshSchemaActivationControls();
-        SchemaStatusText.Text = $"Proposal based on Working Rule Set revision {_schemaProposal.WorkingRuleSetRevision}; { _schemaProposal.SelectedWorkingRuleIds.Count } selected rule(s).";
-        SchemaText.Text = $"Summary\n{_schemaProposal.Summary}\n\nSchema clarifications\n{FormatSchemaClarifications(_schemaProposal.Clarifications)}\n\nSelected Working Rules\n{string.Join("\n", _schemaProposal.SelectedWorkingRuleIds.Select(id => "- " + id))}\n\nDefinition sources\n{string.Join("\n", _schemaProposal.DefinitionSources.Select(source => $"- {source.DefinitionId}: {string.Join(", ", source.WorkingRuleIds)}"))}\n\nSchema JSON\n{PrettyJson(_schemaProposal.SchemaJson)}";
+        var citedRuleCount = _schemaProposal.DefinitionSources.SelectMany(source => source.WorkingRuleIds).Distinct(StringComparer.Ordinal).Count();
+        SchemaStatusText.Text = $"Saved proposal: {CountSchemaDefinitions(_schemaProposal.SchemaJson)} definition(s) linked to {citedRuleCount} Working Rule(s).";
+        SchemaText.Text = $"Summary\n{_schemaProposal.Summary}\n\nSchema Clarifications\n{FormatSchemaClarifications(_schemaProposal.Clarifications)}\n\nWorking Rule Inputs ({_schemaProposal.SelectedWorkingRuleIds.Count})\n{string.Join("\n", _schemaProposal.SelectedWorkingRuleIds.Select(id => "- " + id))}\n\nDefinition Sources ({_schemaProposal.DefinitionSources.Count})\n{string.Join("\n", _schemaProposal.DefinitionSources.Select(source => $"- {source.DefinitionId}: {string.Join(", ", source.WorkingRuleIds)}"))}\n\nSchema JSON\n{PrettyJson(_schemaProposal.SchemaJson)}";
     }
 
     private void RefreshSchemaActivationControls()
     {
-        var enabled = _schemaProposal is not null && !_processingSchemaQueue;
-        ActivateSchemaButton.IsEnabled = enabled;
-        ActivateSchemaButton.Content = _activeGameSchema is null ? "Use saved proposal as active schema" : "Update active schema from saved proposal";
-        ActivateSchemaFromDataButton.IsEnabled = enabled;
-        ActivateSchemaFromDataButton.Content = ActivateSchemaButton.Content;
+        var proposalDiffersFromActive = _schemaProposal is not null && !ActiveSchemaMatchesSavedProposal();
+        ActivateSchemaButton.IsVisible = proposalDiffersFromActive;
+        ActivateSchemaButton.IsEnabled = proposalDiffersFromActive && !_processingSchemaQueue;
+        ActivateSchemaButton.Content = _activeGameSchema is null ? "Activate Schema" : "Activate Updated Proposal";
+    }
+
+    private bool ActiveSchemaMatchesSavedProposal()
+    {
+        if (_activeGameSchema is null || _schemaProposal is null) return false;
+        try
+        {
+            return JsonNode.DeepEquals(JsonNode.Parse(_activeGameSchema.SchemaJson), JsonNode.Parse(_schemaProposal.SchemaJson));
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static int CountSchemaDefinitions(string schemaJson)
+    {
+        try
+        {
+            var schema = JsonNode.Parse(schemaJson) as JsonObject;
+            return new[] { "schemaFragments", "entityTypes", "valueTypes", "relationships", "rules", "procedures", "validations" }
+                .Sum(name => (schema?[name] as JsonArray)?.Count ?? 0);
+        }
+        catch (JsonException)
+        {
+            return 0;
+        }
     }
 
     private void AddSchemaRuleToQueue_Click(object? sender, RoutedEventArgs e)
@@ -946,6 +972,9 @@ public partial class MainWindow : Window
             ActiveSchemaText.Text = _activeGameSchema is null
                 ? "Activate a saved schema proposal to begin entering game data."
                 : "The active schema is loaded, but its game-data document is unavailable.";
+            SetGameDataEntryCapability(false, _activeGameSchema is null
+                ? "Activate a saved schema proposal in the Schema workspace before adding game data."
+                : "Reload the project to try loading its game-data document again.");
             GameDataEntityTypeList.ItemsSource = Array.Empty<GameDataEntityTypeItem>();
             GameDataEntityList.ItemsSource = Array.Empty<GameDataEntityInstanceItem>();
             GameDataEntityEditor.Text = "Select an entry or add one from an entity type.";
@@ -974,17 +1003,27 @@ public partial class MainWindow : Window
                 var typeName = _gameDataEntityTypes.SingleOrDefault(type => type.Id == entityTypeId)?.Name ?? entityTypeId;
                 _gameDataEntityInstances.Add(new GameDataEntityInstanceItem(id, entityTypeId, typeName));
             }
-            ActiveSchemaText.Text = $"{_activeGameSchema.Name}\nRevision {_activeGameSchema.Revision}; based on Working Rule Set revision {_activeGameSchema.WorkingRuleSetRevision}.";
+            var valueTypeCount = (schema["valueTypes"] as JsonArray)?.Count ?? 0;
+            ActiveSchemaText.Text = $"{_activeGameSchema.Name}\nRevision {_activeGameSchema.Revision}; {_gameDataEntityTypes.Count} entity type(s), {valueTypeCount} value type(s).";
             GameDataEntityTypeList.ItemsSource = _gameDataEntityTypes.ToArray();
             GameDataEntityList.ItemsSource = _gameDataEntityInstances.ToArray();
             GameDataEntityTypeList.SelectedIndex = selectedTypeId is null ? -1 : _gameDataEntityTypes.FindIndex(type => type.Id == selectedTypeId);
             GameDataEntityList.SelectedIndex = selectedInstanceId is null ? -1 : _gameDataEntityInstances.FindIndex(item => item.Id == selectedInstanceId);
             GameDataJsonText.Text = PrettyJson(_projectGameData.DataJson);
+            if (_gameDataEntityTypes.Count == 0)
+            {
+                SetGameDataEntryCapability(false, "This active schema defines only value types and categories. It has no entity types, so there are no game-data entries to create yet. Use the Schema workspace to add an entity-level definition, then activate that updated proposal.");
+                GameDataStatusText.Text = "Game data cannot be authored until the active schema defines at least one entity type.";
+                RefreshGameDataControls();
+                return;
+            }
+            SetGameDataEntryCapability(true, string.Empty);
             GameDataStatusText.Text = $"{_gameDataEntityInstances.Count} saved entr{(_gameDataEntityInstances.Count == 1 ? "y" : "ies")}. Edit one entry at a time, then validate and save the complete document.";
         }
         catch (Exception ex)
         {
             AppLog.Error("Render game data workspace", ex);
+            SetGameDataEntryCapability(false, "WorldSeed could not read this active schema or game-data document. See the diagnostic log for details.");
             GameDataStatusText.Text = "Could not display the saved game-data document. See the diagnostic log.";
             GameDataJsonText.Text = _projectGameData.DataJson;
         }
@@ -993,7 +1032,7 @@ public partial class MainWindow : Window
 
     private void RefreshGameDataControls()
     {
-        var hasDocument = _activeGameSchema is not null && _projectGameData is not null;
+        var hasDocument = _activeGameSchema is not null && _projectGameData is not null && _gameDataEntityTypes.Count > 0;
         AddGameDataEntityButton.IsEnabled = hasDocument && GameDataEntityTypeList.SelectedIndex >= 0;
         RemoveGameDataEntityButton.IsEnabled = hasDocument && GameDataEntityList.SelectedIndex >= 0;
         ApplyGameDataEntityButton.IsEnabled = hasDocument && GameDataEntityList.SelectedIndex >= 0;
@@ -1001,6 +1040,17 @@ public partial class MainWindow : Window
         ApplyFullGameDataButton.IsEnabled = hasDocument;
         GameDataJsonText.IsReadOnly = !hasDocument;
         RefreshSchemaActivationControls();
+    }
+
+    private void SetGameDataEntryCapability(bool hasEntityTypes, string explanation)
+    {
+        GameDataEntitiesPanel.IsVisible = hasEntityTypes;
+        GameDataNoEntitiesPanel.IsVisible = !hasEntityTypes;
+        GameDataEntityEditorPanel.IsVisible = hasEntityTypes;
+        GameDataNoEntityEditorPanel.IsVisible = !hasEntityTypes;
+        GameDataJsonPanel.IsVisible = hasEntityTypes;
+        GameDataNoEntityJsonPanel.IsVisible = !hasEntityTypes;
+        GameDataNoEntitiesText.Text = explanation;
     }
 
     private void GameDataEntityList_SelectionChanged(object? sender, SelectionChangedEventArgs e)
@@ -1228,6 +1278,7 @@ public partial class MainWindow : Window
         GameDataJsonText.Text = "Activate a schema to create a game-data document.";
         ActiveSchemaText.Text = "Activate a saved schema proposal to begin entering game data.";
         GameDataStatusText.Text = "No active schema is loaded.";
+        SetGameDataEntryCapability(false, "Activate a saved schema proposal in the Schema workspace before adding game data.");
         RefreshGameDataControls();
     }
 
