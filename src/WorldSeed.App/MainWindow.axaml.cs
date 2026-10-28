@@ -47,6 +47,7 @@ public partial class MainWindow : Window
     private ProjectGameData? _projectGameData;
     private string? _pendingSchemaQuestion;
     private bool _processingSchemaQueue;
+    private bool _buildingGameStructures;
     private readonly List<TextBox> _answerInputs = [];
     private IReadOnlyList<string> _activeQuestions = [];
     private WorldSeedSettings _settings = WorldSeedSettings.Default;
@@ -583,9 +584,11 @@ public partial class MainWindow : Window
 
     private async void BuildSchema_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => await ProcessSchemaQueueAsync();
 
+    private async void BuildGameStructures_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => await BuildGameStructuresAsync();
+
     private void ClearSchemaQueue_Click(object? sender, RoutedEventArgs e)
     {
-        if (_processingSchemaQueue || !string.IsNullOrWhiteSpace(_pendingSchemaQuestion)) return;
+        if (_processingSchemaQueue || _buildingGameStructures || !string.IsNullOrWhiteSpace(_pendingSchemaQuestion)) return;
         _schemaQueueRuleIds.Clear();
         RefreshSchemaView();
         SchemaStatusText.Text = "Schema work queue cleared.";
@@ -604,6 +607,83 @@ public partial class MainWindow : Window
         _pendingSchemaQuestion = null;
         SchemaQuestionPanel.IsVisible = false;
         await ProcessSchemaQueueAsync();
+    }
+
+    private async Task BuildGameStructuresAsync()
+    {
+        if (!string.IsNullOrWhiteSpace(_pendingSchemaQuestion))
+        {
+            SchemaStatusText.Text = "Answer The Current Schema Clarification Before Building More Structures.";
+            SchemaQuestionPanel.IsVisible = true;
+            return;
+        }
+        if (_project is null || _workingRuleSet is null || ModelSelector.SelectedItem is not string model)
+        {
+            SchemaStatusText.Text = "Load A Project, Working Rule Set, And Local Model First.";
+            return;
+        }
+
+        _buildingGameStructures = true;
+        RefreshSchemaQueueControls();
+        var capture = new CapturingClient(new OllamaChatClient(_http, OllamaDefaults.CreateProfile("local", "Local", model)));
+        try
+        {
+            SchemaStatusText.Text = $"Finding Game Structures Across {_workingRules.Count} Working Rules With {model}...";
+            SchemaText.Text = "WorldSeed Is Finding Related Rules, Content Types, And Directly Supported Relationships.";
+            var plans = await new SchemaStructureDiscoveryService(capture).DiscoverAsync(_workingRuleSet, SavedSchemaForExtension());
+            var pendingPlans = plans.Where(plan => !SchemaAlreadyContains(plan)).ToArray();
+            if (pendingPlans.Length == 0)
+            {
+                SchemaStatusText.Text = "No New Content Types Or Direct Relationships Were Found. Use The Manual Queue To Refine A Specific Rule.";
+                SchemaText.Text = "Structure Discovery Did Not Find A New Structure That Is Not Already In The Saved Proposal.";
+                return;
+            }
+
+            var built = 0;
+            foreach (var plan in pendingPlans.OrderBy(plan => plan.Kind))
+            {
+                var translationPlan = plan;
+                if (plan.Kind == SchemaStructurePlanKind.Relationship)
+                {
+                    var fromId = ResolveContentTypeId(plan.FromContentTypeId);
+                    var toId = ResolveContentTypeId(plan.ToContentTypeId);
+                    if (fromId is null || toId is null)
+                    {
+                        AppLog.Info($"Skipped relationship plan '{plan.Id}' because one or both content types are not yet in the saved proposal.");
+                        continue;
+                    }
+                    translationPlan = plan with { FromContentTypeId = fromId, ToContentTypeId = toId };
+                }
+                var rules = plan.WorkingRuleIds.Select(id => _workingRules.SingleOrDefault(rule => rule.Id == id)).Where(rule => rule is not null).Cast<WorkingRule>().ToArray();
+                if (rules.Length != plan.WorkingRuleIds.Count)
+                    throw new SchemaTranslationFormatException($"The automatic plan '{plan.Name}' refers to a Working Rule that is no longer available.");
+
+                SchemaStatusText.Text = $"Building {plan.Name} ({built + 1} Of {pendingPlans.Length}) From {rules.Length} Related Rule(s)...";
+                SchemaText.Text = $"Automatic Structure Plan\n{plan.Name} ({plan.Kind})\n{plan.Rationale}\n\nSupporting Working Rules\n{string.Join("\n", rules.Select(rule => "- " + rule.Id + ": " + SchemaRulePicker.DisplayName(rule)))}";
+                var result = await ProcessSchemaRulesAsync(rules, model, translationPlan.TranslationGoal);
+                if (result != SchemaQueueItemResult.Saved) return;
+                built++;
+                RefreshSchemaView();
+            }
+            SchemaStatusText.Text = $"Built {built} Game Structure(s) Automatically. The Saved Proposal Is Still Editable And Non-Canonical.";
+        }
+        catch (SchemaTranslationFormatException ex)
+        {
+            AppLog.Error("Discover game structures", ex);
+            SchemaStatusText.Text = "Automatic Structure Discovery Could Not Safely Save A Proposal.";
+            SchemaText.Text = $"Format Detail: {ex.Message}\n\nRaw Model Output (For Diagnosis):\n{Preview(capture.Last?.Content)}";
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("Build game structures", ex);
+            SchemaStatusText.Text = "Automatic Structure Discovery Failed Before A Usable Proposal Was Produced.";
+            SchemaText.Text = $"{ex.GetType().Name}: {ex.Message}\n\nDiagnostic Log: {AppLog.CurrentPath}";
+        }
+        finally
+        {
+            _buildingGameStructures = false;
+            RefreshSchemaView();
+        }
     }
 
     private async Task ProcessSchemaQueueAsync()
@@ -654,7 +734,10 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task<SchemaQueueItemResult> ProcessSchemaQueueItemAsync(WorkingRule rule, string model)
+    private Task<SchemaQueueItemResult> ProcessSchemaQueueItemAsync(WorkingRule rule, string model) =>
+        ProcessSchemaRulesAsync([rule], model, null);
+
+    private async Task<SchemaQueueItemResult> ProcessSchemaRulesAsync(IReadOnlyList<WorkingRule> rules, string model, string? structureGoal)
     {
         var capture = new CapturingClient(new OllamaChatClient(_http, OllamaDefaults.CreateProfile("local", "Local", model)));
         try
@@ -662,10 +745,10 @@ public partial class MainWindow : Window
             var baseSchema = SavedSchemaForExtension();
             var selectedRuleSet = _workingRuleSet! with
             {
-                Rules = [rule],
-                Concepts = _workingRuleSet.Concepts.Where(concept => rule.ConceptIds.Contains(concept.Id, StringComparer.Ordinal)).ToArray()
+                Rules = rules,
+                Concepts = _workingRuleSet.Concepts.Where(concept => rules.SelectMany(rule => rule.ConceptIds).Contains(concept.Id, StringComparer.Ordinal)).ToArray()
             };
-            var turn = await new SchemaTranslationService(capture).TranslateAsync(new SchemaTranslationRequest(selectedRuleSet, baseSchema, _schemaClarifications));
+            var turn = await new SchemaTranslationService(capture).TranslateAsync(new SchemaTranslationRequest(selectedRuleSet, baseSchema, _schemaClarifications, structureGoal));
             if (turn.Action == SchemaTranslationAction.AskClarifyingQuestion)
             {
                 SchemaStatusText.Text = "The model needs clarification before it can process the current queued rule.";
@@ -679,7 +762,7 @@ public partial class MainWindow : Window
             var proposal = turn.Proposal ?? throw new SchemaTranslationFormatException("The model did not return a schema proposal.");
             var mergedSchema = SchemaProposalMerger.MergeSchemas(baseSchema, proposal.Schema);
             var mergedSources = SchemaProposalMerger.MergeDefinitionSources(_schemaProposal?.DefinitionSources ?? Array.Empty<DefinitionSource>(), proposal.DefinitionSources);
-            var mergedRuleIds = SchemaProposalMerger.MergeWorkingRuleIds(_schemaProposal?.SelectedWorkingRuleIds ?? Array.Empty<string>(), [rule.Id]);
+            var mergedRuleIds = SchemaProposalMerger.MergeWorkingRuleIds(_schemaProposal?.SelectedWorkingRuleIds ?? Array.Empty<string>(), rules.Select(rule => rule.Id));
             var now = DateTimeOffset.UtcNow;
             _schemaProposal = new ProjectSchemaProposal(
                 "schema-proposal-" + _project!.Id,
@@ -697,20 +780,20 @@ public partial class MainWindow : Window
             await SchemaProposalStore().SaveAsync(_schemaProposal);
             _pendingSchemaQuestion = null;
             SchemaQuestionPanel.IsVisible = false;
-            AppLog.Info($"Saved schema proposal addition for project '{_project.Id}' from queued Working Rule '{rule.Id}'.");
+            AppLog.Info($"Saved schema proposal addition for project '{_project.Id}' from {rules.Count} Working Rule(s).");
             return SchemaQueueItemResult.Saved;
         }
         catch (SchemaTranslationFormatException ex)
         {
             AppLog.Error("Validate queued schema proposal", ex);
-            SchemaStatusText.Text = "The current queued rule could not be saved. It remains at the front of the queue.";
+            SchemaStatusText.Text = "The Current Schema Structure Could Not Be Saved. Manual Queue Items Remain Available For Retry.";
             SchemaText.Text = $"Format detail: {ex.Message}\n\nRaw model output (for diagnosis):\n{Preview(capture.Last?.Content)}";
             return SchemaQueueItemResult.Failed;
         }
         catch (Exception ex)
         {
             AppLog.Error("Build queued schema proposal", ex);
-            SchemaStatusText.Text = "Schema translation failed before a usable proposal was produced. The current rule remains queued.";
+            SchemaStatusText.Text = "Schema Translation Failed Before A Usable Proposal Was Produced.";
             SchemaText.Text = $"{ex.GetType().Name}: {ex.Message}\n\nDiagnostic log: {AppLog.CurrentPath}";
             return SchemaQueueItemResult.Failed;
         }
@@ -732,7 +815,7 @@ public partial class MainWindow : Window
                 {
                     Content = _schemaQueueRuleIds.Contains(rule.Id, StringComparer.Ordinal) ? "Queued" : "Add To Queue",
                     Tag = rule.Id,
-                    IsEnabled = !_processingSchemaQueue && !_schemaQueueRuleIds.Contains(rule.Id, StringComparer.Ordinal),
+                    IsEnabled = !_processingSchemaQueue && !_buildingGameStructures && !_schemaQueueRuleIds.Contains(rule.Id, StringComparer.Ordinal),
                     HorizontalAlignment = HorizontalAlignment.Left,
                     Padding = new Thickness(10, 4)
                 };
@@ -770,7 +853,7 @@ public partial class MainWindow : Window
         if (_schemaProposal is null)
         {
             RefreshSchemaActivationControls();
-            SchemaStatusText.Text = _workingRuleSet is null ? "Load a Working Rule Set, then add rules to the schema queue." : "Add Working Rules to the queue. Each item will be proposed and saved separately.";
+            SchemaStatusText.Text = _workingRuleSet is null ? "Load A Working Rule Set, Then Build Game Structures." : "Build Game Structures To Automatically Find Related Rules, Or Use The Manual Queue For A Specific Rule.";
             SchemaText.Text = "No schema proposal is loaded.";
             return;
         }
@@ -784,7 +867,7 @@ public partial class MainWindow : Window
     {
         var proposalDiffersFromActive = _schemaProposal is not null && !ActiveSchemaMatchesSavedProposal();
         ActivateSchemaButton.IsVisible = proposalDiffersFromActive;
-        ActivateSchemaButton.IsEnabled = proposalDiffersFromActive && !_processingSchemaQueue;
+        ActivateSchemaButton.IsEnabled = proposalDiffersFromActive && !_processingSchemaQueue && !_buildingGameStructures;
         ActivateSchemaButton.Content = _activeGameSchema is null ? "Activate Schema" : "Activate Updated Proposal";
     }
 
@@ -834,7 +917,7 @@ public partial class MainWindow : Window
 
     private void AddSchemaRuleToQueue_Click(object? sender, RoutedEventArgs e)
     {
-        if (_processingSchemaQueue || sender is not Button { Tag: string ruleId }) return;
+        if (_processingSchemaQueue || _buildingGameStructures || sender is not Button { Tag: string ruleId }) return;
         if (SchemaRulePicker.TryEnqueue(_schemaQueueRuleIds, ruleId))
         {
             RefreshSchemaView();
@@ -844,7 +927,7 @@ public partial class MainWindow : Window
 
     private void RemoveSchemaRuleFromQueue_Click(object? sender, RoutedEventArgs e)
     {
-        if (_processingSchemaQueue || sender is not Button { Tag: string ruleId }) return;
+        if (_processingSchemaQueue || _buildingGameStructures || sender is not Button { Tag: string ruleId }) return;
         _schemaQueueRuleIds.Remove(ruleId);
         RefreshSchemaView();
     }
@@ -873,7 +956,7 @@ public partial class MainWindow : Window
                 {
                     Content = "Remove",
                     Tag = ruleId,
-                    IsEnabled = !_processingSchemaQueue && string.IsNullOrWhiteSpace(_pendingSchemaQuestion),
+                    IsEnabled = !_processingSchemaQueue && !_buildingGameStructures && string.IsNullOrWhiteSpace(_pendingSchemaQuestion),
                     Padding = new Thickness(8, 3)
                 };
                 remove.Click += RemoveSchemaRuleFromQueue_Click;
@@ -888,8 +971,10 @@ public partial class MainWindow : Window
         SchemaQueueText.Text = queued == 0
             ? "No working rules are queued."
             : $"{queued} rule(s) queued. Each is sent to the model individually.";
-        BuildSchemaButton.IsEnabled = queued > 0 && !_processingSchemaQueue && string.IsNullOrWhiteSpace(_pendingSchemaQuestion);
-        ClearSchemaQueueButton.IsEnabled = queued > 0 && !_processingSchemaQueue && string.IsNullOrWhiteSpace(_pendingSchemaQuestion);
+        var readyForStructureBuild = _project is not null && _workingRuleSet is { Rules.Count: > 0 } && ModelSelector.SelectedItem is string;
+        BuildGameStructuresButton.IsEnabled = readyForStructureBuild && !_processingSchemaQueue && !_buildingGameStructures && string.IsNullOrWhiteSpace(_pendingSchemaQuestion);
+        BuildSchemaButton.IsEnabled = queued > 0 && !_processingSchemaQueue && !_buildingGameStructures && string.IsNullOrWhiteSpace(_pendingSchemaQuestion);
+        ClearSchemaQueueButton.IsEnabled = queued > 0 && !_processingSchemaQueue && !_buildingGameStructures && string.IsNullOrWhiteSpace(_pendingSchemaQuestion);
     }
 
     private string SchemaProposalStatus(WorkingRule rule)
@@ -904,6 +989,48 @@ public partial class MainWindow : Window
     private bool IsSchemaProcessed(WorkingRule rule) => IsCitedBySavedProposal(rule) || SchemaDefinesLike(rule);
 
     private bool IsCitedBySavedProposal(WorkingRule rule) => _schemaProposal?.DefinitionSources.Any(source => source.WorkingRuleIds.Contains(rule.Id, StringComparer.Ordinal)) == true;
+
+    private bool SchemaAlreadyContains(SchemaStructurePlan plan)
+    {
+        if (_schemaProposal is null) return false;
+        var collection = plan.Kind == SchemaStructurePlanKind.ContentType ? "entityTypes" : "relationships";
+        try
+        {
+            var schema = JsonNode.Parse(_schemaProposal.SchemaJson) as JsonObject;
+            return (schema?[collection] as JsonArray)?.OfType<JsonObject>().Any(definition =>
+            {
+                var metadata = definition["metadata"] as JsonObject;
+                var id = metadata?["id"]?.GetValue<string>();
+                var name = metadata?["name"]?.GetValue<string>();
+                return string.Equals(id, plan.Id, StringComparison.Ordinal)
+                    || (!string.IsNullOrWhiteSpace(name) && ComparableSchemaName(name) == ComparableSchemaName(plan.Name));
+            }) == true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private string? ResolveContentTypeId(string? plannedId)
+    {
+        if (string.IsNullOrWhiteSpace(plannedId) || _schemaProposal is null) return null;
+        try
+        {
+            var schema = JsonNode.Parse(_schemaProposal.SchemaJson) as JsonObject;
+            foreach (var definition in (schema?["entityTypes"] as JsonArray)?.OfType<JsonObject>() ?? [])
+            {
+                var metadata = definition["metadata"] as JsonObject;
+                var id = metadata?["id"]?.GetValue<string>();
+                var name = metadata?["name"]?.GetValue<string>();
+                if (string.Equals(id, plannedId, StringComparison.Ordinal)
+                    || (!string.IsNullOrWhiteSpace(id) && ComparableSchemaName(id) == ComparableSchemaName(plannedId))
+                    || (!string.IsNullOrWhiteSpace(name) && ComparableSchemaName(name) == ComparableSchemaName(plannedId))) return id;
+            }
+        }
+        catch (JsonException) { /* Saved-schema diagnostics remain visible elsewhere. */ }
+        return null;
+    }
 
     private bool SchemaDefinesLike(WorkingRule rule)
     {
