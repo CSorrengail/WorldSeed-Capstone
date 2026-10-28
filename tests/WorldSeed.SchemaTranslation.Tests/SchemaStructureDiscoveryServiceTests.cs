@@ -30,13 +30,14 @@ public sealed class SchemaStructureDiscoveryServiceTests
     }
 
     [Fact]
-    public async Task Rejects_plans_that_cite_rules_outside_the_current_batch()
+    public async Task Retains_local_support_and_discards_outside_batch_rule_ids()
     {
-        var model = new FakeModel("""{"plans":[{"id":"weapon","name":"Weapon","kind":"contentType","workingRuleIds":["other-rule"],"rationale":"Invalid."}]}""");
+        var model = new FakeModel("""{"plans":[{"id":"weapon","name":"Weapon","kind":"contentType","workingRuleIds":["weapon","other-rule"],"rationale":"Partially supported."}]}""");
 
-        var exception = await Assert.ThrowsAsync<SchemaTranslationFormatException>(() => new SchemaStructureDiscoveryService(model).DiscoverAsync(RuleSet([Rule("weapon", "Weapon", "A weapon.")]), null));
+        var plans = await new SchemaStructureDiscoveryService(model).DiscoverAsync(RuleSet([Rule("weapon", "Weapon", "A weapon.")]), null);
 
-        Assert.Contains("current batch", exception.Message);
+        var plan = Assert.Single(plans);
+        Assert.Equal(new[] { "weapon" }, plan.WorkingRuleIds);
     }
 
     private static WorkingRuleSet RuleSet(IReadOnlyList<WorkingRule> rules) => new("working-rules", "project", "0.1", "Test", null, 1, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, rules, [], [], [], []);

@@ -558,6 +558,8 @@ public partial class MainWindow : Window
             return;
         }
         ActivateSchemaButton.IsEnabled = false;
+        ActivateSchemaFromReadyGameDataButton.IsEnabled = false;
+        ActivateSchemaFromEmptyGameDataButton.IsEnabled = false;
         try
         {
             _activeGameSchema = await _gameDataWorkspace.ActivateAsync(_project.Id);
@@ -683,6 +685,7 @@ public partial class MainWindow : Window
         {
             _buildingGameStructures = false;
             RefreshSchemaView();
+            RefreshGameDataView();
         }
     }
 
@@ -869,6 +872,10 @@ public partial class MainWindow : Window
         ActivateSchemaButton.IsVisible = proposalDiffersFromActive;
         ActivateSchemaButton.IsEnabled = proposalDiffersFromActive && !_processingSchemaQueue && !_buildingGameStructures;
         ActivateSchemaButton.Content = _activeGameSchema is null ? "Activate Schema" : "Activate Updated Proposal";
+        ActivateSchemaFromReadyGameDataButton.IsVisible = proposalDiffersFromActive;
+        ActivateSchemaFromReadyGameDataButton.IsEnabled = proposalDiffersFromActive && !_processingSchemaQueue && !_buildingGameStructures;
+        ActivateSchemaFromEmptyGameDataButton.IsVisible = proposalDiffersFromActive;
+        ActivateSchemaFromEmptyGameDataButton.IsEnabled = proposalDiffersFromActive && !_processingSchemaQueue && !_buildingGameStructures;
     }
 
     private bool ActiveSchemaMatchesSavedProposal()
@@ -1148,6 +1155,7 @@ public partial class MainWindow : Window
                 _gameDataEntityInstances.Add(new GameDataEntityInstanceItem(id, entityTypeId, typeName));
             }
             var valueTypeCount = (schema["valueTypes"] as JsonArray)?.Count ?? 0;
+            var savedProposalHasUpdates = _schemaProposal is not null && !ActiveSchemaMatchesSavedProposal();
             ActiveSchemaText.Text = $"{_activeGameSchema.Name}\nRevision {_activeGameSchema.Revision}; {_gameDataEntityTypes.Count} content type(s), {valueTypeCount} categor{(valueTypeCount == 1 ? "y" : "ies")}.";
             GameDataEntityTypeList.ItemsSource = _gameDataEntityTypes.ToArray();
             GameDataEntityList.ItemsSource = _gameDataEntityInstances.ToArray();
@@ -1157,12 +1165,16 @@ public partial class MainWindow : Window
             if (_gameDataEntityTypes.Count == 0)
             {
                 SetGameDataEntryCapability(false, "This active schema currently defines categories and value types, but no content types. Add a Working Rule that identifies a kind of game content with individual entries, then activate the updated proposal.");
-                GameDataStatusText.Text = "Game Data Cannot Be Entered Until The Active Schema Defines At Least One Content Type.";
+                GameDataStatusText.Text = savedProposalHasUpdates
+                    ? "A Newer Saved Proposal Is Available. Activate Updated Proposal To Use Its New Structures."
+                    : "Game Data Cannot Be Entered Until The Active Schema Defines At Least One Content Type.";
                 RefreshGameDataControls();
                 return;
             }
             SetGameDataEntryCapability(true, string.Empty);
-            GameDataStatusText.Text = $"{_gameDataEntityInstances.Count} saved entr{(_gameDataEntityInstances.Count == 1 ? "y" : "ies")}. Edit one entry at a time, then validate and save the complete document.";
+            GameDataStatusText.Text = savedProposalHasUpdates
+                ? "A Newer Saved Proposal Is Available. Activate Updated Proposal To Use Its New Structures."
+                : $"{_gameDataEntityInstances.Count} saved entr{(_gameDataEntityInstances.Count == 1 ? "y" : "ies")}. Edit one entry at a time, then validate and save the complete document.";
         }
         catch (Exception ex)
         {
