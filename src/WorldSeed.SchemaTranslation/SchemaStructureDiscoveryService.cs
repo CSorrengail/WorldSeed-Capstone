@@ -71,32 +71,34 @@ public sealed class SchemaStructureDiscoveryService
         var plans = new List<SchemaStructurePlan>();
         foreach (var node in planNodes.OfType<JsonObject>())
         {
-            var id = Required(node, "id");
-            var name = Required(node, "name");
-            var kind = Required(node, "kind") switch
+            var id = Optional(node, "id");
+            var name = Optional(node, "name");
+            SchemaStructurePlanKind? kind = Optional(node, "kind") switch
             {
                 "contentType" => SchemaStructurePlanKind.ContentType,
                 "relationship" => SchemaStructurePlanKind.Relationship,
-                _ => throw new SchemaTranslationFormatException("Structure discovery plan kind must be contentType or relationship.")
+                _ => null
             };
-            var ruleIds = Strings(node["workingRuleIds"]);
-            if (ruleIds.Count is 0 or > MaxRulesPerPlan || ruleIds.Any(id => !allowedRuleIds.Contains(id)))
-                throw new SchemaTranslationFormatException($"Structure discovery plan '{id}' must cite one to {MaxRulesPerPlan} rules from its current batch.");
+            if (id is null || name is null || kind is null) continue;
+            // A local model may accidentally cite a nearby batch. Retain only rules that were actually
+            // shown in this request; plans with no local support are discarded instead of aborting a
+            // whole automatic pass that may contain other valid structures.
+            var ruleIds = Strings(node["workingRuleIds"]).Where(allowedRuleIds.Contains).Take(MaxRulesPerPlan).ToArray();
+            if (ruleIds.Length == 0) continue;
             var from = Optional(node, "fromContentTypeId");
             var to = Optional(node, "toContentTypeId");
-            if (kind == SchemaStructurePlanKind.Relationship && (from is null || to is null))
-                throw new SchemaTranslationFormatException($"Relationship plan '{id}' requires fromContentTypeId and toContentTypeId.");
-            plans.Add(new SchemaStructurePlan(id, name, kind, ruleIds, Optional(node, "rationale") ?? string.Empty, from, to));
+            if (kind == SchemaStructurePlanKind.Relationship && (from is null || to is null)) continue;
+            plans.Add(new SchemaStructurePlan(id, name, kind.Value, ruleIds, Optional(node, "rationale") ?? string.Empty, from, to));
         }
         return plans;
     }
 
     private static IReadOnlyList<SchemaStructurePlan> MergePlans(IEnumerable<SchemaStructurePlan> plans)
     {
-        var merged = new Dictionary<(SchemaStructurePlanKind Kind, string Id), SchemaStructurePlan>();
+        var merged = new Dictionary<(SchemaStructurePlanKind Kind, string Name), SchemaStructurePlan>();
         foreach (var plan in plans)
         {
-            var key = (plan.Kind, plan.Id);
+            var key = (plan.Kind, ComparableName(plan.Name));
             if (!merged.TryGetValue(key, out var previous))
             {
                 merged[key] = plan;
@@ -124,7 +126,7 @@ public sealed class SchemaStructureDiscoveryService
     };
 
     private static string Truncate(string text, int maximum) => text.Length <= maximum ? text : text[..maximum] + "…";
-    private static string Required(JsonObject node, string name) => Optional(node, name) ?? throw new SchemaTranslationFormatException($"Structure discovery plan '{name}' is required.");
+    private static string ComparableName(string value) => string.Concat(value.Where(char.IsLetterOrDigit)).ToLowerInvariant();
     private static string? Optional(JsonObject node, string name) => node[name] is JsonValue value && value.TryGetValue<string>(out var text) && !string.IsNullOrWhiteSpace(text) ? text : null;
     private static IReadOnlyList<string> Strings(JsonNode? node) => node is JsonArray values
         ? values.OfType<JsonValue>().Select(value => value.TryGetValue<string>(out var text) ? text : null).Where(text => !string.IsNullOrWhiteSpace(text)).Cast<string>().Distinct(StringComparer.Ordinal).ToArray()
