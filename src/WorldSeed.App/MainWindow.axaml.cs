@@ -1044,13 +1044,27 @@ public partial class MainWindow : Window
 
     private void SetGameDataEntryCapability(bool hasEntityTypes, string explanation)
     {
-        GameDataEntitiesPanel.IsVisible = hasEntityTypes;
-        GameDataNoEntitiesPanel.IsVisible = !hasEntityTypes;
-        GameDataEntityEditorPanel.IsVisible = hasEntityTypes;
-        GameDataNoEntityEditorPanel.IsVisible = !hasEntityTypes;
-        GameDataJsonPanel.IsVisible = hasEntityTypes;
-        GameDataNoEntityJsonPanel.IsVisible = !hasEntityTypes;
+        GameDataReadyPanel.IsVisible = hasEntityTypes;
+        GameDataEmptyStatePanel.IsVisible = !hasEntityTypes;
+        GameDataEmptyStateSchemaText.Text = ActiveSchemaText.Text;
         GameDataNoEntitiesText.Text = explanation;
+    }
+
+    private void OpenSchemaWorkspace_Click(object? sender, RoutedEventArgs e)
+    {
+        WorkspaceTabs.SelectedIndex = 2;
+    }
+
+    private async void RefreshGameDataWorkspace_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_project is null)
+        {
+            GameDataStatusText.Text = "Select A Project Before Refreshing Game Data.";
+            return;
+        }
+
+        GameDataStatusText.Text = "Refreshing The Active Schema And Game Data.";
+        await LoadGameDataWorkspaceAsync(_project.Id);
     }
 
     private void GameDataEntityList_SelectionChanged(object? sender, SelectionChangedEventArgs e)
