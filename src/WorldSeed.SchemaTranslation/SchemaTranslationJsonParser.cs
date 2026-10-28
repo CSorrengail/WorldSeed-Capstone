@@ -49,7 +49,7 @@ public sealed class SchemaTranslationJsonParser
         if (action == SchemaTranslationAction.AskClarifyingQuestion && question is null) throw new SchemaTranslationFormatException("A clarification response requires a question.");
         if (action == SchemaTranslationAction.AskClarifyingQuestion) return new SchemaTranslationTurn(action, question, null);
         var proposal = root["proposal"] as JsonObject ?? throw new SchemaTranslationFormatException("A proposal response requires a proposal object.");
-        var schema = proposal["schema"] as JsonObject ?? throw new SchemaTranslationFormatException("A schema proposal requires a schema object.");
+        var schema = NormalizeAlternateSchemaContainer(proposal, baseSchema) ?? throw new SchemaTranslationFormatException("A schema proposal requires a schema object.");
         // Some local models correctly construct a definition array, but place it beside schema. Moving a
         // known schema array is lossless and keeps it subject to the same validation below.
         foreach (var collection in SchemaDefinitionCollections)
@@ -85,6 +85,70 @@ public sealed class SchemaTranslationJsonParser
         foreach (var id in definitionIds.Where(id => !mapped.Contains(id))) issues.Add($"Proposed definition '{id}' has no source-rule mapping.");
         if (issues.Count > 0) throw new SchemaTranslationFormatException(string.Join(" ", issues));
         return new SchemaTranslationTurn(action, null, new SchemaTranslationProposal(Required(proposal, "summary"), schema, sources, workingRuleSet.Id, workingRuleSet.Revision));
+    }
+
+    /// <summary>
+    /// Recovers a common local-model presentation mistake: a flat array of definitions is supplied as
+    /// <c>proposal.schema</c> instead of being grouped under a game-schema object. The conversion is
+    /// structural and lossless for the recognized definition kinds; validation still decides whether the
+    /// resulting proposal is safe to save.
+    /// </summary>
+    private static JsonObject? NormalizeAlternateSchemaContainer(JsonObject proposal, JsonObject? baseSchema)
+    {
+        if (proposal["schema"] is JsonObject schema) return schema;
+        if (proposal["schema"] is not JsonArray flatDefinitions) return null;
+
+        var normalized = new JsonObject
+        {
+            ["id"] = String(baseSchema?["id"]) ?? "game-schema-proposal",
+            ["name"] = String(baseSchema?["name"]) ?? "Game Schema Proposal",
+            ["version"] = String(baseSchema?["version"]) ?? "0.5",
+            ["entityTypes"] = new JsonArray()
+        };
+
+        foreach (var definition in flatDefinitions.OfType<JsonObject>())
+            AddFlatDefinition(normalized, definition);
+
+        // Models also commonly place a valid definition array beside their flat schema array.
+        // Copying it into the correct collection does not invent any design information.
+        foreach (var collection in SchemaDefinitionCollections)
+        {
+            if (proposal[collection] is not JsonArray definitions) continue;
+            var target = normalized[collection] as JsonArray ?? new JsonArray();
+            normalized[collection] = target;
+            foreach (var definition in definitions) target.Add(definition?.DeepClone());
+        }
+
+        proposal["schema"] = normalized;
+        return normalized;
+    }
+
+    private static void AddFlatDefinition(JsonObject schema, JsonObject definition)
+    {
+        var kind = String(definition["kind"]);
+        if (string.Equals(kind, "entityType", StringComparison.Ordinal))
+        {
+            var entity = definition["entity"] as JsonObject is { } nestedEntity
+                ? (JsonObject)nestedEntity.DeepClone()
+                : (JsonObject)definition.DeepClone();
+            entity.Remove("kind");
+            entity.Remove("entity");
+            entity.Remove("relationships");
+            var metadata = definition["metadata"] is JsonObject suppliedMetadata
+                ? (JsonObject)suppliedMetadata.DeepClone()
+                : new JsonObject();
+            if (metadata["id"] is null && String(definition["id"]) is { } id) metadata["id"] = id;
+            if (metadata["name"] is null && String(definition["name"]) is { } name) metadata["name"] = name;
+            entity["metadata"] = metadata;
+            ((JsonArray)schema["entityTypes"]!).Add(entity);
+            return;
+        }
+
+        var collection = kind is "enumeration" or "record" or "alias" ? "valueTypes" : null;
+        if (collection is null) return;
+        var values = schema[collection] as JsonArray ?? new JsonArray();
+        schema[collection] = values;
+        values.Add(definition.DeepClone());
     }
 
     private static DefinitionSource[]? ParseSources(JsonNode? node) => node switch
@@ -124,6 +188,24 @@ public sealed class SchemaTranslationJsonParser
         foreach (var collection in new[] { "schemaFragments", "entityTypes", "valueTypes", "relationships", "rules", "procedures", "validations" })
             foreach (var definition in (schema[collection] as JsonArray)?.OfType<JsonObject>() ?? [])
                 NormalizeDefinition(definition);
+        NormalizeNamedValueTypeReferences(schema);
+    }
+
+    /// <summary>Converts a named value-type reference into the explicit v0.5 form when that name is a definition in this proposal.</summary>
+    private static void NormalizeNamedValueTypeReferences(JsonObject schema)
+    {
+        var valueTypeIds = (schema["valueTypes"] as JsonArray)?.OfType<JsonObject>()
+            .Select(definition => String((definition["metadata"] as JsonObject)?["id"]))
+            .Where(id => id is not null)
+            .Cast<string>()
+            .ToHashSet(StringComparer.Ordinal) ?? [];
+        if (valueTypeIds.Count == 0) return;
+
+        foreach (var collection in new[] { "schemaFragments", "entityTypes", "valueTypes" })
+            foreach (var definition in (schema[collection] as JsonArray)?.OfType<JsonObject>() ?? [])
+                foreach (var property in (definition["properties"] as JsonArray)?.OfType<JsonObject>() ?? [])
+                    if (String(property["valueType"]) is { } id && valueTypeIds.Contains(id))
+                        property["valueType"] = new JsonObject { ["kind"] = "definedValueType", ["valueTypeId"] = id };
     }
 
     private static void NormalizeDefinition(JsonObject definition)

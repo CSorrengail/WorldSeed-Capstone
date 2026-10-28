@@ -282,6 +282,25 @@ public class SchemaTranslationServiceTests
         Assert.Equal(new[] { "weaponProperty" }, turn.Proposal.DefinitionSources.Select(source => source.DefinitionId));
     }
 
+    [Fact]
+    public void Normalizes_a_flat_schema_array_and_named_value_type_reference()
+    {
+        var ruleSet = CreateWorkingRuleSet() with { Rules = [Assert.Single(CreateWorkingRuleSet().Rules) with { Id = "b005-r004" }] };
+        var output = """{"action":"presentProposal","proposal":{"summary":"Defines nourishment.","schema":[{"id":"nourishment","name":"Nourishment","kind":"entityType","entity":{"properties":[{"metadata":{"id":"quality","name":"Quality"},"valueType":"nourishmentQuality","required":true,"nullable":false}]}},{"id":"nourishmentQuality","name":"Nourishment Quality","kind":"enumeration","entries":[{"id":"low","name":"Low"}]}],"definitionSources":[{"definitionId":"nourishmentQuality","workingRuleIds":["b005-r004"]}]}}""";
+
+        var turn = new SchemaTranslationJsonParser().Parse(output, ruleSet);
+
+        var proposal = Assert.IsType<SchemaTranslationProposal>(turn.Proposal);
+        var entityTypes = Assert.IsType<JsonArray>(proposal.Schema["entityTypes"]);
+        var entity = Assert.IsType<JsonObject>(Assert.Single(entityTypes));
+        var properties = Assert.IsType<JsonArray>(entity["properties"]);
+        var quality = Assert.IsType<JsonObject>(Assert.Single(properties));
+        Assert.Equal("nourishment", entity["metadata"]!["id"]!.GetValue<string>());
+        Assert.Equal("definedValueType", quality["valueType"]!["kind"]!.GetValue<string>());
+        Assert.Equal("nourishmentQuality", quality["valueType"]!["valueTypeId"]!.GetValue<string>());
+        Assert.Equal(new[] { "nourishment", "nourishmentQuality" }, turn.Proposal.DefinitionSources.Select(source => source.DefinitionId).Order());
+    }
+
     private static WorkingRuleSet CreateWorkingRuleSet()
     {
         var now = DateTimeOffset.Parse("2026-10-14T00:00:00Z");

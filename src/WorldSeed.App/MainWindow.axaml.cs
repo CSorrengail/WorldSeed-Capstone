@@ -776,8 +776,8 @@ public partial class MainWindow : Window
         }
         RefreshSchemaActivationControls();
         var citedRuleCount = _schemaProposal.DefinitionSources.SelectMany(source => source.WorkingRuleIds).Distinct(StringComparer.Ordinal).Count();
-        SchemaStatusText.Text = $"Saved proposal: {CountSchemaDefinitions(_schemaProposal.SchemaJson)} definition(s) linked to {citedRuleCount} Working Rule(s).";
-        SchemaText.Text = $"Summary\n{_schemaProposal.Summary}\n\nSchema Clarifications\n{FormatSchemaClarifications(_schemaProposal.Clarifications)}\n\nWorking Rule Inputs ({_schemaProposal.SelectedWorkingRuleIds.Count})\n{string.Join("\n", _schemaProposal.SelectedWorkingRuleIds.Select(id => "- " + id))}\n\nDefinition Sources ({_schemaProposal.DefinitionSources.Count})\n{string.Join("\n", _schemaProposal.DefinitionSources.Select(source => $"- {source.DefinitionId}: {string.Join(", ", source.WorkingRuleIds)}"))}\n\nSchema JSON\n{PrettyJson(_schemaProposal.SchemaJson)}";
+        SchemaStatusText.Text = $"Saved proposal: {CountSchemaDefinitions(_schemaProposal.SchemaJson)} structure(s) linked to {citedRuleCount} Working Rule(s).";
+        SchemaText.Text = $"Summary\n{_schemaProposal.Summary}\n\nGame Data Readiness\n{DescribeSchemaContent(_schemaProposal.SchemaJson)}\n\nSchema Clarifications\n{FormatSchemaClarifications(_schemaProposal.Clarifications)}\n\nWorking Rule Inputs ({_schemaProposal.SelectedWorkingRuleIds.Count})\n{string.Join("\n", _schemaProposal.SelectedWorkingRuleIds.Select(id => "- " + id))}\n\nDefinition Sources ({_schemaProposal.DefinitionSources.Count})\n{string.Join("\n", _schemaProposal.DefinitionSources.Select(source => $"- {source.DefinitionId}: {string.Join(", ", source.WorkingRuleIds)}"))}\n\nSchema JSON\n{PrettyJson(_schemaProposal.SchemaJson)}";
     }
 
     private void RefreshSchemaActivationControls()
@@ -812,6 +812,23 @@ public partial class MainWindow : Window
         catch (JsonException)
         {
             return 0;
+        }
+    }
+
+    private static string DescribeSchemaContent(string schemaJson)
+    {
+        try
+        {
+            var schema = JsonNode.Parse(schemaJson) as JsonObject;
+            var contentTypeCount = (schema?["entityTypes"] as JsonArray)?.Count ?? 0;
+            var valueTypeCount = (schema?["valueTypes"] as JsonArray)?.Count ?? 0;
+            return contentTypeCount == 0
+                ? $"This proposal has {valueTypeCount} categor{(valueTypeCount == 1 ? "y" : "ies")} and no content types yet. Game Data needs at least one content type before it can store individual entries."
+                : $"This proposal has {contentTypeCount} content type(s) and {valueTypeCount} categor{(valueTypeCount == 1 ? "y" : "ies")}. Game Data can create individual entries for each content type.";
+        }
+        catch (JsonException)
+        {
+            return "WorldSeed could not summarize the saved schema.";
         }
     }
 
@@ -977,7 +994,7 @@ public partial class MainWindow : Window
                 : "Reload the project to try loading its game-data document again.");
             GameDataEntityTypeList.ItemsSource = Array.Empty<GameDataEntityTypeItem>();
             GameDataEntityList.ItemsSource = Array.Empty<GameDataEntityInstanceItem>();
-            GameDataEntityEditor.Text = "Select an entry or add one from an entity type.";
+            GameDataEntityEditor.Text = "Select an entry or add one from a content type.";
             GameDataJsonText.Text = "Activate a schema to create a game-data document.";
             GameDataStatusText.Text = _activeGameSchema is null ? "No active schema is loaded." : "No game-data document is loaded.";
             RefreshGameDataControls();
@@ -1004,7 +1021,7 @@ public partial class MainWindow : Window
                 _gameDataEntityInstances.Add(new GameDataEntityInstanceItem(id, entityTypeId, typeName));
             }
             var valueTypeCount = (schema["valueTypes"] as JsonArray)?.Count ?? 0;
-            ActiveSchemaText.Text = $"{_activeGameSchema.Name}\nRevision {_activeGameSchema.Revision}; {_gameDataEntityTypes.Count} entity type(s), {valueTypeCount} value type(s).";
+            ActiveSchemaText.Text = $"{_activeGameSchema.Name}\nRevision {_activeGameSchema.Revision}; {_gameDataEntityTypes.Count} content type(s), {valueTypeCount} categor{(valueTypeCount == 1 ? "y" : "ies")}.";
             GameDataEntityTypeList.ItemsSource = _gameDataEntityTypes.ToArray();
             GameDataEntityList.ItemsSource = _gameDataEntityInstances.ToArray();
             GameDataEntityTypeList.SelectedIndex = selectedTypeId is null ? -1 : _gameDataEntityTypes.FindIndex(type => type.Id == selectedTypeId);
@@ -1012,8 +1029,8 @@ public partial class MainWindow : Window
             GameDataJsonText.Text = PrettyJson(_projectGameData.DataJson);
             if (_gameDataEntityTypes.Count == 0)
             {
-                SetGameDataEntryCapability(false, "This active schema defines only value types and categories. It has no entity types, so there are no game-data entries to create yet. Use the Schema workspace to add an entity-level definition, then activate that updated proposal.");
-                GameDataStatusText.Text = "Game data cannot be authored until the active schema defines at least one entity type.";
+                SetGameDataEntryCapability(false, "This active schema currently defines categories and value types, but no content types. Add a Working Rule that identifies a kind of game content with individual entries, then activate the updated proposal.");
+                GameDataStatusText.Text = "Game Data Cannot Be Entered Until The Active Schema Defines At Least One Content Type.";
                 RefreshGameDataControls();
                 return;
             }
@@ -1288,7 +1305,7 @@ public partial class MainWindow : Window
         _gameDataEntityInstances.Clear();
         GameDataEntityTypeList.ItemsSource = Array.Empty<GameDataEntityTypeItem>();
         GameDataEntityList.ItemsSource = Array.Empty<GameDataEntityInstanceItem>();
-        GameDataEntityEditor.Text = "Select an entry or add one from an entity type.";
+        GameDataEntityEditor.Text = "Select an entry or add one from a content type.";
         GameDataJsonText.Text = "Activate a schema to create a game-data document.";
         ActiveSchemaText.Text = "Activate a saved schema proposal to begin entering game data.";
         GameDataStatusText.Text = "No active schema is loaded.";
