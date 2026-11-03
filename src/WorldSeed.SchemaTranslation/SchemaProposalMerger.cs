@@ -45,10 +45,7 @@ public static class SchemaProposalMerger
                     if (!allowExistingDefinitionUpdates)
                         throw new SchemaTranslationFormatException($"Proposed definition '{id}' conflicts with the saved schema. Return a new id, or reference the saved definition instead of redefining it.");
 
-                    EnsureExistingMembersAreRetained(id, existing, definitionObject);
-                    existing.Clear();
-                    foreach (var property in definitionObject)
-                        existing[property.Key] = property.Value?.DeepClone();
+                    MergeChangedDefinition(existing, definitionObject);
                     continue;
                 }
 
@@ -102,23 +99,57 @@ public static class SchemaProposalMerger
     private static string? DefinitionId(JsonObject definition) =>
         (definition["metadata"] as JsonObject)?["id"]?.GetValue<string>();
 
-    private static void EnsureExistingMembersAreRetained(string definitionId, JsonObject existing, JsonObject proposed)
+    /// <summary>
+    /// Applies an additive schema patch without requiring a local model to echo a large existing
+    /// definition. Unmentioned members remain untouched; listed members are merged by their id.
+    /// This keeps a small request such as "add reach to Weapon" bounded and non-destructive.
+    /// </summary>
+    private static void MergeChangedDefinition(JsonObject existing, JsonObject patch)
     {
-        foreach (var collection in new[] { "properties", "entries" })
+        foreach (var property in patch)
         {
-            var existingIds = MemberIds(existing, collection);
-            if (existingIds.Count == 0) continue;
-            var proposedIds = MemberIds(proposed, collection);
-            var omitted = existingIds.Where(id => !proposedIds.Contains(id)).ToArray();
-            if (omitted.Length > 0)
-                throw new SchemaTranslationFormatException($"Schema change for '{definitionId}' omits existing {collection}: {string.Join(", ", omitted)}. Return the complete changed definition so WorldSeed does not discard them.");
+            if (property.Key is "properties" or "entries" && property.Value is JsonArray patchMembers)
+            {
+                var members = existing[property.Key] as JsonArray ?? new JsonArray();
+                existing[property.Key] = members;
+                MergeMembers(members, patchMembers);
+                continue;
+            }
+            if (property.Value is JsonObject patchObject && existing[property.Key] is JsonObject existingObject)
+            {
+                MergeJsonObjects(existingObject, patchObject);
+                continue;
+            }
+            existing[property.Key] = property.Value?.DeepClone();
         }
     }
 
-    private static IReadOnlySet<string> MemberIds(JsonObject definition, string collection) =>
-        (definition[collection] as JsonArray)?.OfType<JsonObject>()
-            .Select(member => DefinitionId(member) ?? member["id"]?.GetValue<string>())
-            .Where(id => !string.IsNullOrWhiteSpace(id))
-            .Cast<string>()
-            .ToHashSet(StringComparer.Ordinal) ?? [];
+    private static void MergeMembers(JsonArray existing, JsonArray patch)
+    {
+        var byId = existing.OfType<JsonObject>()
+            .Select(member => new { Id = DefinitionId(member) ?? member["id"]?.GetValue<string>(), Member = member })
+            .Where(item => !string.IsNullOrWhiteSpace(item.Id))
+            .ToDictionary(item => item.Id!, item => item.Member, StringComparer.Ordinal);
+        foreach (var patchMember in patch)
+        {
+            if (patchMember is not JsonObject patchObject)
+            {
+                existing.Add(patchMember?.DeepClone());
+                continue;
+            }
+            var id = DefinitionId(patchObject) ?? patchObject["id"]?.GetValue<string>();
+            if (id is not null && byId.TryGetValue(id, out var existingMember)) MergeJsonObjects(existingMember, patchObject);
+            else existing.Add(patchObject.DeepClone());
+        }
+    }
+
+    private static void MergeJsonObjects(JsonObject existing, JsonObject patch)
+    {
+        foreach (var property in patch)
+        {
+            if (property.Value is JsonObject patchObject && existing[property.Key] is JsonObject existingObject)
+                MergeJsonObjects(existingObject, patchObject);
+            else existing[property.Key] = property.Value?.DeepClone();
+        }
+    }
 }

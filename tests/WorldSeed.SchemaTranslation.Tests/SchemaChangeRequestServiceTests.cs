@@ -37,13 +37,18 @@ public class SchemaChangeRequestServiceTests
     }
 
     [Fact]
-    public void Rejects_a_schema_change_that_omits_existing_members()
+    public void Preserves_existing_members_when_an_additive_schema_change_returns_only_the_new_member()
     {
         var baseSchema = JsonNode.Parse("""{"id":"game","name":"Game","version":"0.5","entityTypes":[{"metadata":{"id":"weapon","name":"Weapon"},"properties":[{"metadata":{"id":"name","name":"Name"}},{"metadata":{"id":"weight","name":"Weight"}}]}]}""")!.AsObject();
         var incomplete = JsonNode.Parse("""{"id":"game","name":"Game","version":"0.5","entityTypes":[{"metadata":{"id":"weapon","name":"Weapon"},"properties":[{"metadata":{"id":"reach","name":"Reach"}}]}]}""")!.AsObject();
 
-        var exception = Assert.Throws<SchemaTranslationFormatException>(() => SchemaProposalMerger.MergeSchemas(baseSchema, incomplete, allowExistingDefinitionUpdates: true));
+        var merged = SchemaProposalMerger.MergeSchemas(baseSchema, incomplete, allowExistingDefinitionUpdates: true);
+        var weapon = Assert.IsType<JsonObject>(Assert.Single(Assert.IsType<JsonArray>(merged["entityTypes"])));
+        var propertyIds = Assert.IsType<JsonArray>(weapon["properties"])
+            .OfType<JsonObject>()
+            .Select(property => Assert.IsType<JsonObject>(property["metadata"])["id"]!.GetValue<string>())
+            .ToArray();
 
-        Assert.Contains("omits existing properties", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(new[] { "name", "weight", "reach" }, propertyIds);
     }
 }

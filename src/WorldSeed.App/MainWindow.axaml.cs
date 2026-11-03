@@ -51,6 +51,8 @@ public partial class MainWindow : Window
     private bool _processingSchemaQueue;
     private bool _buildingGameStructures;
     private bool _applyingSchemaChange;
+    private string? _lastSchemaTranslationFailureDetail;
+    private string? _schemaChangeDiagnosticText;
     private readonly List<TextBox> _answerInputs = [];
     private IReadOnlyList<string> _activeQuestions = [];
     private WorldSeedSettings _settings = WorldSeedSettings.Default;
@@ -613,9 +615,14 @@ public partial class MainWindow : Window
 
     private async void ApplySchemaChange_Click(object? sender, RoutedEventArgs e)
     {
-        if (_project is null || _workingRuleSet is null || ModelSelector.SelectedItem is not string model)
+        if (_project is null || _workingRuleSet is null)
         {
-            SchemaStatusText.Text = "Load A Project, Working Rule Set, And Local Model Before Adding A Schema Rule.";
+            SchemaStatusText.Text = "Load A Project And Working Rule Set Before Adding A Schema Rule.";
+            return;
+        }
+        if (ModelSelector.SelectedItem is not string model)
+        {
+            SchemaStatusText.Text = "Select A Local Model Before Adding A Schema Rule.";
             return;
         }
 
@@ -636,6 +643,7 @@ public partial class MainWindow : Window
         }
 
         _applyingSchemaChange = true;
+        _schemaChangeDiagnosticText = null;
         RefreshSchemaChangeRequests();
         try
         {
@@ -652,13 +660,18 @@ public partial class MainWindow : Window
             var result = await ProcessSchemaRulesAsync([syntheticRule], model, null, request);
             if (result != SchemaQueueItemResult.Saved)
             {
-                request = SchemaChangeRequestService.MarkFailed(request, _pendingSchemaQuestion is null ? "The schema change could not be translated safely." : "The schema change needs clarification. Resubmit it with the requested detail.", DateTimeOffset.UtcNow);
+                var failure = _pendingSchemaQuestion is null
+                    ? _lastSchemaTranslationFailureDetail ?? "The schema change could not be translated safely."
+                    : "The schema change needs clarification. Resubmit it with the requested detail.";
+                _schemaChangeDiagnosticText = SchemaText.Text;
+                request = SchemaChangeRequestService.MarkFailed(request, failure, DateTimeOffset.UtcNow);
                 await ReplaceSchemaChangeRequestAsync(request);
                 return;
             }
 
             request = SchemaChangeRequestService.MarkApplied(request, DateTimeOffset.UtcNow);
             await ReplaceSchemaChangeRequestAsync(request);
+            _schemaChangeDiagnosticText = null;
             SchemaChangeTitleText.Text = string.Empty;
             SchemaChangeRuleText.Text = string.Empty;
             await TryActivateSchemaChangeAsync(request);
@@ -676,6 +689,7 @@ public partial class MainWindow : Window
             _applyingSchemaChange = false;
             RefreshSchemaChangeRequests();
             RefreshSchemaView();
+            if (!string.IsNullOrWhiteSpace(_schemaChangeDiagnosticText)) SchemaText.Text = _schemaChangeDiagnosticText;
             RefreshGameDataView();
         }
     }
@@ -727,6 +741,8 @@ public partial class MainWindow : Window
         }
         _schemaClarifications.Add(new SchemaClarification(_pendingSchemaQuestion, answer));
         _pendingSchemaQuestion = null;
+        _lastSchemaTranslationFailureDetail = null;
+        _schemaChangeDiagnosticText = null;
         SchemaQuestionPanel.IsVisible = false;
         await ProcessSchemaQueueAsync();
     }
@@ -862,6 +878,7 @@ public partial class MainWindow : Window
 
     private async Task<SchemaQueueItemResult> ProcessSchemaRulesAsync(IReadOnlyList<WorkingRule> rules, string model, string? structureGoal, SchemaChangeRequest? changeRequest = null)
     {
+        _lastSchemaTranslationFailureDetail = null;
         var capture = new CapturingClient(new OllamaChatClient(_http, OllamaDefaults.CreateProfile("local", "Local", model)));
         try
         {
@@ -908,6 +925,7 @@ public partial class MainWindow : Window
         }
         catch (SchemaTranslationFormatException ex)
         {
+            _lastSchemaTranslationFailureDetail = ex.Message;
             AppLog.Error("Validate queued schema proposal", ex);
             SchemaStatusText.Text = "The Current Schema Structure Could Not Be Saved. Manual Queue Items Remain Available For Retry.";
             SchemaText.Text = $"Format detail: {ex.Message}\n\nRaw model output (for diagnosis):\n{Preview(capture.Last?.Content)}";
@@ -915,6 +933,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
+            _lastSchemaTranslationFailureDetail = $"{ex.GetType().Name}: {ex.Message}";
             AppLog.Error("Build queued schema proposal", ex);
             SchemaStatusText.Text = "Schema Translation Failed Before A Usable Proposal Was Produced.";
             SchemaText.Text = $"{ex.GetType().Name}: {ex.Message}\n\nDiagnostic log: {AppLog.CurrentPath}";
@@ -1098,7 +1117,7 @@ public partial class MainWindow : Window
         SchemaQueueText.Text = queued == 0
             ? "No working rules are queued."
             : $"{queued} rule(s) queued. Each is sent to the model individually.";
-        var readyForStructureBuild = _project is not null && _workingRuleSet is { Rules.Count: > 0 } && ModelSelector.SelectedItem is string;
+        var readyForStructureBuild = _project is not null && _workingRuleSet is { Rules.Count: > 0 };
         BuildGameStructuresButton.IsEnabled = readyForStructureBuild && !_processingSchemaQueue && !_buildingGameStructures && string.IsNullOrWhiteSpace(_pendingSchemaQuestion);
         BuildSchemaButton.IsEnabled = queued > 0 && !_processingSchemaQueue && !_buildingGameStructures && string.IsNullOrWhiteSpace(_pendingSchemaQuestion);
         ClearSchemaQueueButton.IsEnabled = queued > 0 && !_processingSchemaQueue && !_buildingGameStructures && string.IsNullOrWhiteSpace(_pendingSchemaQuestion);
@@ -1108,7 +1127,6 @@ public partial class MainWindow : Window
     {
         ApplySchemaChangeButton.IsEnabled = _project is not null
             && _workingRuleSet is not null
-            && ModelSelector.SelectedItem is string
             && !_applyingSchemaChange
             && !_processingSchemaQueue
             && !_buildingGameStructures;
@@ -1563,6 +1581,8 @@ public partial class MainWindow : Window
         _activeGameSchema = null;
         _projectGameData = null;
         _pendingSchemaQuestion = null;
+        _lastSchemaTranslationFailureDetail = null;
+        _schemaChangeDiagnosticText = null;
         _schemaClarifications.Clear();
         _workingRules.Clear();
         WorkingRuleList.ItemsSource = Array.Empty<WorkingRuleListItem>();
