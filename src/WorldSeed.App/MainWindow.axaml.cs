@@ -672,8 +672,6 @@ public partial class MainWindow : Window
             request = SchemaChangeRequestService.MarkApplied(request, DateTimeOffset.UtcNow);
             await ReplaceSchemaChangeRequestAsync(request);
             _schemaChangeDiagnosticText = null;
-            SchemaChangeTitleText.Text = string.Empty;
-            SchemaChangeRuleText.Text = string.Empty;
             await TryActivateSchemaChangeAsync(request);
         }
         catch (Exception ex)
@@ -692,6 +690,15 @@ public partial class MainWindow : Window
             if (!string.IsNullOrWhiteSpace(_schemaChangeDiagnosticText)) SchemaText.Text = _schemaChangeDiagnosticText;
             RefreshGameDataView();
         }
+    }
+
+    private void ClearSchemaChangeFields_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_applyingSchemaChange) return;
+        SchemaChangeTitleText.Text = string.Empty;
+        SchemaChangeRuleText.Text = string.Empty;
+        _schemaChangeDiagnosticText = null;
+        SchemaStatusText.Text = "Schema Change Fields Cleared.";
     }
 
     private async Task ReplaceSchemaChangeRequestAsync(SchemaChangeRequest request)
@@ -1130,9 +1137,20 @@ public partial class MainWindow : Window
             && !_applyingSchemaChange
             && !_processingSchemaQueue
             && !_buildingGameStructures;
+        ClearSchemaChangeFieldsButton.IsEnabled = !_applyingSchemaChange;
         if (_schemaChangeRequests.Count == 0)
         {
             SchemaChangeRequestsText.Text = "No Schema Changes Have Been Requested.";
+            return;
+        }
+
+        if (_schemaChangeRequests.Count > 0)
+        {
+            var latest = _schemaChangeRequests.OrderByDescending(request => request.UpdatedAt).First();
+            var timestamp = latest.UpdatedAt.ToLocalTime().ToString("g");
+            SchemaChangeRequestsText.Text = $"Latest: {latest.Status} — {latest.Title} ({timestamp})" +
+                (string.IsNullOrWhiteSpace(latest.FailureDetail) ? string.Empty : $"\nDetail: {latest.FailureDetail}") +
+                (_schemaChangeRequests.Count > 1 ? $"\n{_schemaChangeRequests.Count - 1} Earlier Request(s) Are Retained In The Project History." : string.Empty);
             return;
         }
 
