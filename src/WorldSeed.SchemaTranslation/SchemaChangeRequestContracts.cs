@@ -6,7 +6,17 @@ namespace WorldSeed.SchemaTranslation;
 /// author's design decision while the normal schema translator turns that decision into a
 /// bounded, validated schema change.
 /// </summary>
-public enum SchemaChangeRequestStatus { Pending, Applying, Applied, Failed }
+// These values are persisted in existing local databases. Keep the original
+// values stable when adding a new state so previous Applied/Failed requests do
+// not acquire a different meaning after an update.
+public enum SchemaChangeRequestStatus
+{
+    Pending = 0,
+    Applying = 1,
+    Applied = 2,
+    Failed = 3,
+    NeedsClarification = 4
+}
 public enum SchemaChangeRequestOrigin { Designer, ContentSuggestion, SystemSuggestion }
 
 public sealed record SchemaChangeRequest(
@@ -19,7 +29,9 @@ public sealed record SchemaChangeRequest(
     string? FailureDetail,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
-    DateTimeOffset? AppliedAt);
+    DateTimeOffset? AppliedAt,
+    IReadOnlyList<SchemaClarification>? Clarifications = null,
+    string? PendingClarificationQuestion = null);
 
 public interface IProjectSchemaChangeRequestStore
 {
@@ -41,7 +53,24 @@ public static class SchemaChangeRequestService
     }
 
     public static SchemaChangeRequest MarkApplying(SchemaChangeRequest request, DateTimeOffset now) =>
-        request with { Status = SchemaChangeRequestStatus.Applying, FailureDetail = null, UpdatedAt = now };
+        request with { Status = SchemaChangeRequestStatus.Applying, FailureDetail = null, PendingClarificationQuestion = null, UpdatedAt = now };
+
+    public static SchemaChangeRequest MarkNeedsClarification(SchemaChangeRequest request, string question, DateTimeOffset now) =>
+        request with
+        {
+            Status = SchemaChangeRequestStatus.NeedsClarification,
+            FailureDetail = null,
+            PendingClarificationQuestion = string.IsNullOrWhiteSpace(question) ? "WorldSeed needs more detail before continuing." : question.Trim(),
+            UpdatedAt = now
+        };
+
+    public static SchemaChangeRequest AnswerClarification(SchemaChangeRequest request, string answer, DateTimeOffset now)
+    {
+        if (string.IsNullOrWhiteSpace(request.PendingClarificationQuestion)) throw new ArgumentException("This schema change has no pending clarification.", nameof(request));
+        if (string.IsNullOrWhiteSpace(answer)) throw new ArgumentException("An answer is required.", nameof(answer));
+        var answers = (request.Clarifications ?? []).Append(new SchemaClarification(request.PendingClarificationQuestion, answer.Trim())).ToArray();
+        return request with { Status = SchemaChangeRequestStatus.Pending, Clarifications = answers, PendingClarificationQuestion = null, UpdatedAt = now };
+    }
 
     public static SchemaChangeRequest MarkApplied(SchemaChangeRequest request, DateTimeOffset now) =>
         request with { Status = SchemaChangeRequestStatus.Applied, FailureDetail = null, UpdatedAt = now, AppliedAt = now };

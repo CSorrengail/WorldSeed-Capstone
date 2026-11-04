@@ -52,6 +52,7 @@ public partial class MainWindow : Window
     private bool _buildingGameStructures;
     private bool _applyingSchemaChange;
     private string? _lastSchemaTranslationFailureDetail;
+    private string? _lastSchemaChangeClarificationQuestion;
     private string? _schemaChangeDiagnosticText;
     private readonly List<TextBox> _answerInputs = [];
     private IReadOnlyList<string> _activeQuestions = [];
@@ -642,13 +643,40 @@ public partial class MainWindow : Window
             return;
         }
 
+        try
+        {
+            await SchemaChangeRequestStore().SaveAsync(request);
+            _schemaChangeRequests.Insert(0, request);
+            await ProcessSchemaChangeRequestAsync(request, model);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("Create schema change request", ex);
+            SchemaStatusText.Text = "Could Not Save The Schema Change Request. See The Diagnostic Log.";
+        }
+    }
+
+    private async void ResumeSchemaChangeClarification_Click(object? sender, RoutedEventArgs e)
+    {
+        var request = _schemaChangeRequests.OrderByDescending(candidate => candidate.UpdatedAt)
+            .FirstOrDefault(candidate => candidate.Status == SchemaChangeRequestStatus.NeedsClarification && !string.IsNullOrWhiteSpace(candidate.PendingClarificationQuestion));
+        if (request is null) return;
+        if (ModelSelector.SelectedItem is not string model)
+        {
+            SchemaStatusText.Text = "Select A Local Model Before Continuing The Schema Change.";
+            return;
+        }
+        await ShowSchemaChangeClarificationAsync(request, model);
+    }
+
+    private async Task ProcessSchemaChangeRequestAsync(SchemaChangeRequest request, string model)
+    {
+        SchemaChangeRequest? needsClarification = null;
         _applyingSchemaChange = true;
         _schemaChangeDiagnosticText = null;
         RefreshSchemaChangeRequests();
         try
         {
-            await SchemaChangeRequestStore().SaveAsync(request);
-            _schemaChangeRequests.Insert(0, request);
             request = SchemaChangeRequestService.MarkApplying(request, DateTimeOffset.UtcNow);
             await ReplaceSchemaChangeRequestAsync(request);
 
@@ -658,21 +686,27 @@ public partial class MainWindow : Window
                 request.Id, request.Title, WorkingRuleKind.Rule, request.ProposedRule,
                 [], [], [], [], null, [], []);
             var result = await ProcessSchemaRulesAsync([syntheticRule], model, null, request);
-            if (result != SchemaQueueItemResult.Saved)
+            if (result == SchemaQueueItemResult.NeedsClarification)
             {
-                var failure = _pendingSchemaQuestion is null
-                    ? _lastSchemaTranslationFailureDetail ?? "The schema change could not be translated safely."
-                    : "The schema change needs clarification. Resubmit it with the requested detail.";
+                request = SchemaChangeRequestService.MarkNeedsClarification(request, _lastSchemaChangeClarificationQuestion ?? "WorldSeed needs more detail before continuing.", DateTimeOffset.UtcNow);
+                await ReplaceSchemaChangeRequestAsync(request);
+                SchemaStatusText.Text = $"Schema Change Needs Clarification: {request.Title}.";
+                needsClarification = request;
+            }
+            else if (result != SchemaQueueItemResult.Saved)
+            {
+                var failure = _lastSchemaTranslationFailureDetail ?? "The schema change could not be translated safely.";
                 _schemaChangeDiagnosticText = SchemaText.Text;
                 request = SchemaChangeRequestService.MarkFailed(request, failure, DateTimeOffset.UtcNow);
                 await ReplaceSchemaChangeRequestAsync(request);
-                return;
             }
-
-            request = SchemaChangeRequestService.MarkApplied(request, DateTimeOffset.UtcNow);
-            await ReplaceSchemaChangeRequestAsync(request);
-            _schemaChangeDiagnosticText = null;
-            await TryActivateSchemaChangeAsync(request);
+            else
+            {
+                request = SchemaChangeRequestService.MarkApplied(request, DateTimeOffset.UtcNow);
+                await ReplaceSchemaChangeRequestAsync(request);
+                _schemaChangeDiagnosticText = null;
+                await TryActivateSchemaChangeAsync(request);
+            }
         }
         catch (Exception ex)
         {
@@ -689,6 +723,28 @@ public partial class MainWindow : Window
             RefreshSchemaView();
             if (!string.IsNullOrWhiteSpace(_schemaChangeDiagnosticText)) SchemaText.Text = _schemaChangeDiagnosticText;
             RefreshGameDataView();
+        }
+        if (needsClarification is not null) await ShowSchemaChangeClarificationAsync(needsClarification, model);
+    }
+
+    private async Task ShowSchemaChangeClarificationAsync(SchemaChangeRequest request, string model)
+    {
+        var dialog = new SchemaChangeClarificationWindow(request);
+        if (await dialog.ShowDialog<bool>(this) is not true || string.IsNullOrWhiteSpace(dialog.Answer))
+        {
+            SchemaStatusText.Text = "Schema Change Is Waiting For Clarification.";
+            return;
+        }
+        try
+        {
+            var answered = SchemaChangeRequestService.AnswerClarification(request, dialog.Answer, DateTimeOffset.UtcNow);
+            await ReplaceSchemaChangeRequestAsync(answered);
+            await ProcessSchemaChangeRequestAsync(answered, model);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("Resume schema change after clarification", ex);
+            SchemaStatusText.Text = "Could Not Continue The Schema Change. See The Diagnostic Log.";
         }
     }
 
@@ -886,6 +942,7 @@ public partial class MainWindow : Window
     private async Task<SchemaQueueItemResult> ProcessSchemaRulesAsync(IReadOnlyList<WorkingRule> rules, string model, string? structureGoal, SchemaChangeRequest? changeRequest = null)
     {
         _lastSchemaTranslationFailureDetail = null;
+        _lastSchemaChangeClarificationQuestion = null;
         var capture = new CapturingClient(new OllamaChatClient(_http, OllamaDefaults.CreateProfile("local", "Local", model)));
         try
         {
@@ -895,9 +952,17 @@ public partial class MainWindow : Window
                 Rules = rules,
                 Concepts = _workingRuleSet.Concepts.Where(concept => rules.SelectMany(rule => rule.ConceptIds).Contains(concept.Id, StringComparer.Ordinal)).ToArray()
             };
-            var turn = await new SchemaTranslationService(capture).TranslateAsync(new SchemaTranslationRequest(selectedRuleSet, baseSchema, _schemaClarifications, structureGoal, changeRequest));
+            var clarifications = changeRequest?.Clarifications ?? _schemaClarifications;
+            var turn = await new SchemaTranslationService(capture).TranslateAsync(new SchemaTranslationRequest(selectedRuleSet, baseSchema, clarifications, structureGoal, changeRequest));
             if (turn.Action == SchemaTranslationAction.AskClarifyingQuestion)
             {
+                if (changeRequest is not null)
+                {
+                    _lastSchemaChangeClarificationQuestion = turn.ClarifyingQuestion ?? "WorldSeed needs more detail before continuing.";
+                    SchemaStatusText.Text = "The Schema Change Needs Clarification.";
+                    SchemaText.Text = $"Schema Change: {changeRequest.Title}\n\nClarification Needed\n{_lastSchemaChangeClarificationQuestion}";
+                    return SchemaQueueItemResult.NeedsClarification;
+                }
                 SchemaStatusText.Text = "The model needs clarification before it can process the current queued rule.";
                 _pendingSchemaQuestion = turn.ClarifyingQuestion ?? "No clarification question was supplied.";
                 SchemaQuestionText.Text = _pendingSchemaQuestion;
@@ -1138,6 +1203,9 @@ public partial class MainWindow : Window
             && !_processingSchemaQueue
             && !_buildingGameStructures;
         ClearSchemaChangeFieldsButton.IsEnabled = !_applyingSchemaChange;
+        var resumable = _schemaChangeRequests.Any(request => request.Status == SchemaChangeRequestStatus.NeedsClarification && !string.IsNullOrWhiteSpace(request.PendingClarificationQuestion));
+        ResumeSchemaChangeClarificationButton.IsVisible = resumable;
+        ResumeSchemaChangeClarificationButton.IsEnabled = resumable && !_applyingSchemaChange;
         if (_schemaChangeRequests.Count == 0)
         {
             SchemaChangeRequestsText.Text = "No Schema Changes Have Been Requested.";
@@ -1623,6 +1691,7 @@ public partial class MainWindow : Window
         SchemaChangeTitleText.Text = string.Empty;
         SchemaChangeRuleText.Text = string.Empty;
         SchemaChangeRequestsText.Text = "No Schema Changes Have Been Requested.";
+        ResumeSchemaChangeClarificationButton.IsVisible = false;
         ApplySchemaChangeButton.IsEnabled = false;
         _gameDataEntityTypes.Clear();
         _gameDataEntityInstances.Clear();

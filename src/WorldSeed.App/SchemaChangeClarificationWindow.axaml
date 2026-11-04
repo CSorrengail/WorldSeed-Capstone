@@ -1,0 +1,9 @@
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:Class="WorldSeed.App.SchemaChangeClarificationWindow" Title="Schema Change Clarification" Width="620" Height="440" MinWidth="500" MinHeight="340" WindowStartupLocation="CenterOwner">
+  <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" Margin="24" RowSpacing="10">
+    <TextBlock Text="Clarify Schema Change" FontSize="24"/>
+    <TextBlock Grid.Row="1" Name="RequestTitleText" FontSize="16" TextWrapping="Wrap"/>
+    <TextBlock Grid.Row="2" Name="QuestionText" TextWrapping="Wrap" Opacity="0.85"/>
+    <TextBox Grid.Row="3" Name="AnswerInput" PlaceholderText="Your Answer" AcceptsReturn="True" TextWrapping="Wrap" ScrollViewer.HorizontalScrollBarVisibility="Disabled"/>
+    <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10"><Button Content="Cancel" Click="Cancel_Click"/><Button Content="Continue" Click="Continue_Click"/></StackPanel>
+  </Grid>
+</Window>

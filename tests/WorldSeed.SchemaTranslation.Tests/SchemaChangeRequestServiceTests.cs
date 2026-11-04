@@ -22,6 +22,22 @@ public class SchemaChangeRequestServiceTests
     }
 
     [Fact]
+    public void Preserves_a_clarification_and_answer_for_the_same_request()
+    {
+        var now = DateTimeOffset.Parse("2026-11-03T23:00:00Z");
+        var request = SchemaChangeRequestService.Create("project", "Add Reach", "Weapons may have reach.", SchemaChangeRequestOrigin.Designer, now);
+
+        var waiting = SchemaChangeRequestService.MarkNeedsClarification(request, "Is Reach optional?", now.AddMinutes(1));
+        var answered = SchemaChangeRequestService.AnswerClarification(waiting, "Yes, Reach is optional.", now.AddMinutes(2));
+
+        Assert.Equal(SchemaChangeRequestStatus.Pending, answered.Status);
+        Assert.Null(answered.PendingClarificationQuestion);
+        var clarification = Assert.Single(answered.Clarifications!);
+        Assert.Equal("Is Reach optional?", clarification.Question);
+        Assert.Equal("Yes, Reach is optional.", clarification.Answer);
+    }
+
+    [Fact]
     public void Allows_an_approved_change_to_replace_only_an_existing_definition()
     {
         var baseSchema = JsonNode.Parse("""{"id":"game","name":"Game","version":"0.5","entityTypes":[{"metadata":{"id":"weapon","name":"Weapon"},"properties":[]}]}""")!.AsObject();
