@@ -195,9 +195,29 @@ file static class ContentApiIntegrationCheck
             using (var response = await client.PutAsJsonAsync($"api/projects/{projectId}/content-proposals/{proposalId}", proposal))
                 await RequireSuccessAsync(response, "proposal PUT");
 
-            var decision = ContentProposalLifecycleService.Decide(proposal, ContentProposalDecisionKind.Approved, "QA integration approval.", DateTimeOffset.UtcNow);
-            using (var response = await client.PostAsJsonAsync($"api/projects/{projectId}/content-proposals/{proposalId}/decisions", decision))
-                await RequireSuccessAsync(response, "decision POST");
+            var revisionRequest = ContentProposalLifecycleService.Decide(proposal, ContentProposalDecisionKind.RevisionRequested, "Reduce its armor and distinguish its revised name.", DateTimeOffset.UtcNow);
+            using (var response = await client.PostAsJsonAsync($"api/projects/{projectId}/content-proposals/{proposalId}/decisions", revisionRequest))
+                await RequireSuccessAsync(response, "revision-request decision POST");
+
+            var replacementCandidate = (JsonObject)candidate.DeepClone();
+            replacementCandidate["id"] = "ember-wolf-revised";
+            replacementCandidate["values"]!["name"] = "Ember Wolf Revised";
+            replacementCandidate["values"]!["stats"]!["armor"] = 1;
+            var replacement = ContentProposalLifecycleService.Create(projectId, "monster", replacementCandidate, "schema-1", 3, "rules-1", 7, DateTimeOffset.UtcNow, proposal);
+            using (var response = await client.PutAsJsonAsync($"api/projects/{projectId}/content-proposals/{replacement.Id}", replacement))
+                await RequireSuccessAsync(response, "replacement proposal PUT");
+            var approval = ContentProposalLifecycleService.Decide(replacement, ContentProposalDecisionKind.Approved, "Approved after revision.", DateTimeOffset.UtcNow);
+            using (var response = await client.PostAsJsonAsync($"api/projects/{projectId}/content-proposals/{replacement.Id}/decisions", approval))
+                await RequireSuccessAsync(response, "approval decision POST");
+
+            var rejectedCandidate = (JsonObject)candidate.DeepClone();
+            rejectedCandidate["id"] = "ember-wolf-rejected";
+            var rejected = ContentProposalLifecycleService.Create(projectId, "monster", rejectedCandidate, "schema-1", 3, "rules-1", 7, DateTimeOffset.UtcNow);
+            using (var response = await client.PutAsJsonAsync($"api/projects/{projectId}/content-proposals/{rejected.Id}", rejected))
+                await RequireSuccessAsync(response, "rejected proposal PUT");
+            var rejection = ContentProposalLifecycleService.Decide(rejected, ContentProposalDecisionKind.Rejected, "Does not fit this project.", DateTimeOffset.UtcNow);
+            using (var response = await client.PostAsJsonAsync($"api/projects/{projectId}/content-proposals/{rejected.Id}/decisions", rejection))
+                await RequireSuccessAsync(response, "rejection decision POST");
 
             using var workspaceResponse = await client.GetAsync($"api/projects/{projectId}/content-proposals");
             await RequireSuccessAsync(workspaceResponse, "workspace GET");
@@ -205,17 +225,27 @@ file static class ContentApiIntegrationCheck
                 ?? throw new InvalidOperationException("The content workspace response was not a JSON object.");
             var storedProposal = workspace["proposals"]?.AsArray().OfType<JsonObject>().SingleOrDefault(item => item["id"]?.GetValue<string>() == proposalId)
                 ?? throw new InvalidOperationException("The saved proposal was not returned by the content workspace.");
-            var storedDecision = workspace["decisions"]?.AsArray().OfType<JsonObject>().SingleOrDefault(item => item["proposalId"]?.GetValue<string>() == proposalId)
-                ?? throw new InvalidOperationException("The saved decision was not returned by the content workspace.");
+            var storedReplacement = workspace["proposals"]?.AsArray().OfType<JsonObject>().SingleOrDefault(item => item["id"]?.GetValue<string>() == replacement.Id)
+                ?? throw new InvalidOperationException("The replacement proposal was not returned by the content workspace.");
+            var decisions = workspace["decisions"]?.AsArray().OfType<JsonObject>().ToArray() ?? [];
             var storedValues = storedProposal["candidate"]?["values"]?.AsObject()
                 ?? throw new InvalidOperationException("The saved proposal candidate lost its values object.");
 
             if (storedValues["stats"]?["health"]?.GetValue<int>() != 18 || storedValues["traits"]?.AsArray().Count != 2)
                 throw new InvalidOperationException("Nested content proposal fields did not round-trip through the API and MongoDB.");
-            if (storedDecision["kind"]?.GetValue<int>() != (int)ContentProposalDecisionKind.Approved)
-                throw new InvalidOperationException("The approved designer decision did not round-trip through the API and MongoDB.");
+            if (storedReplacement["replacesProposalId"]?.GetValue<string>() != proposalId || storedReplacement["version"]?.GetValue<int>() != 2)
+                throw new InvalidOperationException("The replacement proposal lost its base-proposal or version linkage.");
+            if (!HasDecision(decisions, proposalId, ContentProposalDecisionKind.RevisionRequested)
+                || !HasDecision(decisions, replacement.Id, ContentProposalDecisionKind.Approved)
+                || !HasDecision(decisions, rejected.Id, ContentProposalDecisionKind.Rejected))
+                throw new InvalidOperationException("The complete designer decision history did not round-trip through the API and MongoDB.");
 
-            Console.WriteLine($"Content API integration check passed at {baseUri.GetLeftPart(UriPartial.Authority)}. Nested proposal and approved decision reloaded successfully.");
+            var exportSchema = new ActiveGameSchema("schema-1", projectId, "0.1", "Integration Schema", "{\"id\":\"integration-schema\",\"version\":\"1\"}", "proposal", "rules-1", 7, 3, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+            var export = JsonNode.Parse(ContentExportService.ExportApproved(replacement, approval, exportSchema))!.AsObject();
+            if (export["proposalId"]?.GetValue<string>() != replacement.Id || export["proposalVersion"]?.GetValue<int>() != 2 || export["designerDecision"]?["kind"]?.GetValue<string>() != "Approved")
+                throw new InvalidOperationException("The approved replacement export lost proposal/version/decision provenance.");
+
+            Console.WriteLine($"Content API integration check passed at {baseUri.GetLeftPart(UriPartial.Authority)}. Nested proposal, revision/approval/rejection history, replacement linkage, and approved export provenance all verified.");
         }
         finally
         {
@@ -240,6 +270,9 @@ file static class ContentApiIntegrationCheck
         var detail = await response.Content.ReadAsStringAsync();
         throw new HttpRequestException($"Content API {operation} returned {(int)response.StatusCode}: {detail}", null, response.StatusCode);
     }
+
+    private static bool HasDecision(IEnumerable<JsonObject> decisions, string proposalId, ContentProposalDecisionKind kind) =>
+        decisions.Any(item => item["proposalId"]?.GetValue<string>() == proposalId && item["kind"]?.GetValue<int>() == (int)kind);
 }
 
 file static class ContentGenerationIntegrationCheck
