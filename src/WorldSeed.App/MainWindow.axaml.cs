@@ -1638,21 +1638,9 @@ public partial class MainWindow : Window
     private void RefreshContentEvaluationView(ContentProposal proposal)
     {
         var evaluation = EvaluateContentProposal(proposal, out var profile);
-        ContentMechanicalValidationText.Text = evaluation is null
-            ? "Unavailable: This Proposal Uses A Historical Or Unavailable Active Schema Revision."
-            : evaluation.IsMechanicallyValid
-                ? "Passed: No Mechanical Violations Were Found In The Active Schema."
-                : "Failed:\n" + string.Join("\n", evaluation.MechanicalViolations.Select(issue => $"- {issue.Path}: {issue.Message}"));
-
-        ContentBalanceEvaluationText.Text = profile is null
-            ? "Not Configured: This Content Type And Schema Revision Have No Game-Specific Balance Profile. WorldSeed Will Not Invent A Universal Score."
-            : evaluation is null
-                ? $"Unavailable: Profile {profile.Profile.Id} Cannot Be Applied Without Its Matching Active Schema Revision."
-                : !evaluation.IsMechanicallyValid
-                    ? $"Not Run: Fix Mechanical Violations Before Measuring Profile {profile.Profile.Id}."
-                    : evaluation.BalanceConcerns.Count == 0
-                        ? $"Passed: Profile {profile.Profile.Id} Found No Advisory Balance Concerns."
-                        : $"Advisory Concerns From {profile.Profile.Id}:\n" + string.Join("\n", evaluation.BalanceConcerns.Select(concern => $"- {concern.Message} Observed {concern.ObservedValue}; References: {string.Join(", ", concern.References.Select(reference => reference.Label + "=" + reference.Value))}."));
+        var presentation = ContentEvaluationPresenter.Present(evaluation, profile);
+        ContentMechanicalValidationText.Text = presentation.Mechanical;
+        ContentBalanceEvaluationText.Text = presentation.Balance;
     }
 
     private ContentEvaluationResult? EvaluateContentProposal(ContentProposal proposal, out ProjectContentBalanceProfile? profile)
