@@ -1,0 +1,95 @@
+{
+  "formatVersion": "0.1",
+  "system": {
+    "id": "emberbound-demo",
+    "name": "Emberbound",
+    "mechanicsSummary": "A bounded tactical skirmish game in which a creature's vitality, guard, technique impact, and technique count determine its local combat role.",
+    "mechanicalContrast": "Numeric tactical capabilities are evaluated against local combat reference creatures. This system does not define a universal WorldSeed combat formula."
+  },
+  "sourceNotes": [
+    {
+      "id": "emberbound-creature-notes",
+      "passages": [
+        { "id": "emberbound-creature-notes:p001", "text": "Every creature has a name, vitality, guard, a role, and one to three techniques." },
+        { "id": "emberbound-creature-notes:p002", "text": "Vitality is never less than 1 and never greater than 30; guard is from 0 through 8." },
+        { "id": "emberbound-creature-notes:p003", "text": "A technique's impact is a whole number from 0 through 12." }
+      ]
+    }
+  ],
+  "workingRuleSet": {
+    "id": "working-rules-emberbound-demo",
+    "revision": 1,
+    "rules": [
+      { "id": "emberbound-creature-definition", "kind": "definition", "text": "A creature has a name, vitality, guard, role, technique impact, and technique count.", "sourcePassageIds": ["emberbound-creature-notes:p001"] },
+      { "id": "emberbound-creature-bounds", "kind": "constraint", "text": "Vitality ranges from 1 through 30, guard from 0 through 8, technique impact from 0 through 12, and technique count from 1 through 3.", "sourcePassageIds": ["emberbound-creature-notes:p001", "emberbound-creature-notes:p002", "emberbound-creature-notes:p003"] }
+    ]
+  },
+  "gameSchema": {
+    "id": "emberbound-creature-schema",
+    "name": "Emberbound Creature Schema",
+    "version": "1.0",
+    "valueTypes": [
+      {
+        "metadata": { "id": "emberbound-role", "name": "Emberbound Role" },
+        "kind": "enumeration",
+        "entries": [
+          { "id": "skirmisher", "name": "Skirmisher" },
+          { "id": "sentinel", "name": "Sentinel" },
+          { "id": "breaker", "name": "Breaker" }
+        ]
+      }
+    ],
+    "entityTypes": [
+      {
+        "metadata": { "id": "creature", "name": "Creature" },
+        "properties": [
+          { "metadata": { "id": "creature.name", "name": "Name" }, "valueType": { "kind": "primitive", "name": "string" }, "required": true, "nullable": false, "constraints": { "minimumLength": 1 } },
+          { "metadata": { "id": "creature.vitality", "name": "Vitality" }, "valueType": { "kind": "primitive", "name": "integer" }, "required": true, "nullable": false, "constraints": { "minimum": 1, "maximum": 30 } },
+          { "metadata": { "id": "creature.guard", "name": "Guard" }, "valueType": { "kind": "primitive", "name": "integer" }, "required": true, "nullable": false, "constraints": { "minimum": 0, "maximum": 8 } },
+          { "metadata": { "id": "creature.role", "name": "Role" }, "valueType": { "kind": "definedValueType", "valueTypeId": "emberbound-role" }, "required": true, "nullable": false },
+          { "metadata": { "id": "creature.technique-impact", "name": "Technique Impact" }, "valueType": { "kind": "primitive", "name": "integer" }, "required": true, "nullable": false, "constraints": { "minimum": 0, "maximum": 12 } },
+          { "metadata": { "id": "creature.technique-count", "name": "Technique Count" }, "valueType": { "kind": "primitive", "name": "integer" }, "required": true, "nullable": false, "constraints": { "minimum": 1, "maximum": 3 } }
+        ]
+      }
+    ]
+  },
+  "balanceProfile": {
+    "id": "emberbound-creature-balance-v1",
+    "sourceWorkingRuleIds": ["emberbound-creature-definition", "emberbound-creature-bounds"],
+    "hardConstraintsAreProvidedBy": "gameSchema",
+    "referenceCreatures": [
+      { "id": "cinder-scout", "label": "Cinder Scout", "values": { "creature.vitality": 10, "creature.guard": 2, "creature.technique-impact": 3, "creature.technique-count": 1 } },
+      { "id": "ash-sentinel", "label": "Ash Sentinel", "values": { "creature.vitality": 18, "creature.guard": 5, "creature.technique-impact": 6, "creature.technique-count": 2 } }
+    ],
+    "advisorySignals": [
+      { "id": "vitality-above-reference-band", "propertyId": "creature.vitality", "maximumReferenceValue": 22, "message": "Vitality exceeds the demonstrated creature reference band." },
+      { "id": "impact-above-reference-band", "propertyId": "creature.technique-impact", "maximumReferenceValue": 7, "message": "Technique impact exceeds the demonstrated creature reference band." }
+    ]
+  },
+  "fixtures": {
+    "valid": {
+      "expectedMechanicalViolations": [],
+      "expectedBalanceConcerns": [],
+      "data": { "id": "emberbound-valid-data", "gameSchemaId": "emberbound-creature-schema", "gameSchemaVersion": "1.0", "entityInstances": [ { "id": "coal-hound", "entityTypeId": "creature", "values": { "creature.name": "Coal Hound", "creature.vitality": 14, "creature.guard": 3, "creature.role": "skirmisher", "creature.technique-impact": 4, "creature.technique-count": 2 } } ], "relationshipInstances": [] }
+    },
+    "mechanicallyInvalid": {
+      "expectedMechanicalViolations": ["Value is below its minimum."],
+      "expectedBalanceConcerns": [],
+      "data": { "id": "emberbound-invalid-data", "gameSchemaId": "emberbound-creature-schema", "gameSchemaVersion": "1.0", "entityInstances": [ { "id": "broken-hound", "entityTypeId": "creature", "values": { "creature.name": "Broken Hound", "creature.vitality": 0, "creature.guard": 3, "creature.role": "skirmisher", "creature.technique-impact": 4, "creature.technique-count": 2 } } ], "relationshipInstances": [] }
+    },
+    "balanceConcern": {
+      "expectedMechanicalViolations": [],
+      "expectedBalanceConcerns": ["vitality-above-reference-band", "impact-above-reference-band"],
+      "data": { "id": "emberbound-concern-data", "gameSchemaId": "emberbound-creature-schema", "gameSchemaVersion": "1.0", "entityInstances": [ { "id": "furnace-beast", "entityTypeId": "creature", "values": { "creature.name": "Furnace Beast", "creature.vitality": 28, "creature.guard": 6, "creature.role": "breaker", "creature.technique-impact": 10, "creature.technique-count": 3 } } ], "relationshipInstances": [] }
+    }
+  },
+  "designerWorkflow": {
+    "revisionRequestFields": ["requestText", "baseProposalId", "baseProposalVersion"],
+    "comparisonFields": ["values", "mechanicalViolations", "balanceConcerns", "designerDecision"],
+    "decisions": ["approve", "reject", "requestRevision"]
+  },
+  "exportContract": {
+    "format": "json",
+    "requiredFields": ["content", "gameSchemaId", "gameSchemaVersion", "workingRuleSetId", "workingRuleSetRevision", "proposalId", "proposalVersion", "designerDecision"]
+  }
+}

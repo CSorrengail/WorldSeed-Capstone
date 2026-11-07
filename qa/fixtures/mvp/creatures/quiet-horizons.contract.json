@@ -1,0 +1,85 @@
+{
+  "formatVersion": "0.1",
+  "system": {
+    "id": "quiet-horizons-demo",
+    "name": "Quiet Horizons",
+    "mechanicsSummary": "A narrative exploration game in which a creature introduces omen tags, a scene prompt, a response mode, and pressure on a shared escalation clock.",
+    "mechanicalContrast": "Narrative scene pressure and escalation are evaluated against local reference creatures. The system has no hit points, armor, damage, dice, or universal WorldSeed combat formula."
+  },
+  "sourceNotes": [
+    {
+      "id": "quiet-horizons-creature-notes",
+      "passages": [
+        { "id": "quiet-horizons-creature-notes:p001", "text": "Every creature carries one to three omen tags, a scene prompt, a response mode, and an escalation clock impact." },
+        { "id": "quiet-horizons-creature-notes:p002", "text": "Escalation clock impact ranges from 0 through 4. A creature responds by withdrawing, complicating the scene, or revealing a truth." }
+      ]
+    }
+  ],
+  "workingRuleSet": {
+    "id": "working-rules-quiet-horizons-demo",
+    "revision": 1,
+    "rules": [
+      { "id": "quiet-horizons-creature-definition", "kind": "definition", "text": "A creature has omen tags, a scene prompt, a response mode, and an escalation clock impact.", "sourcePassageIds": ["quiet-horizons-creature-notes:p001"] },
+      { "id": "quiet-horizons-escalation-bounds", "kind": "constraint", "text": "A creature has one through three omen tags and an escalation clock impact from 0 through 4.", "sourcePassageIds": ["quiet-horizons-creature-notes:p001", "quiet-horizons-creature-notes:p002"] }
+    ]
+  },
+  "gameSchema": {
+    "id": "quiet-horizons-creature-schema",
+    "name": "Quiet Horizons Creature Schema",
+    "version": "1.0",
+    "valueTypes": [
+      { "metadata": { "id": "quiet-horizons-response", "name": "Quiet Horizons Response" }, "kind": "enumeration", "entries": [ { "id": "withdraw", "name": "Withdraw" }, { "id": "complicate", "name": "Complicate" }, { "id": "reveal", "name": "Reveal A Truth" } ] }
+    ],
+    "entityTypes": [
+      {
+        "metadata": { "id": "creature", "name": "Creature" },
+        "properties": [
+          { "metadata": { "id": "creature.name", "name": "Name" }, "valueType": { "kind": "primitive", "name": "string" }, "required": true, "nullable": false, "constraints": { "minimumLength": 1 } },
+          { "metadata": { "id": "creature.omen-tags", "name": "Omen Tags" }, "valueType": { "kind": "collection", "itemType": { "kind": "primitive", "name": "string" }, "minimumItems": 1, "maximumItems": 3 }, "required": true, "nullable": false, "constraints": { "distinctItems": true } },
+          { "metadata": { "id": "creature.scene-prompt", "name": "Scene Prompt" }, "valueType": { "kind": "primitive", "name": "string" }, "required": true, "nullable": false, "constraints": { "minimumLength": 12 } },
+          { "metadata": { "id": "creature.response-mode", "name": "Response Mode" }, "valueType": { "kind": "definedValueType", "valueTypeId": "quiet-horizons-response" }, "required": true, "nullable": false },
+          { "metadata": { "id": "creature.escalation-clock-impact", "name": "Escalation Clock Impact" }, "valueType": { "kind": "primitive", "name": "integer" }, "required": true, "nullable": false, "constraints": { "minimum": 0, "maximum": 4 } }
+        ]
+      }
+    ]
+  },
+  "balanceProfile": {
+    "id": "quiet-horizons-creature-balance-v1",
+    "sourceWorkingRuleIds": ["quiet-horizons-creature-definition", "quiet-horizons-escalation-bounds"],
+    "hardConstraintsAreProvidedBy": "gameSchema",
+    "referenceCreatures": [
+      { "id": "lantern-wisp", "label": "Lantern Wisp", "values": { "creature.escalation-clock-impact": 1, "creature.omen-tag-count": 1 } },
+      { "id": "fog-chorus", "label": "Fog Chorus", "values": { "creature.escalation-clock-impact": 3, "creature.omen-tag-count": 2 } }
+    ],
+    "advisorySignals": [
+      { "id": "clock-impact-above-reference-band", "propertyId": "creature.escalation-clock-impact", "maximumReferenceValue": 3, "message": "Escalation clock impact exceeds the demonstrated narrative-pressure reference band." },
+      { "id": "omen-tags-above-reference-band", "propertyId": "creature.omen-tags", "measure": "collectionCount", "maximumReferenceValue": 2, "message": "Omen-tag count exceeds the demonstrated narrative-pressure reference band." }
+    ]
+  },
+  "fixtures": {
+    "valid": {
+      "expectedMechanicalViolations": [],
+      "expectedBalanceConcerns": [],
+      "data": { "id": "quiet-horizons-valid-data", "gameSchemaId": "quiet-horizons-creature-schema", "gameSchemaVersion": "1.0", "entityInstances": [ { "id": "lantern-wisp", "entityTypeId": "creature", "values": { "creature.name": "Lantern Wisp", "creature.omen-tags": ["flickering", "distant"], "creature.scene-prompt": "What promise does its light remember?", "creature.response-mode": "reveal", "creature.escalation-clock-impact": 2 } } ], "relationshipInstances": [] }
+    },
+    "mechanicallyInvalid": {
+      "expectedMechanicalViolations": ["Value is above its maximum."],
+      "expectedBalanceConcerns": [],
+      "data": { "id": "quiet-horizons-invalid-data", "gameSchemaId": "quiet-horizons-creature-schema", "gameSchemaVersion": "1.0", "entityInstances": [ { "id": "too-loud-wisp", "entityTypeId": "creature", "values": { "creature.name": "Too Loud Wisp", "creature.omen-tags": ["flickering"], "creature.scene-prompt": "What does the light demand?", "creature.response-mode": "complicate", "creature.escalation-clock-impact": 5 } } ], "relationshipInstances": [] }
+    },
+    "balanceConcern": {
+      "expectedMechanicalViolations": [],
+      "expectedBalanceConcerns": ["clock-impact-above-reference-band", "omen-tags-above-reference-band"],
+      "data": { "id": "quiet-horizons-concern-data", "gameSchemaId": "quiet-horizons-creature-schema", "gameSchemaVersion": "1.0", "entityInstances": [ { "id": "horizon-devourer", "entityTypeId": "creature", "values": { "creature.name": "Horizon Devourer", "creature.omen-tags": ["silent", "hungry", "impossible"], "creature.scene-prompt": "Which memory disappears when it reaches the shore?", "creature.response-mode": "complicate", "creature.escalation-clock-impact": 4 } } ], "relationshipInstances": [] }
+    }
+  },
+  "designerWorkflow": {
+    "revisionRequestFields": ["requestText", "baseProposalId", "baseProposalVersion"],
+    "comparisonFields": ["values", "mechanicalViolations", "balanceConcerns", "designerDecision"],
+    "decisions": ["approve", "reject", "requestRevision"]
+  },
+  "exportContract": {
+    "format": "json",
+    "requiredFields": ["content", "gameSchemaId", "gameSchemaVersion", "workingRuleSetId", "workingRuleSetRevision", "proposalId", "proposalVersion", "designerDecision"]
+  }
+}
