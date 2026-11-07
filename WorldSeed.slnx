@@ -13,6 +13,7 @@
     <Project Path="src/WorldSeed.WorkingRules/WorldSeed.WorkingRules.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/WorldSeed.Qa.Tests/WorldSeed.Qa.Tests.csproj" />
     <Project Path="tests/WorldSeed.DesignSessions.Tests/WorldSeed.DesignSessions.Tests.csproj" />
     <Project Path="tests/WorldSeed.GameData.Tests/WorldSeed.GameData.Tests.csproj" />
     <Project Path="tests/WorldSeed.LlmIntegration.Tests/WorldSeed.LlmIntegration.Tests.csproj" />

@@ -1,0 +1,7 @@
+{
+  "focusedHarness": "tests/WorldSeed.Qa.Tests",
+  "extendedHarnessRelativePath": "../WorldSeed-QA",
+  "extendedHarnessBranch": "qa/autonomous-system",
+  "automaticTestForwarding": false,
+  "note": "Focused Avalonia QA runs execute in this checkout. The sibling worktree is reference-only until its broader infrastructure and application dependencies are separately reviewed."
+}

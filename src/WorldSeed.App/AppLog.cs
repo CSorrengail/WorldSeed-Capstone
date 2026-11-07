@@ -4,7 +4,7 @@ namespace WorldSeed.App;
 internal static class AppLog
 {
     private static readonly object Gate = new();
-    private static readonly string DirectoryPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WorldSeed", "logs");
+    private static readonly string DirectoryPath = Path.Combine(DesktopEnvironment.DataDirectory, "logs");
 
     public static string CurrentPath => Path.Combine(DirectoryPath, "worldseed-" + DateTime.UtcNow.ToString("yyyy-MM-dd") + ".log");
     public static void Info(string message) => Write("INFO", message);

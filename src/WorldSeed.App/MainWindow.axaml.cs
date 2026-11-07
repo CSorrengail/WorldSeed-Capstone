@@ -22,8 +22,9 @@ public partial class MainWindow : Window
 {
     // A local model may need time to load into memory and generate a complete JSON proposal.
     // Keep the desktop timeout distinct from the short API/database calls.
-    private readonly HttpClient _http = new() { Timeout = TimeSpan.FromMinutes(10) };
-    private readonly HttpClient _apiHttp = new() { BaseAddress = new Uri("http://localhost:5080/") };
+    private readonly HttpClient _http;
+    private readonly HttpClient _apiHttp;
+    private readonly bool _initializeOnOpen;
     private readonly IDesignProjectStore _projectStore;
     private readonly IWorkingRuleSetStore _workingRuleStore;
     private readonly IProjectSchemaProposalStore _schemaProposalStore;
@@ -62,8 +63,18 @@ public partial class MainWindow : Window
 
     private enum SchemaQueueItemResult { Saved, NeedsClarification, Failed }
 
-    public MainWindow()
+    public MainWindow() : this(
+        new HttpClient { Timeout = TimeSpan.FromMinutes(10) },
+        new HttpClient { BaseAddress = new Uri("http://localhost:5080/") },
+        initializeOnOpen: true)
     {
+    }
+
+    internal MainWindow(HttpClient modelHttp, HttpClient apiHttp, bool initializeOnOpen = false)
+    {
+        _http = modelHttp;
+        _apiHttp = apiHttp;
+        _initializeOnOpen = initializeOnOpen;
         _projectStore = new HttpDesignProjectStore(_apiHttp);
         _workingRuleStore = new HttpWorkingRuleSetStore(_apiHttp);
         _schemaProposalStore = new HttpProjectSchemaProposalStore(_apiHttp);
@@ -74,7 +85,13 @@ public partial class MainWindow : Window
         _inactivityTimer.Tick += InactivityTimer_Tick;
         _inactivityTimer.Start();
     }
-    protected override void OnOpened(EventArgs e) { base.OnOpened(e); RegisterInteraction(); AppLog.Info("Application opened."); _ = InitializeAsync(); }
+    protected override void OnOpened(EventArgs e)
+    {
+        base.OnOpened(e);
+        RegisterInteraction();
+        AppLog.Info("Application opened.");
+        if (_initializeOnOpen) _ = InitializeAsync();
+    }
     protected override void OnPointerMoved(PointerEventArgs e) { RegisterInteraction(); base.OnPointerMoved(e); }
     protected override void OnPointerPressed(PointerPressedEventArgs e) { RegisterInteraction(); base.OnPointerPressed(e); }
     protected override void OnPointerWheelChanged(PointerWheelEventArgs e) { RegisterInteraction(); base.OnPointerWheelChanged(e); }
@@ -729,7 +746,7 @@ public partial class MainWindow : Window
 
     private async Task ShowSchemaChangeClarificationAsync(SchemaChangeRequest request, string model)
     {
-        var dialog = new SchemaChangeClarificationWindow(request);
+        var dialog = CreateSchemaChangeClarificationWindow(request);
         if (await dialog.ShowDialog<bool>(this) is not true || string.IsNullOrWhiteSpace(dialog.Answer))
         {
             SchemaStatusText.Text = "Schema Change Is Waiting For Clarification.";
@@ -747,6 +764,8 @@ public partial class MainWindow : Window
             SchemaStatusText.Text = "Could Not Continue The Schema Change. See The Diagnostic Log.";
         }
     }
+
+    internal virtual SchemaChangeClarificationWindow CreateSchemaChangeClarificationWindow(SchemaChangeRequest request) => new(request);
 
     private void ClearSchemaChangeFields_Click(object? sender, RoutedEventArgs e)
     {
@@ -1741,7 +1760,7 @@ public partial class MainWindow : Window
     protected override void OnClosed(EventArgs e)
     {
         _inactivityTimer.Stop();
-        EndIncompleteSessionsOnClose();
+        if (_initializeOnOpen) EndIncompleteSessionsOnClose();
         _http.Dispose();
         _apiHttp.Dispose();
         base.OnClosed(e);

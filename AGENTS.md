@@ -1,5 +1,11 @@
 # AGENTS.md
 
+## Current QA workflow: non-implementing (2026-11-06)
+
+Delegate scoped QA to the project custom agent `qa_engineer` in [.codex/agents/qa_engineer.toml](.codex/agents/qa_engineer.toml). Read [invocation and boundaries](qa/SUBAGENT.md), [the runbook](qa/RUNBOOK.md), and [report requirements](qa/REPORT_TEMPLATE.md). The earlier setup's autonomous repair instructions are superseded: QA tests and reports; the parent/implementer owns fixes.
+
+Routine QA must not modify production code, application configuration, tracked tests/fixtures or approved baselines. Write reports and temporary outputs under artifacts/qa; never restore another agent's changes. Run only the parent's assigned scope; a comprehensive run needs an explicit assignment. Databases, ports and app data must be isolated. Never use the normal app launcher for QA. Return actual commands, tested revision/dirty state, pass/fail and skipped/blocked checks, reproducible defects, severity, evidence and recommended corrections directly to the parent. Do not start autonomous repair cycles or merge changes.
+
 ## Project: WorldSeed — AI-Assisted Tabletop Role-Playing Game Design System
 
 ### Project Purpose

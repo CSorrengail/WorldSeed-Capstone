@@ -14,3 +14,10 @@ appsettings.Local.json
 # Docker Compose local settings and volumes
 deploy/.env
 deploy/mongo-data/
+
+# Disposable QA reports, screenshots, coverage, and test-result files.
+# Approved fixtures and visual baselines live under qa/ and remain tracked.
+artifacts/qa/
+TestResults/
+**/__pycache__/
+*.py[cod]

@@ -12,8 +12,7 @@ internal sealed record WorldSeedSettings(int IdleTimeoutMinutes)
 
 internal sealed class WorldSeedSettingsStore
 {
-    private static readonly string SettingsPath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WorldSeed", "settings.json");
+    private static readonly string SettingsPath = Path.Combine(DesktopEnvironment.DataDirectory, "settings.json");
 
     public WorldSeedSettings Load()
     {
