@@ -1427,6 +1427,7 @@ public partial class MainWindow : Window
         ApproveContentProposalButton.IsEnabled = canDecide;
         RejectContentProposalButton.IsEnabled = canDecide;
         RequestContentProposalRevisionButton.IsEnabled = canDecide;
+        ExportContentProposalButton.IsEnabled = selected is not null && LatestContentProposalDecision(selected)?.Kind == ContentProposalDecisionKind.Approved && _activeGameSchema is not null;
         if (selected is null)
         {
             ContentProposalEditor.Text = "Generated candidates and their validation results appear here.";
@@ -1559,6 +1560,23 @@ public partial class MainWindow : Window
     private async void RejectContentProposal_Click(object? sender, RoutedEventArgs e) => await SaveContentProposalDecisionAsync(ContentProposalDecisionKind.Rejected);
     private async void RequestContentProposalRevision_Click(object? sender, RoutedEventArgs e) => await SaveContentProposalDecisionAsync(ContentProposalDecisionKind.RevisionRequested);
 
+    private async void ExportContentProposal_Click(object? sender, RoutedEventArgs e)
+    {
+        var proposal = SelectedContentProposal;
+        var decision = proposal is null ? null : LatestContentProposalDecision(proposal);
+        if (proposal is null || decision?.Kind != ContentProposalDecisionKind.Approved || _activeGameSchema is null) return;
+        try
+        {
+            var target = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions { Title = "Export Approved Content", SuggestedFileName = proposal.Candidate["id"]?.GetValue<string>() + ".worldseed.json", FileTypeChoices = [new FilePickerFileType("WorldSeed JSON") { Patterns = ["*.json"] }] });
+            if (target is null) return;
+            await using var stream = await target.OpenWriteAsync();
+            await using var writer = new StreamWriter(stream);
+            await writer.WriteAsync(ContentExportService.ExportApproved(proposal, decision, _activeGameSchema));
+            ContentProposalStatusText.Text = "Exported the approved proposal with its schema, rules, version, and decision provenance.";
+        }
+        catch (Exception ex) { AppLog.Error("Export approved content", ex); ContentProposalStatusText.Text = "Could not export the approved proposal. See the diagnostic log."; }
+    }
+
     private async Task SaveContentProposalDecisionAsync(ContentProposalDecisionKind kind)
     {
         var proposal = SelectedContentProposal;
@@ -1616,9 +1634,11 @@ public partial class MainWindow : Window
 
     private string ProposalState(ContentProposal proposal)
     {
-        var decision = _contentProposalDecisions.Where(item => item.ProposalId == proposal.Id).OrderBy(item => item.CreatedAt).LastOrDefault();
+        var decision = LatestContentProposalDecision(proposal);
         return decision is null ? "Awaiting Review" : DisplayDecision(decision.Kind);
     }
+
+    private ContentProposalDecision? LatestContentProposalDecision(ContentProposal proposal) => _contentProposalDecisions.Where(item => item.ProposalId == proposal.Id).OrderBy(item => item.CreatedAt).LastOrDefault();
 
     private string FormatContentProposalHistory(ContentProposal proposal)
     {

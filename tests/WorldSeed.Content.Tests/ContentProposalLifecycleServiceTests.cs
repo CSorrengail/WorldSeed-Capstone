@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using WorldSeed.Content;
+using WorldSeed.GameData;
 
 namespace WorldSeed.Content.Tests;
 
@@ -31,6 +32,31 @@ public class ContentProposalLifecycleServiceTests
     public void Refuses_candidate_for_the_wrong_entity_type()
     {
         Assert.Throws<ArgumentException>(() => ContentProposalLifecycleService.Create("project", "creature", new JsonObject { ["entityTypeId"] = "item", ["values"] = new JsonObject() }, "active", 1, "rules", 1, Now));
+    }
+
+    [Fact]
+    public void Exports_only_the_matching_approved_version_with_required_provenance()
+    {
+        var proposal = Create();
+        var approved = ContentProposalLifecycleService.Decide(proposal, ContentProposalDecisionKind.Approved, null, Now);
+        var schema = new ActiveGameSchema("active", "project", "0.1", "Test", """{"id":"test-schema","version":"1"}""", "schema", "rules", 1, 1, Now, Now);
+
+        var export = JsonNode.Parse(ContentExportService.ExportApproved(proposal, approved, schema))!.AsObject();
+
+        Assert.Equal("original", export["content"]!["id"]!.GetValue<string>());
+        Assert.Equal("test-schema", export["gameSchemaId"]!.GetValue<string>());
+        Assert.Equal("rules", export["workingRuleSetId"]!.GetValue<string>());
+        Assert.Equal(proposal.Version, export["proposalVersion"]!.GetValue<int>());
+        Assert.Equal("Approved", export["designerDecision"]!["kind"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public void Refuses_unapproved_or_mismatched_exports()
+    {
+        var proposal = Create();
+        var rejected = ContentProposalLifecycleService.Decide(proposal, ContentProposalDecisionKind.Rejected, null, Now);
+        var schema = new ActiveGameSchema("active", "project", "0.1", "Test", "{}", "schema", "rules", 1, 1, Now, Now);
+        Assert.Throws<ArgumentException>(() => ContentExportService.ExportApproved(proposal, rejected, schema));
     }
 
     private static ContentProposal Create() => ContentProposalLifecycleService.Create("project", "creature", Candidate("original"), "active", 1, "rules", 1, Now);
