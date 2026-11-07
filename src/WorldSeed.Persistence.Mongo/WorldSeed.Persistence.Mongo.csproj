@@ -5,6 +5,7 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="..\WorldSeed.Content\WorldSeed.Content.csproj" />
     <PackageReference Include="MongoDB.Driver" Version="2.30.0" />
   </ItemGroup>
   <ItemGroup>

@@ -5,6 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="..\WorldSeed.Content\WorldSeed.Content.csproj" />
     <ProjectReference Include="..\WorldSeed.DesignSessions\WorldSeed.DesignSessions.csproj" />
     <ProjectReference Include="..\WorldSeed.GameData\WorldSeed.GameData.csproj" />
     <ProjectReference Include="..\WorldSeed.Persistence.Mongo\WorldSeed.Persistence.Mongo.csproj" />

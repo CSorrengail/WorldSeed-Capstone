@@ -17,7 +17,31 @@ public sealed record ContentProposal(
     string WorkingRuleSetId,
     int WorkingRuleSetRevision,
     int Version,
+    DateTimeOffset CreatedAt,
+    string? ReplacesProposalId = null);
+
+public enum ContentProposalDecisionKind { Approved, Rejected, RevisionRequested }
+
+/// <summary>Append-only designer feedback kept outside canonical schema and game data.</summary>
+public sealed record ContentProposalDecision(
+    string Id,
+    string ProjectId,
+    string ProposalId,
+    int ProposalVersion,
+    ContentProposalDecisionKind Kind,
+    string? Note,
+    string? ReplacementProposalId,
     DateTimeOffset CreatedAt);
+
+public interface IContentProposalStore
+{
+    Task SaveProposalAsync(ContentProposal proposal, CancellationToken cancellationToken = default);
+    Task<ContentProposal?> LoadProposalAsync(string projectId, string proposalId, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<ContentProposal>> ListProposalsAsync(string projectId, CancellationToken cancellationToken = default);
+    Task SaveDecisionAsync(ContentProposalDecision decision, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<ContentProposalDecision>> ListDecisionsAsync(string projectId, CancellationToken cancellationToken = default);
+    Task DeleteAsync(string projectId, CancellationToken cancellationToken = default);
+}
 
 public enum BalanceMeasure { NumericValue, CollectionCount }
 
