@@ -8,6 +8,14 @@ using System.Text.Json.Nodes;
 using WorldSeed.Content;
 using WorldSeed.GameData;
 
+var contentGenerationOption = Array.FindIndex(args, argument => string.Equals(argument, "--verify-content-generation", StringComparison.OrdinalIgnoreCase));
+if (contentGenerationOption >= 0)
+{
+    var contentModel = contentGenerationOption + 1 < args.Length ? args[contentGenerationOption + 1] : "gemma3:12b";
+    await ContentGenerationIntegrationCheck.RunAsync(contentModel);
+    return;
+}
+
 var contentApiOption = Array.FindIndex(args, argument => string.Equals(argument, "--verify-content-api", StringComparison.OrdinalIgnoreCase));
 if (contentApiOption >= 0)
 {
@@ -231,6 +239,68 @@ file static class ContentApiIntegrationCheck
         if (response.IsSuccessStatusCode) return;
         var detail = await response.Content.ReadAsStringAsync();
         throw new HttpRequestException($"Content API {operation} returned {(int)response.StatusCode}: {detail}", null, response.StatusCode);
+    }
+}
+
+file static class ContentGenerationIntegrationCheck
+{
+    public static async Task RunAsync(string model)
+    {
+        if (string.IsNullOrWhiteSpace(model) || model.StartsWith("--", StringComparison.Ordinal))
+            throw new ArgumentException("--verify-content-generation requires a local Ollama model name.");
+
+        var contract = JsonNode.Parse(File.ReadAllText(FindFixture("emberbound.contract.json")))!.AsObject();
+        var schema = contract["gameSchema"]!.AsObject();
+        var fixtureRules = contract["workingRuleSet"]!["rules"]!.AsArray().OfType<JsonObject>();
+        var rules = fixtureRules.Select(rule => new WorkingRule(
+            rule["id"]!.GetValue<string>(),
+            rule["id"]!.GetValue<string>(),
+            Enum.Parse<WorkingRuleKind>(rule["kind"]!.GetValue<string>(), ignoreCase: true),
+            rule["text"]!.GetValue<string>(),
+            [], [], [], [], null, [], [])).ToArray();
+
+        using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
+        var recording = new RecordingLanguageModelClient(new OllamaChatClient(http, OllamaDefaults.CreateProfile("content-generation-check", "Content Generation Check", model)));
+        try
+        {
+            var result = await new ContentProposalGenerationService(recording).GenerateAsync(new ContentProposalGenerationRequest(
+                "qa-content-generation",
+                "creature",
+                schema,
+                rules,
+                "Create one original tactical creature named Coal Stalker. Keep every value within the supplied rules and schema. Use the skirmisher role."));
+
+            var now = DateTimeOffset.UtcNow;
+            var activeSchema = new ActiveGameSchema("qa-active-schema", "qa-content-generation", "0.1", "Emberbound", schema.ToJsonString(), "fixture", "working-rules-emberbound-demo", 1, 1, now, now);
+            var gameData = GameDataService.CreateEmpty(activeSchema, now);
+            var document = JsonNode.Parse(gameData.DataJson)!.AsObject();
+            document["entityInstances"]!.AsArray().Add(result.Candidate.DeepClone());
+            var validation = GameDataService.Validate(activeSchema, gameData with { DataJson = document.ToJsonString() });
+            if (!validation.IsValid)
+                throw new InvalidOperationException("The generated candidate failed deterministic schema validation: " + string.Join(" ", validation.Issues.Select(issue => $"{issue.Path}: {issue.Message}")));
+
+            Console.WriteLine($"Local content generation check passed with '{model}'.");
+            Console.WriteLine(result.Candidate.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+        }
+        catch
+        {
+            if (recording.LastResponse is not null)
+            {
+                Console.Error.WriteLine("Raw local-model response:");
+                Console.Error.WriteLine(recording.LastResponse.Content);
+            }
+            throw;
+        }
+    }
+
+    private static string FindFixture(string fileName)
+    {
+        for (var directory = new DirectoryInfo(AppContext.BaseDirectory); directory is not null; directory = directory.Parent)
+        {
+            var candidate = Path.Combine(directory.FullName, "qa", "fixtures", "mvp", "creatures", fileName);
+            if (File.Exists(candidate)) return candidate;
+        }
+        throw new FileNotFoundException("Creature fixture was not found.");
     }
 }
 
