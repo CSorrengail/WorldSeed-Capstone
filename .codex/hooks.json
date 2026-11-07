@@ -1,0 +1,43 @@
+{
+  "description": "WorldSeed local heartbeat and owner-action audio notifications.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "true",
+            "commandWindows": "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"& (Join-Path (git rev-parse --show-toplevel) ' .codex\\hooks\\Record-CodexActivity.ps1'.Trim()) -Event SessionStart\"",
+            "async": true,
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "true",
+            "commandWindows": "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"& (Join-Path (git rev-parse --show-toplevel) ' .codex\\hooks\\Record-CodexActivity.ps1'.Trim()) -Event Activity\"",
+            "async": true,
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "true",
+            "commandWindows": "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"& (Join-Path (git rev-parse --show-toplevel) ' .codex\\hooks\\Invoke-OwnerAlertOnStop.ps1'.Trim())\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

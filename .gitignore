@@ -21,3 +21,6 @@ artifacts/qa/
 TestResults/
 **/__pycache__/
 *.py[cod]
+
+# Local owner-notification receipts, watchdog state, and temporary hook data.
+.worldseed-notifications/

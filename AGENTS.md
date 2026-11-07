@@ -53,6 +53,26 @@ and QA evidence, outstanding defects, advisor findings and unresolved decisions,
 remaining authorized tasks, and next owner action. Do not duplicate detailed QA
 reports or decision records there.
 
+## Owner Intervention Notifications
+
+Use the project-scoped notification system documented in
+[`docs/operations/owner-notifications.md`](docs/operations/owner-notifications.md).
+Before a final response that needs the owner's attention, update project status
+and invoke `scripts/Notify-Owner.ps1` directly as a fallback unless the tracked
+Codex Stop hook has been reviewed and trusted. The final response must begin at
+character zero with exactly one of these markers:
+
+- `ACTION REQUIRED: OWNER DECISION`
+- `ACTION REQUIRED: HUMAN INPUT`
+- `ACTION REQUIRED: BLOCKER`
+
+Do not use these markers for ordinary task completion, progress, QA reports, or
+non-blocking advisor findings. Keep the watchdog state current: set it to
+`AwaitingOwner` before a marked stop, `Completed` only after the full approved
+MVP is independently verified, and `IntentionalStop` for a planned shutdown.
+The watchdog is advisory and must never restart Codex, bypass account limits, or
+terminate a user-owned process.
+
 ## Project: WorldSeed — AI-Assisted Tabletop Role-Playing Game Design System
 
 ### Project Purpose

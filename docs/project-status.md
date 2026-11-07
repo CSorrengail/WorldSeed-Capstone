@@ -2,9 +2,12 @@
 
 ## Current Development Task
 
-No feature-development task is active. The owner has approved the monster/creature
-MVP vertical slice in decision 0014. Autonomous development has not been
-activated.
+Owner authorization for autonomous MVP work was received on 2026-11-07. Before
+feature development begins, the project-local owner-notification and independent
+watchdog infrastructure is being verified and reviewed by QA. The tracked Codex
+hook still requires the owner's normal `/hooks` trust review; no hook-trust
+bypass is permitted. Until then, the coordinator uses the documented direct-call
+fallback for an owner-action final response.
 
 ## Workflow Verification
 
@@ -54,14 +57,27 @@ Remaining implementation decisions:
 These are implementation-design decisions, not authorization to add unrelated
 MVP scope.
 
+## Advisor Review Of Approved Scope
+
+- **Revision reviewed:** `4b082d3`.
+- **Assessment:** GREEN. The creature vertical slice preserves the proposal's
+  complete-workflow intent while keeping creature concepts and balance profiles
+  game-specific.
+- **Critical owner decisions:** none beyond explicit activation of autonomous
+  development.
+- **YELLOW implementation risks:** select and document the two systems, their
+  balance-reference datasets, export fields/format, and revision comparison before
+  the corresponding implementation milestones.
+
 ## Remaining Authorized Work
 
 - Maintain the three-agent workflow and its bounded verification records.
-- Plan the monster MVP contracts and demonstration systems. Do not begin product
-  implementation until autonomous execution is explicitly activated or a bounded
-  implementation task is separately authorized.
+- After the notification infrastructure is QA-verified and the owner trusts the
+  project hook, begin MVP milestone one only: demonstration contracts and the
+  two systems' game-specific data. Do not begin unrelated product work.
 
 ## Next Action Required
 
-Complete advisor review of the approved scope, then await explicit activation of
-autonomous development or a bounded implementation task.
+Complete bounded QA of the notification infrastructure, then request the owner's
+Codex hook-trust review. Once trusted, start MVP milestone one and follow the
+three-agent workflow without a further activation prompt.
