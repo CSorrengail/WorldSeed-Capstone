@@ -13,6 +13,7 @@
     <PackageReference Include="Avalonia.Headless.XUnit" Version="12.1.2" />
     <Using Include="Xunit" />
     <ProjectReference Include="../../src/WorldSeed.App/WorldSeed.App.csproj" />
+    <ProjectReference Include="../../src/WorldSeed.Content/WorldSeed.Content.csproj" />
     <ProjectReference Include="../../src/WorldSeed.SchemaTranslation/WorldSeed.SchemaTranslation.csproj" />
   </ItemGroup>
 </Project>

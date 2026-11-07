@@ -1,0 +1,41 @@
+using System.Net.Http.Json;
+using System.Text.Json;
+using WorldSeed.Content;
+
+namespace WorldSeed.App;
+
+/// <summary>Desktop access to proposal artifacts that remain outside canonical game data.</summary>
+internal sealed class HttpContentProposalClient(HttpClient http)
+{
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private readonly HttpClient _http = http ?? throw new ArgumentNullException(nameof(http));
+
+    public async Task<ContentProposalWorkspace> LoadAsync(string projectId, CancellationToken cancellationToken = default)
+    {
+        using var response = await _http.GetAsync($"api/projects/{Uri.EscapeDataString(projectId)}/content-proposals", cancellationToken);
+        await EnsureSuccessAsync(response, cancellationToken);
+        return await response.Content.ReadFromJsonAsync<ContentProposalWorkspace>(JsonOptions, cancellationToken)
+            ?? new ContentProposalWorkspace([], []);
+    }
+
+    public async Task SaveProposalAsync(ContentProposal proposal, CancellationToken cancellationToken = default)
+    {
+        using var response = await _http.PutAsJsonAsync($"api/projects/{Uri.EscapeDataString(proposal.ProjectId)}/content-proposals/{Uri.EscapeDataString(proposal.Id)}", proposal, JsonOptions, cancellationToken);
+        await EnsureSuccessAsync(response, cancellationToken);
+    }
+
+    public async Task SaveDecisionAsync(ContentProposalDecision decision, CancellationToken cancellationToken = default)
+    {
+        using var response = await _http.PostAsJsonAsync($"api/projects/{Uri.EscapeDataString(decision.ProjectId)}/content-proposals/{Uri.EscapeDataString(decision.ProposalId)}/decisions", decision, JsonOptions, cancellationToken);
+        await EnsureSuccessAsync(response, cancellationToken);
+    }
+
+    private static async Task EnsureSuccessAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+    {
+        if (response.IsSuccessStatusCode) return;
+        var detail = await response.Content.ReadAsStringAsync(cancellationToken);
+        throw new HttpRequestException($"WorldSeed local service returned {(int)response.StatusCode}: {detail}", null, response.StatusCode);
+    }
+}
+
+internal sealed record ContentProposalWorkspace(IReadOnlyList<ContentProposal> Proposals, IReadOnlyList<ContentProposalDecision> Decisions);
