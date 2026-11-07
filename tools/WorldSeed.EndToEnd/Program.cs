@@ -2,10 +2,21 @@ using WorldSeed.DesignSessions;
 using WorldSeed.LlmIntegration;
 using WorldSeed.RuleDrafting;
 using WorldSeed.WorkingRules;
+using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using WorldSeed.Content;
 using WorldSeed.GameData;
+
+var contentApiOption = Array.FindIndex(args, argument => string.Equals(argument, "--verify-content-api", StringComparison.OrdinalIgnoreCase));
+if (contentApiOption >= 0)
+{
+    if (contentApiOption + 1 >= args.Length || !Uri.TryCreate(args[contentApiOption + 1], UriKind.Absolute, out var apiBaseUri))
+        throw new ArgumentException("--verify-content-api requires an absolute loopback API URI.");
+
+    await ContentApiIntegrationCheck.RunAsync(apiBaseUri);
+    return;
+}
 
 if (args.Contains("--creature-mvp", StringComparer.OrdinalIgnoreCase))
 {
@@ -133,6 +144,93 @@ file sealed class RecordingLanguageModelClient(ILanguageModelClient inner) : ILa
     {
         LastResponse = await inner.CompleteAsync(request, cancellationToken);
         return LastResponse;
+    }
+}
+
+file static class ContentApiIntegrationCheck
+{
+    public static async Task RunAsync(Uri apiBaseUri)
+    {
+        if (!apiBaseUri.IsLoopback) throw new ArgumentException("The content API check accepts only a loopback URI.", nameof(apiBaseUri));
+        if (apiBaseUri.Port == 5080) throw new ArgumentException("The content API check refuses WorldSeed's normal development port 5080. Use an isolated ephemeral API port.", nameof(apiBaseUri));
+
+        var baseUri = apiBaseUri.AbsoluteUri.EndsWith("/", StringComparison.Ordinal) ? apiBaseUri : new Uri(apiBaseUri.AbsoluteUri + "/");
+        using var client = new HttpClient { BaseAddress = baseUri, Timeout = TimeSpan.FromSeconds(20) };
+        var suffix = Guid.NewGuid().ToString("N");
+        var projectId = "qa-content-api-" + suffix;
+        var proposalId = "proposal-" + suffix;
+        var projectCreated = false;
+
+        try
+        {
+            using (var health = await client.GetAsync("health")) await RequireSuccessAsync(health, "health check");
+
+            var project = DesignProjectService.Create(projectId, "Disposable Content API Check", "Created by the isolated WorldSeed integration verifier.");
+            using (var response = await client.PutAsJsonAsync($"api/projects/{projectId}", project))
+            {
+                await RequireSuccessAsync(response, "project PUT");
+                projectCreated = true;
+            }
+
+            var candidate = JsonNode.Parse("""
+                {
+                  "id": "ember-wolf",
+                  "entityTypeId": "monster",
+                  "values": {
+                    "name": "Ember Wolf",
+                    "stats": { "health": 18, "armor": 2 },
+                    "traits": ["pack hunter", "fire resistant"]
+                  }
+                }
+                """)!.AsObject();
+            var proposal = new ContentProposal(proposalId, projectId, "monster", candidate, "schema-1", 3, "rules-1", 7, 1, DateTimeOffset.UtcNow);
+            using (var response = await client.PutAsJsonAsync($"api/projects/{projectId}/content-proposals/{proposalId}", proposal))
+                await RequireSuccessAsync(response, "proposal PUT");
+
+            var decision = ContentProposalLifecycleService.Decide(proposal, ContentProposalDecisionKind.Approved, "QA integration approval.", DateTimeOffset.UtcNow);
+            using (var response = await client.PostAsJsonAsync($"api/projects/{projectId}/content-proposals/{proposalId}/decisions", decision))
+                await RequireSuccessAsync(response, "decision POST");
+
+            using var workspaceResponse = await client.GetAsync($"api/projects/{projectId}/content-proposals");
+            await RequireSuccessAsync(workspaceResponse, "workspace GET");
+            var workspace = JsonNode.Parse(await workspaceResponse.Content.ReadAsStringAsync())?.AsObject()
+                ?? throw new InvalidOperationException("The content workspace response was not a JSON object.");
+            var storedProposal = workspace["proposals"]?.AsArray().OfType<JsonObject>().SingleOrDefault(item => item["id"]?.GetValue<string>() == proposalId)
+                ?? throw new InvalidOperationException("The saved proposal was not returned by the content workspace.");
+            var storedDecision = workspace["decisions"]?.AsArray().OfType<JsonObject>().SingleOrDefault(item => item["proposalId"]?.GetValue<string>() == proposalId)
+                ?? throw new InvalidOperationException("The saved decision was not returned by the content workspace.");
+            var storedValues = storedProposal["candidate"]?["values"]?.AsObject()
+                ?? throw new InvalidOperationException("The saved proposal candidate lost its values object.");
+
+            if (storedValues["stats"]?["health"]?.GetValue<int>() != 18 || storedValues["traits"]?.AsArray().Count != 2)
+                throw new InvalidOperationException("Nested content proposal fields did not round-trip through the API and MongoDB.");
+            if (storedDecision["kind"]?.GetValue<int>() != (int)ContentProposalDecisionKind.Approved)
+                throw new InvalidOperationException("The approved designer decision did not round-trip through the API and MongoDB.");
+
+            Console.WriteLine($"Content API integration check passed at {baseUri.GetLeftPart(UriPartial.Authority)}. Nested proposal and approved decision reloaded successfully.");
+        }
+        finally
+        {
+            if (projectCreated)
+            {
+                try
+                {
+                    using var response = await client.DeleteAsync($"api/projects/{projectId}");
+                    await RequireSuccessAsync(response, "project cleanup DELETE");
+                }
+                catch (Exception exception)
+                {
+                    Console.Error.WriteLine($"Disposable project cleanup failed for '{projectId}': {exception.Message}");
+                }
+            }
+        }
+    }
+
+    private static async Task RequireSuccessAsync(HttpResponseMessage response, string operation)
+    {
+        if (response.IsSuccessStatusCode) return;
+        var detail = await response.Content.ReadAsStringAsync();
+        throw new HttpRequestException($"Content API {operation} returned {(int)response.StatusCode}: {detail}", null, response.StatusCode);
     }
 }
 
