@@ -2,6 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/WorldSeed.App/WorldSeed.App.csproj" />
     <Project Path="src/WorldSeed.Api/WorldSeed.Api.csproj" />
+    <Project Path="src/WorldSeed.Content/WorldSeed.Content.csproj" />
     <Project Path="src/WorldSeed.DesignSessions/WorldSeed.DesignSessions.csproj" />
     <Project Path="src/WorldSeed.GameData/WorldSeed.GameData.csproj" />
     <Project Path="src/WorldSeed.LlmIntegration/WorldSeed.LlmIntegration.csproj" />
@@ -14,6 +15,7 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/WorldSeed.Qa.Tests/WorldSeed.Qa.Tests.csproj" />
+    <Project Path="tests/WorldSeed.Content.Tests/WorldSeed.Content.Tests.csproj" />
     <Project Path="tests/WorldSeed.DesignSessions.Tests/WorldSeed.DesignSessions.Tests.csproj" />
     <Project Path="tests/WorldSeed.GameData.Tests/WorldSeed.GameData.Tests.csproj" />
     <Project Path="tests/WorldSeed.LlmIntegration.Tests/WorldSeed.LlmIntegration.Tests.csproj" />
