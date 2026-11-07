@@ -19,6 +19,7 @@
     <Project Path="tests/WorldSeed.DesignSessions.Tests/WorldSeed.DesignSessions.Tests.csproj" />
     <Project Path="tests/WorldSeed.GameData.Tests/WorldSeed.GameData.Tests.csproj" />
     <Project Path="tests/WorldSeed.LlmIntegration.Tests/WorldSeed.LlmIntegration.Tests.csproj" />
+    <Project Path="tests/WorldSeed.Persistence.Mongo.Tests/WorldSeed.Persistence.Mongo.Tests.csproj" />
     <Project Path="tests/WorldSeed.RuleDrafting.Tests/WorldSeed.RuleDrafting.Tests.csproj" />
     <Project Path="tests/WorldSeed.SchemaValidation.Tests/WorldSeed.SchemaValidation.Tests.csproj" />
     <Project Path="tests/WorldSeed.SchemaTranslation.Tests/WorldSeed.SchemaTranslation.Tests.csproj" />
