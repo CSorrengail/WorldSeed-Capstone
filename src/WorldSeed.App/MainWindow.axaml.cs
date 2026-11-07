@@ -1446,7 +1446,9 @@ public partial class MainWindow : Window
         ExportContentProposalButton.IsEnabled = selected is not null && LatestContentProposalDecision(selected)?.Kind == ContentProposalDecisionKind.Approved && _activeGameSchema is not null;
         if (selected is null)
         {
-            ContentProposalEditor.Text = "Generated candidates and their validation results appear here.";
+            ContentProposalEditor.Text = "Generated Candidates Appear Here.";
+            ContentMechanicalValidationText.Text = "Select A Proposal To Validate It Against The Active Schema.";
+            ContentBalanceEvaluationText.Text = "Select A Proposal To Evaluate Its Game-Specific Balance Profile.";
             ContentProposalDecisionHistoryText.Text = "No proposal is selected.";
             if (ready) ContentProposalStatusText.Text = "Choose a content type and describe the proposal you want the local model to create.";
             return;
@@ -1454,6 +1456,7 @@ public partial class MainWindow : Window
 
         ContentProposalEditor.Text = PrettyJson(selected.Candidate.ToJsonString());
         ContentProposalDecisionHistoryText.Text = FormatContentProposalHistory(selected);
+        RefreshContentEvaluationView(selected);
         ContentProposalStatusText.Text = DescribeContentProposalStatus(selected);
     }
 
@@ -1629,10 +1632,27 @@ public partial class MainWindow : Window
 
     private string DescribeContentProposalStatus(ContentProposal proposal)
     {
+        return $"Proposal {proposal.Id}, Version {proposal.Version} ({ProposalState(proposal)}). Schema Revision {proposal.ActiveGameSchemaRevision}; Working Rule Set Revision {proposal.WorkingRuleSetRevision}. Editing And Saving Creates A New Proposal Version; It Never Rewrites This Version Or Canonical Game Data.";
+    }
+
+    private void RefreshContentEvaluationView(ContentProposal proposal)
+    {
         var evaluation = EvaluateContentProposal(proposal, out var profile);
-        var mechanical = evaluation is null ? "Structural validation is unavailable because this proposal uses a historical or unavailable active schema." : evaluation.IsMechanicallyValid ? "No structural violations." : string.Join(" ", evaluation.MechanicalViolations.Select(issue => $"{issue.Path}: {issue.Message}"));
-        var balance = profile is null ? "No game-specific balance profile is configured for this content type and schema revision, so no universal score was assigned." : evaluation is null || !evaluation.IsMechanicallyValid ? $"Profile {profile.Profile.Id} was not measured because structural validation failed." : evaluation.BalanceConcerns.Count == 0 ? $"Profile {profile.Profile.Id}: no advisory concerns." : string.Join(" ", evaluation.BalanceConcerns.Select(concern => $"{concern.Message} Observed {concern.ObservedValue}; references: {string.Join(", ", concern.References.Select(reference => reference.Label + "=" + reference.Value))}."));
-        return $"Proposal {proposal.Id}, version {proposal.Version} ({ProposalState(proposal)}). Schema revision {proposal.ActiveGameSchemaRevision}; Working Rule Set revision {proposal.WorkingRuleSetRevision}. Mechanical validation: {mechanical} Balance evaluation: {balance} Changes in the editor save as a new proposal and never edit canonical game data.";
+        ContentMechanicalValidationText.Text = evaluation is null
+            ? "Unavailable: This Proposal Uses A Historical Or Unavailable Active Schema Revision."
+            : evaluation.IsMechanicallyValid
+                ? "Passed: No Mechanical Violations Were Found In The Active Schema."
+                : "Failed:\n" + string.Join("\n", evaluation.MechanicalViolations.Select(issue => $"- {issue.Path}: {issue.Message}"));
+
+        ContentBalanceEvaluationText.Text = profile is null
+            ? "Not Configured: This Content Type And Schema Revision Have No Game-Specific Balance Profile. WorldSeed Will Not Invent A Universal Score."
+            : evaluation is null
+                ? $"Unavailable: Profile {profile.Profile.Id} Cannot Be Applied Without Its Matching Active Schema Revision."
+                : !evaluation.IsMechanicallyValid
+                    ? $"Not Run: Fix Mechanical Violations Before Measuring Profile {profile.Profile.Id}."
+                    : evaluation.BalanceConcerns.Count == 0
+                        ? $"Passed: Profile {profile.Profile.Id} Found No Advisory Balance Concerns."
+                        : $"Advisory Concerns From {profile.Profile.Id}:\n" + string.Join("\n", evaluation.BalanceConcerns.Select(concern => $"- {concern.Message} Observed {concern.ObservedValue}; References: {string.Join(", ", concern.References.Select(reference => reference.Label + "=" + reference.Value))}."));
     }
 
     private ContentEvaluationResult? EvaluateContentProposal(ContentProposal proposal, out ProjectContentBalanceProfile? profile)
