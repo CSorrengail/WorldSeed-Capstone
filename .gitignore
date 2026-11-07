@@ -18,6 +18,9 @@ deploy/mongo-data/
 # Disposable QA reports, screenshots, coverage, and test-result files.
 # Approved fixtures and visual baselines live under qa/ and remain tracked.
 artifacts/qa/
+# Run-specific deterministic MVP evidence is reproducible; the human-readable
+# summary remains tracked in docs/mvp-demonstration-results.md.
+artifacts/mvp-demonstration/
 TestResults/
 **/__pycache__/
 *.py[cod]
