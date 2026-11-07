@@ -13,11 +13,22 @@ if /I "%~1"=="--check" (
 )
 if /I "%~1"=="--rebuild" (
   set "FORCE_DOCKER_BUILD=1"
+  set "FORCE_DESKTOP_BUILD=1"
+  shift
+  goto parse_arguments
+)
+if /I "%~1"=="--rebuild-app" (
+  set "FORCE_DESKTOP_BUILD=1"
   shift
   goto parse_arguments
 )
 if /I "%~1"=="--restart" (
   set "RESTART_DESKTOP=1"
+  shift
+  goto parse_arguments
+)
+if /I "%~1"=="--update-only" (
+  set "UPDATE_ONLY=1"
   shift
   goto parse_arguments
 )
@@ -31,7 +42,7 @@ if /I "%~1"=="--verbose" (
   shift
   goto parse_arguments
 )
-echo Usage: RunWorldSeed.bat [--check] [--rebuild] [--restart] [-v^|--verbose]
+echo Usage: RunWorldSeed.bat [--check] [--rebuild] [--rebuild-app] [--restart] [--update-only] [-v^|--verbose]
 exit /b 1
 
 :arguments_valid
@@ -47,6 +58,14 @@ exit /b %errorlevel%
 
 :stop_existing_app
 powershell -NoProfile -Command "$path = [IO.Path]::GetFullPath('%APP_EXECUTABLE%'); $processes = Get-Process -Name WorldSeed.App -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $path }; if ($null -eq $processes) { exit 0 }; $processes | Stop-Process -Force; Start-Sleep -Milliseconds 700; if (Get-Process -Name WorldSeed.App -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $path }) { exit 1 }; exit 0"
+exit /b %errorlevel%
+
+:desktop_build_required
+powershell -NoProfile -Command "$executable = [IO.Path]::GetFullPath('%APP_EXECUTABLE%'); if (-not (Test-Path -LiteralPath $executable)) { exit 0 }; $built = (Get-Item -LiteralPath $executable).LastWriteTimeUtc; $newer = Get-ChildItem -LiteralPath '%ROOT%src' -Recurse -File | Where-Object { $_.FullName -notmatch '\\(bin|obj)\\' -and $_.Extension -in @('.cs', '.axaml', '.csproj') -and $_.LastWriteTimeUtc -gt $built } | Select-Object -First 1; if ($null -ne $newer) { exit 0 }; exit 1"
+exit /b %errorlevel%
+
+:docker_build_required
+powershell -NoProfile -Command "$createdText = docker image inspect worldseed-api --format '{{.Created}}' 2>$null; if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($createdText)) { exit 0 }; try { $built = [DateTimeOffset]::Parse($createdText).UtcDateTime } catch { exit 0 }; $appRoot = [IO.Path]::GetFullPath('%ROOT%src\WorldSeed.App') + [IO.Path]::DirectorySeparatorChar; $newerSource = Get-ChildItem -LiteralPath '%ROOT%src' -Recurse -File | Where-Object { $_.FullName -notmatch '\\(bin|obj)\\' -and -not $_.FullName.StartsWith($appRoot, [StringComparison]::OrdinalIgnoreCase) -and $_.Extension -in @('.cs', '.csproj') -and $_.LastWriteTimeUtc -gt $built } | Select-Object -First 1; $newerDeploy = Get-ChildItem -LiteralPath '%ROOT%deploy' -File | Where-Object { $_.Name -in @('Dockerfile', 'docker-compose.yml') -and $_.LastWriteTimeUtc -gt $built } | Select-Object -First 1; if ($null -ne $newerSource -or $null -ne $newerDeploy) { exit 0 }; exit 1"
 exit /b %errorlevel%
 
 :start
@@ -71,6 +90,14 @@ if not errorlevel 1 (
   echo The WorldSeed desktop application is already running.
   echo Run RunWorldSeed.bat --restart to close only this WorldSeed instance and launch a new one.
   exit /b 0
+  )
+)
+
+if not defined FORCE_DOCKER_BUILD (
+  call :docker_build_required
+  if not errorlevel 1 (
+    set "FORCE_DOCKER_BUILD=1"
+    if defined VERBOSE echo WorldSeed API sources changed; rebuilding the Docker service...
   )
 )
 
@@ -114,20 +141,46 @@ if defined CHECK_ONLY (
 
 if defined VERBOSE echo Starting the WorldSeed desktop application...
 if defined VERBOSE echo The application window uses the Docker-backed local database service.
-if defined FORCE_DOCKER_BUILD goto build_desktop
+if defined FORCE_DESKTOP_BUILD goto build_desktop
 if not exist "%APP_EXECUTABLE%" goto build_desktop
+call :desktop_build_required
+if not errorlevel 1 (
+  if defined VERBOSE echo WorldSeed application sources changed; rebuilding the desktop client...
+  goto build_desktop
+)
 goto launch_desktop
 
 :build_desktop
-if defined VERBOSE (
-  echo Building the WorldSeed desktop application...
-  dotnet build "%APP_PROJECT%" --nologo
-) else (
-  dotnet build "%APP_PROJECT%" --nologo >nul 2>nul
-)
-if errorlevel 1 exit /b %errorlevel%
+set "MSBUILDDISABLENODEREUSE=1"
+if defined VERBOSE goto build_desktop_verbose
+dotnet restore "%APP_PROJECT%" --nologo --disable-parallel -m:1 -nr:false -p:BuildInParallel=false >nul 2>nul
+if errorlevel 1 goto build_desktop_failed
+dotnet build "%APP_PROJECT%" --nologo --no-restore -m:1 -nr:false -p:BuildInParallel=false -p:UseSharedCompilation=false >nul 2>nul
+if errorlevel 1 goto build_desktop_failed
+goto build_desktop_complete
+
+:build_desktop_verbose
+echo Restoring WorldSeed desktop dependencies with one build worker...
+dotnet restore "%APP_PROJECT%" --nologo --disable-parallel -m:1 -nr:false -p:BuildInParallel=false
+if errorlevel 1 goto build_desktop_failed
+echo Building the WorldSeed desktop application with one build worker...
+dotnet build "%APP_PROJECT%" --nologo --no-restore -m:1 -nr:false -p:BuildInParallel=false -p:UseSharedCompilation=false
+if errorlevel 1 goto build_desktop_failed
+goto build_desktop_complete
+
+:build_desktop_failed
+dotnet build-server shutdown >nul 2>nul
+echo WorldSeed could not build the desktop application.
+exit /b 1
+
+:build_desktop_complete
+dotnet build-server shutdown >nul 2>nul
 
 :launch_desktop
+if defined UPDATE_ONLY (
+  echo WorldSeed is up to date.
+  exit /b 0
+)
 start "" "%APP_EXECUTABLE%"
 if errorlevel 1 (
   echo WorldSeed could not open the desktop application.
