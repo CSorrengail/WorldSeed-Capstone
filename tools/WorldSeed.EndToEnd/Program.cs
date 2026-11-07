@@ -2,6 +2,24 @@ using WorldSeed.DesignSessions;
 using WorldSeed.LlmIntegration;
 using WorldSeed.RuleDrafting;
 using WorldSeed.WorkingRules;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using WorldSeed.Content;
+using WorldSeed.GameData;
+
+if (args.Contains("--creature-mvp", StringComparer.OrdinalIgnoreCase))
+{
+    var output = args.SkipWhile(argument => !string.Equals(argument, "--output", StringComparison.OrdinalIgnoreCase)).Skip(1).FirstOrDefault()
+        ?? Path.Combine("artifacts", "mvp-demonstration", "creature-mvp-results.json");
+    var results = new JsonArray();
+    foreach (var name in new[] { "emberbound.contract.json", "quiet-horizons.contract.json" })
+        results.Add(CreatureMvpRunner.RunCreatureContract(name));
+    var report = new JsonObject { ["format"] = "worldseed-creature-mvp-results-v1", ["systems"] = results };
+    Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(output))!);
+    await File.WriteAllTextAsync(output, report.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+    Console.WriteLine($"Creature MVP demonstration passed for {results.Count} systems. Results: {Path.GetFullPath(output)}");
+    return;
+}
 
 var modelName = args.FirstOrDefault(argument => !argument.StartsWith("--", StringComparison.Ordinal)) ?? "gemma3:12b";
 var runSuite = args.Contains("--suite", StringComparer.OrdinalIgnoreCase);
@@ -116,4 +134,57 @@ file sealed class RecordingLanguageModelClient(ILanguageModelClient inner) : ILa
         LastResponse = await inner.CompleteAsync(request, cancellationToken);
         return LastResponse;
     }
+}
+
+file static class CreatureMvpRunner
+{
+public static JsonObject RunCreatureContract(string fileName)
+{
+    var contract = JsonNode.Parse(File.ReadAllText(FindFixture(fileName)))!.AsObject();
+    var system = contract["system"]!.AsObject();
+    var projectId = system["id"]!.GetValue<string>();
+    var rules = contract["workingRuleSet"]!.AsObject();
+    var schemaJson = contract["gameSchema"]!.ToJsonString();
+    var schema = new ActiveGameSchema("active-" + projectId, projectId, "0.1", system["name"]!.GetValue<string>(), schemaJson, "fixture-schema", rules["id"]!.GetValue<string>(), rules["revision"]!.GetValue<int>(), 1, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+    var profile = BuildProfile(contract["balanceProfile"]!.AsObject());
+    var outcomes = new JsonArray();
+    foreach (var fixture in contract["fixtures"]!.AsObject())
+    {
+        var dataJson = fixture.Value!.AsObject()["data"]!.AsObject();
+        var candidate = (JsonObject)dataJson["entityInstances"]!.AsArray()[0]!.DeepClone();
+        var proposal = ContentProposalLifecycleService.Create(projectId, "creature", candidate, schema.Id, schema.Revision, rules["id"]!.GetValue<string>(), rules["revision"]!.GetValue<int>(), DateTimeOffset.UtcNow);
+        var gameData = new ProjectGameData("fixture-" + fixture.Key, projectId, "0.1", schema.Id, schema.Revision, dataJson.ToJsonString(), DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+        var evaluation = new ContentEvaluationService().Evaluate(new ContentEvaluationRequest(schema, gameData, profile));
+        var expected = fixture.Value!.AsObject();
+        if (evaluation.MechanicalViolations.Count != expected["expectedMechanicalViolations"]!.AsArray().Count || evaluation.BalanceConcerns.Count != expected["expectedBalanceConcerns"]!.AsArray().Count)
+            throw new InvalidOperationException($"Fixture outcome mismatch for {projectId}/{fixture.Key}.");
+        var decisionKind = fixture.Key == "valid" ? ContentProposalDecisionKind.Approved : fixture.Key == "mechanicallyInvalid" ? ContentProposalDecisionKind.Rejected : ContentProposalDecisionKind.RevisionRequested;
+        var decision = ContentProposalLifecycleService.Decide(proposal, decisionKind, decisionKind == ContentProposalDecisionKind.RevisionRequested ? "Reduce the demonstrated pressure." : null, DateTimeOffset.UtcNow);
+        JsonNode? export = decisionKind == ContentProposalDecisionKind.Approved ? JsonNode.Parse(ContentExportService.ExportApproved(proposal, decision, schema)) : null;
+        outcomes.Add(new JsonObject { ["fixture"] = fixture.Key, ["proposalId"] = proposal.Id, ["mechanicalViolations"] = evaluation.MechanicalViolations.Count, ["balanceConcerns"] = evaluation.BalanceConcerns.Count, ["designerDecision"] = decision.Kind.ToString(), ["exported"] = export is not null });
+    }
+    return new JsonObject { ["id"] = projectId, ["name"] = system["name"]!.DeepClone(), ["outcomes"] = outcomes };
+}
+
+private static ContentBalanceProfile BuildProfile(JsonObject source)
+{
+    var references = source["referenceCreatures"]!.AsArray().OfType<JsonObject>().ToArray();
+    var signals = source["advisorySignals"]!.AsArray().OfType<JsonObject>().Select(signal =>
+    {
+        var propertyId = signal["propertyId"]!.GetValue<string>();
+        var values = references.Where(reference => reference["values"]![propertyId] is not null).Select(reference => new BalanceReference(reference["id"]!.GetValue<string>(), reference["label"]!.GetValue<string>(), decimal.Parse(reference["values"]![propertyId]!.ToJsonString()))).ToArray();
+        return new BalanceSignal(signal["id"]!.GetValue<string>(), propertyId, signal["measure"]?.GetValue<string>() == "collectionCount" ? BalanceMeasure.CollectionCount : BalanceMeasure.NumericValue, signal["minimumReferenceValue"]?.GetValue<decimal?>(), signal["maximumReferenceValue"]?.GetValue<decimal?>(), signal["message"]!.GetValue<string>(), values);
+    }).ToArray();
+    return new ContentBalanceProfile(source["id"]!.GetValue<string>(), "creature", source["sourceWorkingRuleIds"]!.AsArray().Select(value => value!.GetValue<string>()).ToArray(), signals);
+}
+
+private static string FindFixture(string fileName)
+{
+    for (var directory = new DirectoryInfo(AppContext.BaseDirectory); directory is not null; directory = directory.Parent)
+    {
+        var candidate = Path.Combine(directory.FullName, "qa", "fixtures", "mvp", "creatures", fileName);
+        if (File.Exists(candidate)) return candidate;
+    }
+    throw new FileNotFoundException("Creature fixture was not found.");
+}
 }

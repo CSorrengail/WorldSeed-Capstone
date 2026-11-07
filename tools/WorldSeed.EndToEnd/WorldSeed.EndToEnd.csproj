@@ -10,5 +10,7 @@
     <ProjectReference Include="..\..\src\WorldSeed.LlmIntegration\WorldSeed.LlmIntegration.csproj" />
     <ProjectReference Include="..\..\src\WorldSeed.RuleDrafting\WorldSeed.RuleDrafting.csproj" />
     <ProjectReference Include="..\..\src\WorldSeed.WorkingRules\WorldSeed.WorkingRules.csproj" />
+    <ProjectReference Include="..\..\src\WorldSeed.Content\WorldSeed.Content.csproj" />
+    <ProjectReference Include="..\..\src\WorldSeed.GameData\WorldSeed.GameData.csproj" />
   </ItemGroup>
 </Project>
