@@ -26,6 +26,8 @@ public partial class MainWindow : Window
     private readonly HttpClient _http;
     private readonly HttpClient _apiHttp;
     private readonly bool _initializeOnOpen;
+    private readonly bool _cleanUpOnClose;
+    private readonly bool _autoCloseOnOpen;
     private readonly IDesignProjectStore _projectStore;
     private readonly IWorkingRuleSetStore _workingRuleStore;
     private readonly IProjectSchemaProposalStore _schemaProposalStore;
@@ -65,21 +67,27 @@ public partial class MainWindow : Window
     private WorldSeedSettings _settings = WorldSeedSettings.Default;
     private DateTimeOffset _lastInteractionAt = DateTimeOffset.UtcNow;
     private bool _settingsDialogOpen;
+    private bool _shutdownCleanupStarted;
+    private bool _shutdownCleanupFinished;
 
     private enum SchemaQueueItemResult { Saved, NeedsClarification, Failed }
 
     public MainWindow() : this(
         new HttpClient { Timeout = TimeSpan.FromMinutes(10) },
         new HttpClient { BaseAddress = new Uri("http://localhost:5080/") },
-        initializeOnOpen: true)
+        initializeOnOpen: !ShutdownSmokeRequested,
+        cleanUpOnClose: true,
+        autoCloseOnOpen: ShutdownSmokeRequested)
     {
     }
 
-    internal MainWindow(HttpClient modelHttp, HttpClient apiHttp, bool initializeOnOpen = false)
+    internal MainWindow(HttpClient modelHttp, HttpClient apiHttp, bool initializeOnOpen = false, bool cleanUpOnClose = false, bool autoCloseOnOpen = false)
     {
         _http = modelHttp;
         _apiHttp = apiHttp;
         _initializeOnOpen = initializeOnOpen;
+        _cleanUpOnClose = cleanUpOnClose;
+        _autoCloseOnOpen = autoCloseOnOpen;
         _projectStore = new HttpDesignProjectStore(_apiHttp);
         _workingRuleStore = new HttpWorkingRuleSetStore(_apiHttp);
         _schemaProposalStore = new HttpProjectSchemaProposalStore(_apiHttp);
@@ -97,8 +105,16 @@ public partial class MainWindow : Window
         base.OnOpened(e);
         RegisterInteraction();
         AppLog.Info("Application opened.");
+        if (_autoCloseOnOpen)
+        {
+            AppLog.Info("Native shutdown smoke test requested; closing through the normal window lifetime.");
+            Dispatcher.UIThread.Post(Close);
+            return;
+        }
         if (_initializeOnOpen) _ = InitializeAsync();
     }
+
+    private static bool ShutdownSmokeRequested => Environment.GetCommandLineArgs().Contains("--shutdown-smoke", StringComparer.OrdinalIgnoreCase);
     protected override void OnPointerMoved(PointerEventArgs e) { RegisterInteraction(); base.OnPointerMoved(e); }
     protected override void OnPointerPressed(PointerPressedEventArgs e) { RegisterInteraction(); base.OnPointerPressed(e); }
     protected override void OnPointerWheelChanged(PointerWheelEventArgs e) { RegisterInteraction(); base.OnPointerWheelChanged(e); }
@@ -2057,37 +2073,58 @@ public partial class MainWindow : Window
         }
         catch (JsonException) { return text; }
     }
+    protected override void OnClosing(WindowClosingEventArgs e)
+    {
+        if (_cleanUpOnClose && !_shutdownCleanupFinished)
+        {
+            e.Cancel = true;
+            if (!_shutdownCleanupStarted)
+            {
+                _shutdownCleanupStarted = true;
+                _inactivityTimer.Stop();
+                _ = CompleteShutdownCleanupAsync();
+            }
+            return;
+        }
+        base.OnClosing(e);
+    }
+
+    private async Task CompleteShutdownCleanupAsync()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+        try { await EndIncompleteSessionsOnCloseAsync(timeout.Token); }
+        catch (OperationCanceledException) { AppLog.Info("Application-close housekeeping reached its time limit; shutdown continued."); }
+        catch (Exception ex) { AppLog.Error("End incomplete sessions on application close", ex); }
+        finally
+        {
+            _shutdownCleanupFinished = true;
+            AppLog.Info("Application close housekeeping finished; completing shutdown.");
+            Close();
+        }
+    }
+
     protected override void OnClosed(EventArgs e)
     {
         _inactivityTimer.Stop();
-        if (_initializeOnOpen) EndIncompleteSessionsOnClose();
         _http.Dispose();
         _apiHttp.Dispose();
         base.OnClosed(e);
     }
 
-    private void EndIncompleteSessionsOnClose()
+    private async Task EndIncompleteSessionsOnCloseAsync(CancellationToken cancellationToken)
     {
-        try
+        var store = ProjectStore();
+        var endedCount = 0;
+        foreach (var summary in await store.ListAsync(cancellationToken))
         {
-            var store = ProjectStore();
-            var endedCount = 0;
-            foreach (var summary in store.ListAsync().GetAwaiter().GetResult())
-            {
-                var project = store.LoadAsync(summary.Id).GetAwaiter().GetResult();
-                if (project is null) continue;
-                var cleaned = DesignProjectService.EndIncompleteSessions(project);
-                if (ReferenceEquals(cleaned, project)) continue;
-                endedCount += project.Sessions.Count - cleaned.Sessions.Count;
-                store.SaveAsync(cleaned).GetAwaiter().GetResult();
-            }
-            if (endedCount > 0) AppLog.Info($"Ended {endedCount} incomplete design session(s) when the application closed.");
+            var project = await store.LoadAsync(summary.Id, cancellationToken);
+            if (project is null) continue;
+            var cleaned = DesignProjectService.EndIncompleteSessions(project);
+            if (ReferenceEquals(cleaned, project)) continue;
+            endedCount += project.Sessions.Count - cleaned.Sessions.Count;
+            await store.SaveAsync(cleaned, cancellationToken);
         }
-        catch (Exception ex)
-        {
-            // Closing the window must still succeed; the next normal close can retry this housekeeping.
-            AppLog.Error("End incomplete sessions on application close", ex);
-        }
+        if (endedCount > 0) AppLog.Info($"Ended {endedCount} incomplete design session(s) when the application closed.");
     }
 
     private sealed record SourceListItem(DesignSourceNote Note, string Status) { public override string ToString() => $"{Note.Origin?.DisplayName ?? Note.Id} — {Status}"; }
