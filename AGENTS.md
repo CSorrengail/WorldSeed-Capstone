@@ -6,6 +6,53 @@ Delegate scoped QA to the project custom agent `qa_engineer` in [.codex/agents/q
 
 Routine QA must not modify production code, application configuration, tracked tests/fixtures or approved baselines. Write reports and temporary outputs under artifacts/qa; never restore another agent's changes. Run only the parent's assigned scope; a comprehensive run needs an explicit assignment. Databases, ports and app data must be isolated. Never use the normal app launcher for QA. Return actual commands, tested revision/dirty state, pass/fail and skipped/blocked checks, reproducible defects, severity, evidence and recommended corrections directly to the parent. Do not start autonomous repair cycles or merge changes.
 
+## Permanent Three Agent Workflow
+
+The primary development agent is the coordinator. For each authorized development
+task it must identify the applicable requirements, implement the change, commit a
+reviewable revision, prepare a bounded QA handoff, and delegate independent
+verification to `qa_engineer`. The handoff must name the revision, intended
+behavior, acceptance criteria, exact relevant checks, isolation requirements, and
+any limits on the test scope.
+
+If QA reports a defect, the primary agent investigates and corrects it, then
+delegates retesting. It repeats only while there is meaningful progress. After
+three unsuccessful attempts at the same defect, it records the evidence and
+escalates rather than looping indefinitely. QA never implements a correction.
+
+At major milestones, significant architectural changes, recurring development
+problems, or when priority is uncertain, the primary agent delegates a bounded
+read-only assessment to `project_advisor` in
+[.codex/agents/project_advisor.toml](.codex/agents/project_advisor.toml). The
+advisor evaluates evidence using [the project reference register](docs/project-reference.md).
+Its GREEN/YELLOW/RED findings must be considered. A YELLOW finding does not block
+unrelated authorized work; a RED finding blocks only the affected work until the
+owner resolves it.
+
+Responsibilities are deliberately separate:
+
+- **Development:** implementation, defect correction, documentation, Git,
+  worktree coordination, commits, and handoffs.
+- **QA:** independent testing, test-case design, UI verification, regression
+  testing, and defect reporting. No production implementation changes.
+- **Project Advisor:** independent requirements, architecture, priority, scope,
+  and completion-risk assessment. No implementation, testing, Git changes, or
+  unilateral requirements changes.
+
+Never silently reinterpret unclear requirements to continue work. Before the
+owner explicitly activates autonomous execution, do not start a new feature or
+advance to an unapproved task. Once activated, routine implementation and
+verification may proceed without per-step approval, but stop or escalate for an
+owner decision, unresolved ambiguity, critical safety/architecture problem,
+missing required resource or permission, execution limit, or completion of all
+authorized tasks.
+
+Maintain [docs/project-status.md](docs/project-status.md) after verified work.
+It is the concise persistent record of the current task, latest verified revision
+and QA evidence, outstanding defects, advisor findings and unresolved decisions,
+remaining authorized tasks, and next owner action. Do not duplicate detailed QA
+reports or decision records there.
+
 ## Project: WorldSeed — AI-Assisted Tabletop Role-Playing Game Design System
 
 ### Project Purpose
