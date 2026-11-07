@@ -1430,6 +1430,11 @@ public partial class MainWindow : Window
         ContentProposalList.ItemsSource = _contentProposalItems.Select(item => new ContentProposalListItem(item, ProposalState(item))).ToArray();
         ContentProposalList.SelectedIndex = selectedProposalId is null ? -1 : _contentProposalItems.FindIndex(item => item.Id == selectedProposalId);
 
+        RefreshSelectedContentProposalView();
+    }
+
+    private void RefreshSelectedContentProposalView()
+    {
         var ready = _project is not null && _activeGameSchema is not null && _workingRuleSet is { Rules.Count: > 0 } && _gameDataEntityTypes.Count > 0;
         ContentReviewSchemaText.Text = !ready
             ? "Activate a schema that contains a content type and load a Working Rule Set before creating a proposal."
@@ -1472,7 +1477,7 @@ public partial class MainWindow : Window
         }
         RefreshContentProposalControls();
     }
-    private void ContentProposalList_SelectionChanged(object? sender, SelectionChangedEventArgs e) => RefreshContentProposalView();
+    private void ContentProposalList_SelectionChanged(object? sender, SelectionChangedEventArgs e) => RefreshSelectedContentProposalView();
     private void ContentProposalRequestText_TextChanged(object? sender, TextChangedEventArgs e) => RefreshContentProposalControls();
     private void ModelSelector_SelectionChanged(object? sender, SelectionChangedEventArgs e) => RefreshContentProposalControls();
 
@@ -1516,8 +1521,8 @@ public partial class MainWindow : Window
             await _contentProposals.SaveProposalAsync(proposal);
             _contentProposalItems.Insert(0, proposal);
             ContentProposalRequestText.Text = requestText;
-            ContentProposalList.SelectedIndex = 0;
             RefreshContentProposalView();
+            ContentProposalList.SelectedIndex = 0;
             ContentProposalStatusText.Text = $"Saved proposal version {proposal.Version}. Review its candidate and decision history before approving it.";
             AppLog.Info($"Saved content proposal '{proposal.Id}' for project '{_project.Id}'.");
         }
@@ -1563,8 +1568,8 @@ public partial class MainWindow : Window
             var revision = ContentProposalLifecycleService.Create(_project.Id, selected.EntityTypeId, candidate, _activeGameSchema.Id, _activeGameSchema.Revision, _workingRuleSet.Id, _workingRuleSet.Revision, DateTimeOffset.UtcNow, selected);
             await _contentProposals.SaveProposalAsync(revision);
             _contentProposalItems.Insert(0, revision);
-            ContentProposalList.SelectedIndex = 0;
             RefreshContentProposalView();
+            ContentProposalList.SelectedIndex = 0;
             ContentProposalStatusText.Text = $"Saved version {revision.Version} as a replacement proposal. It remains outside canonical game data.";
         }
         catch (Exception ex)

@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using System.Text.Json;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using WorldSeed.App;
@@ -13,8 +14,8 @@ public sealed class ContentReviewReadyStateTests
     [AvaloniaFact]
     public async Task Loaded_workspace_keeps_generation_available_and_explains_missing_setup()
     {
-        using var model = new HttpClient(new OfflineHandler());
-        using var api = new HttpClient(new OfflineHandler()) { BaseAddress = new Uri("http://qa.invalid/") };
+        using var model = new HttpClient(new ModelHandler());
+        using var api = new HttpClient(new ProposalApiHandler()) { BaseAddress = new Uri("http://qa.invalid/") };
         var window = new MainWindow(model, api);
         try
         {
@@ -63,13 +64,36 @@ public sealed class ContentReviewReadyStateTests
 
             Assert.True(generate.IsEnabled,
                 $"model={modelSelector.SelectedItem ?? "<null>"}; typeIndex={typeSelector.SelectedIndex}; request='{request.Text}'; schema='{window.FindControl<TextBlock>("ContentReviewSchemaText")!.Text}'");
+
+            await window.GenerateContentProposalAsync();
+
+            Assert.Equal(0, window.FindControl<ListBox>("ContentProposalList")!.SelectedIndex);
+            Assert.Contains("coal-stalker", window.FindControl<TextBox>("ContentProposalEditor")!.Text);
+            Assert.Contains("Saved proposal version 1", window.FindControl<TextBlock>("ContentProposalStatusText")!.Text);
         }
         finally { window.Close(); }
     }
 
-    private sealed class OfflineHandler : HttpMessageHandler
+    private sealed class ModelHandler : HttpMessageHandler
     {
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
-            throw new InvalidOperationException("The ready-state test must not contact a service: " + request.RequestUri);
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var body = JsonSerializer.Serialize(new
+            {
+                model = "local-model",
+                message = new { content = "{\"candidate\":{\"id\":\"coal-stalker\",\"entityTypeId\":\"creature\",\"values\":{}}}" }
+            });
+            return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StringContent(body) });
+        }
+    }
+
+    private sealed class ProposalApiHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Assert.Equal(HttpMethod.Put, request.Method);
+            Assert.Contains("/content-proposals/", request.RequestUri!.AbsolutePath);
+            return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.NoContent));
+        }
     }
 }
