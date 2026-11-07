@@ -1434,7 +1434,7 @@ public partial class MainWindow : Window
         ContentReviewSchemaText.Text = !ready
             ? "Activate a schema that contains a content type and load a Working Rule Set before creating a proposal."
             : $"{_activeGameSchema!.Name}, schema revision {_activeGameSchema.Revision}; Working Rule Set revision {_workingRuleSet!.Revision}.";
-        GenerateContentProposalButton.IsEnabled = ready && ContentProposalEntityTypeList.SelectedIndex >= 0 && !string.IsNullOrWhiteSpace(ContentProposalRequestText.Text);
+        GenerateContentProposalButton.IsEnabled = ready;
         SaveContentBalanceProfileButton.IsEnabled = ready && ContentProposalEntityTypeList.SelectedIndex >= 0;
 
         var selected = SelectedContentProposal;
@@ -1474,22 +1474,27 @@ public partial class MainWindow : Window
     }
     private void ContentProposalList_SelectionChanged(object? sender, SelectionChangedEventArgs e) => RefreshContentProposalView();
     private void ContentProposalRequestText_TextChanged(object? sender, TextChangedEventArgs e) => RefreshContentProposalControls();
+    private void ModelSelector_SelectionChanged(object? sender, SelectionChangedEventArgs e) => RefreshContentProposalControls();
 
     private void RefreshContentProposalControls()
     {
         var ready = _project is not null && _activeGameSchema is not null && _workingRuleSet is { Rules.Count: > 0 } && _gameDataEntityTypes.Count > 0;
-        GenerateContentProposalButton.IsEnabled = ready && ContentProposalEntityTypeList.SelectedIndex >= 0 && !string.IsNullOrWhiteSpace(ContentProposalRequestText.Text);
+        GenerateContentProposalButton.IsEnabled = ready;
         SaveContentBalanceProfileButton.IsEnabled = ready && ContentProposalEntityTypeList.SelectedIndex >= 0;
     }
 
-    private async void GenerateContentProposal_Click(object? sender, RoutedEventArgs e)
+    private async void GenerateContentProposal_Click(object? sender, RoutedEventArgs e) => await GenerateContentProposalAsync();
+
+    internal async Task GenerateContentProposalAsync()
     {
         var typeIndex = ContentProposalEntityTypeList.SelectedIndex;
-        if (_project is null || _activeGameSchema is null || _workingRuleSet is null || ModelSelector.SelectedItem is not string model || typeIndex < 0 || typeIndex >= _gameDataEntityTypes.Count)
+        if (_project is null || _activeGameSchema is null || _workingRuleSet is null || _gameDataEntityTypes.Count == 0)
         {
-            ContentProposalStatusText.Text = "Select a project, schema content type, Working Rule Set, and local model first.";
+            ContentProposalStatusText.Text = "Load a project, active schema content type, and Working Rule Set first.";
             return;
         }
+        if (ModelSelector.SelectedItem is not string model) { ContentProposalStatusText.Text = "Select a local model first."; return; }
+        if (typeIndex < 0 || typeIndex >= _gameDataEntityTypes.Count) { ContentProposalStatusText.Text = "Select a content type first."; return; }
         var requestText = ContentProposalRequestText.Text?.Trim();
         if (string.IsNullOrWhiteSpace(requestText)) { ContentProposalStatusText.Text = "Describe the content you want to propose."; return; }
         var selectedType = _gameDataEntityTypes[typeIndex];
@@ -1529,6 +1534,23 @@ public partial class MainWindow : Window
             ContentProposalEditor.Text = $"{ex.GetType().Name}: {ex.Message}\n\nDiagnostic Log: {AppLog.CurrentPath}";
         }
         finally { RefreshContentProposalControls(); }
+    }
+
+    internal void RestoreContentReviewWorkspace(
+        DesignProject project,
+        WorkingRuleSet workingRuleSet,
+        ActiveGameSchema activeGameSchema,
+        ProjectGameData projectGameData,
+        IEnumerable<ProjectContentBalanceProfile>? balanceProfiles = null)
+    {
+        _project = project;
+        _workingRuleSet = workingRuleSet;
+        _activeGameSchema = activeGameSchema;
+        _projectGameData = projectGameData;
+        _contentBalanceProfiles.Clear();
+        if (balanceProfiles is not null) _contentBalanceProfiles.AddRange(balanceProfiles);
+        RefreshWorkingRulesView();
+        RefreshGameDataView();
     }
 
     private async void SaveContentProposalRevision_Click(object? sender, RoutedEventArgs e)
