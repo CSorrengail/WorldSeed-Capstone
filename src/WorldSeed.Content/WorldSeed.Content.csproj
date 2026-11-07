@@ -6,5 +6,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\WorldSeed.GameData\WorldSeed.GameData.csproj" />
+    <ProjectReference Include="..\WorldSeed.LlmIntegration\WorldSeed.LlmIntegration.csproj" />
+    <ProjectReference Include="..\WorldSeed.WorkingRules\WorldSeed.WorkingRules.csproj" />
   </ItemGroup>
 </Project>
