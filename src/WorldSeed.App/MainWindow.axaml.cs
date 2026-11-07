@@ -1833,11 +1833,12 @@ public partial class MainWindow : Window
             var entries = root["entityInstances"] as JsonArray ?? throw new GameDataFormatException("Game data requires an entityInstances array.");
             var type = _gameDataEntityTypes[index];
             var id = $"{type.Id}-{Guid.NewGuid():N}"[..Math.Min(type.Id.Length + 9, type.Id.Length + 33)];
-            entries.Add(new JsonObject { ["id"] = id, ["entityTypeId"] = type.Id, ["values"] = new JsonObject() });
+            var schema = ParseJsonObject(_activeGameSchema?.SchemaJson ?? string.Empty, "The active schema snapshot is not a JSON object.");
+            entries.Add(GameDataEntryTemplateService.Create(schema, type.Id, id));
             SetGameDataDocument(root);
             RefreshGameDataView();
             GameDataEntityList.SelectedIndex = _gameDataEntityInstances.FindIndex(item => item.Id == id);
-            GameDataStatusText.Text = $"Added a new {type.Name} entry. Fill its values, then validate and save.";
+            GameDataStatusText.Text = $"Added a new {type.Name} entry with its required schema fields. Review the starter values, then validate and save.";
         }
         catch (Exception ex)
         {
