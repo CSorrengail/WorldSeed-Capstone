@@ -30,6 +30,19 @@ internal sealed class HttpContentProposalClient(HttpClient http)
         await EnsureSuccessAsync(response, cancellationToken);
     }
 
+    public async Task<IReadOnlyList<ProjectContentBalanceProfile>> LoadBalanceProfilesAsync(string projectId, CancellationToken cancellationToken = default)
+    {
+        using var response = await _http.GetAsync($"api/projects/{Uri.EscapeDataString(projectId)}/content-balance-profiles", cancellationToken);
+        await EnsureSuccessAsync(response, cancellationToken);
+        return await response.Content.ReadFromJsonAsync<IReadOnlyList<ProjectContentBalanceProfile>>(JsonOptions, cancellationToken) ?? [];
+    }
+
+    public async Task SaveBalanceProfileAsync(ProjectContentBalanceProfile profile, CancellationToken cancellationToken = default)
+    {
+        using var response = await _http.PutAsJsonAsync($"api/projects/{Uri.EscapeDataString(profile.ProjectId)}/content-balance-profiles/{Uri.EscapeDataString(profile.Id)}", profile, JsonOptions, cancellationToken);
+        await EnsureSuccessAsync(response, cancellationToken);
+    }
+
     private static async Task EnsureSuccessAsync(HttpResponseMessage response, CancellationToken cancellationToken)
     {
         if (response.IsSuccessStatusCode) return;

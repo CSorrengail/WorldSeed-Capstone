@@ -40,6 +40,18 @@ public class ContentEvaluationServiceTests
         Assert.Equal("tag-band", Assert.Single(result.BalanceConcerns).SignalId);
     }
 
+    [Fact]
+    public void Creates_revisioned_game_owned_profile_with_rule_evidence()
+    {
+        var profile = new ContentBalanceProfile("tactical", "creature", ["rule-vitality"], [new BalanceSignal("band", "creature.vitality", BalanceMeasure.NumericValue, null, 20, "Local band.", [])]);
+        var first = ContentBalanceProfileService.Create("project", "active", 1, profile, Now);
+        var revised = ContentBalanceProfileService.Create("project", "active", 2, profile, Now, first);
+
+        Assert.Equal(1, first.Revision);
+        Assert.Equal(2, revised.Revision);
+        Assert.Equal("creature", revised.Profile.EntityTypeId);
+    }
+
     private static ContentEvaluationRequest Request(ProjectGameData data, ContentBalanceProfile? profile = null)
     {
         var active = new ActiveGameSchema("active", "project", "0.1", "Test", Schema(), "proposal", "rules", 1, 1, Now, Now);

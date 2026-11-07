@@ -44,6 +44,7 @@ public partial class MainWindow : Window
     private readonly List<GameDataEntityInstanceItem> _gameDataEntityInstances = [];
     private readonly List<ContentProposal> _contentProposalItems = [];
     private readonly List<ContentProposalDecision> _contentProposalDecisions = [];
+    private readonly List<ProjectContentBalanceProfile> _contentBalanceProfiles = [];
     private int _projectLoadGeneration;
     private bool _updatingProjectSelector;
     private string? _pendingDeletionProjectId;
@@ -1387,12 +1388,15 @@ public partial class MainWindow : Window
             _contentProposalItems.AddRange(workspace.Proposals);
             _contentProposalDecisions.Clear();
             _contentProposalDecisions.AddRange(workspace.Decisions);
+            _contentBalanceProfiles.Clear();
+            _contentBalanceProfiles.AddRange(await _contentProposals.LoadBalanceProfilesAsync(projectId));
         }
         catch (Exception ex)
         {
             AppLog.Error("Load content proposals", ex);
             _contentProposalItems.Clear();
             _contentProposalDecisions.Clear();
+            _contentBalanceProfiles.Clear();
             ContentProposalStatusText.Text = "Could not load saved proposals. See the diagnostic log.";
         }
         RefreshContentProposalView();
@@ -1415,6 +1419,7 @@ public partial class MainWindow : Window
             ? "Activate a schema that contains a content type and load a Working Rule Set before creating a proposal."
             : $"{_activeGameSchema!.Name}, schema revision {_activeGameSchema.Revision}; Working Rule Set revision {_workingRuleSet!.Revision}.";
         GenerateContentProposalButton.IsEnabled = ready && ContentProposalEntityTypeList.SelectedIndex >= 0 && !string.IsNullOrWhiteSpace(ContentProposalRequestText.Text);
+        SaveContentBalanceProfileButton.IsEnabled = ready && ContentProposalEntityTypeList.SelectedIndex >= 0;
 
         var selected = SelectedContentProposal;
         var canDecide = selected is not null;
@@ -1437,7 +1442,16 @@ public partial class MainWindow : Window
 
     private ContentProposal? SelectedContentProposal => ContentProposalList.SelectedIndex is var index && index >= 0 && index < _contentProposalItems.Count ? _contentProposalItems[index] : null;
 
-    private void ContentProposalEntityTypeList_SelectionChanged(object? sender, SelectionChangedEventArgs e) => RefreshContentProposalControls();
+    private void ContentProposalEntityTypeList_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        var index = ContentProposalEntityTypeList.SelectedIndex;
+        if (index >= 0 && index < _gameDataEntityTypes.Count && _activeGameSchema is not null)
+        {
+            var profile = _contentBalanceProfiles.FirstOrDefault(item => item.ActiveGameSchemaId == _activeGameSchema.Id && item.ActiveGameSchemaRevision == _activeGameSchema.Revision && item.Profile.EntityTypeId == _gameDataEntityTypes[index].Id);
+            ContentBalanceProfileEditor.Text = profile is null ? string.Empty : PrettyJson(JsonSerializer.Serialize(profile.Profile));
+        }
+        RefreshContentProposalControls();
+    }
     private void ContentProposalList_SelectionChanged(object? sender, SelectionChangedEventArgs e) => RefreshContentProposalView();
     private void ContentProposalRequestText_TextChanged(object? sender, TextChangedEventArgs e) => RefreshContentProposalControls();
 
@@ -1445,6 +1459,7 @@ public partial class MainWindow : Window
     {
         var ready = _project is not null && _activeGameSchema is not null && _workingRuleSet is { Rules.Count: > 0 } && _gameDataEntityTypes.Count > 0;
         GenerateContentProposalButton.IsEnabled = ready && ContentProposalEntityTypeList.SelectedIndex >= 0 && !string.IsNullOrWhiteSpace(ContentProposalRequestText.Text);
+        SaveContentBalanceProfileButton.IsEnabled = ready && ContentProposalEntityTypeList.SelectedIndex >= 0;
     }
 
     private async void GenerateContentProposal_Click(object? sender, RoutedEventArgs e)
@@ -1517,6 +1532,29 @@ public partial class MainWindow : Window
         }
     }
 
+    private async void SaveContentBalanceProfile_Click(object? sender, RoutedEventArgs e)
+    {
+        var index = ContentProposalEntityTypeList.SelectedIndex;
+        if (_project is null || _activeGameSchema is null || index < 0 || index >= _gameDataEntityTypes.Count) return;
+        try
+        {
+            var profile = JsonSerializer.Deserialize<ContentBalanceProfile>(ContentBalanceProfileEditor.Text ?? string.Empty, new JsonSerializerOptions(JsonSerializerDefaults.Web))
+                ?? throw new GameDataFormatException("The balance profile must be a complete JSON object.");
+            if (!string.Equals(profile.EntityTypeId, _gameDataEntityTypes[index].Id, StringComparison.Ordinal)) throw new GameDataFormatException("The balance profile must use the selected content type.");
+            var existing = _contentBalanceProfiles.FirstOrDefault(item => item.ActiveGameSchemaId == _activeGameSchema.Id && item.ActiveGameSchemaRevision == _activeGameSchema.Revision && item.Profile.EntityTypeId == profile.EntityTypeId);
+            var saved = ContentBalanceProfileService.Create(_project.Id, _activeGameSchema.Id, _activeGameSchema.Revision, profile, DateTimeOffset.UtcNow, existing);
+            await _contentProposals.SaveBalanceProfileAsync(saved);
+            _contentBalanceProfiles.Insert(0, saved);
+            ContentProposalStatusText.Text = $"Saved game-specific balance profile {profile.Id}, revision {saved.Revision}.";
+            RefreshContentProposalView();
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("Save balance profile", ex);
+            ContentProposalStatusText.Text = ex is JsonException or ArgumentException or GameDataFormatException ? ex.Message : "Could not save the balance profile. See the diagnostic log.";
+        }
+    }
+
     private async void ApproveContentProposal_Click(object? sender, RoutedEventArgs e) => await SaveContentProposalDecisionAsync(ContentProposalDecisionKind.Approved);
     private async void RejectContentProposal_Click(object? sender, RoutedEventArgs e) => await SaveContentProposalDecisionAsync(ContentProposalDecisionKind.Rejected);
     private async void RequestContentProposalRevision_Click(object? sender, RoutedEventArgs e) => await SaveContentProposalDecisionAsync(ContentProposalDecisionKind.RevisionRequested);
@@ -1557,18 +1595,21 @@ public partial class MainWindow : Window
 
     private string DescribeContentProposalStatus(ContentProposal proposal)
     {
-        var evaluation = EvaluateContentProposal(proposal);
+        var evaluation = EvaluateContentProposal(proposal, out var profile);
         var mechanical = evaluation is null ? "Structural validation is unavailable because this proposal uses a historical or unavailable active schema." : evaluation.IsMechanicallyValid ? "No structural violations." : string.Join(" ", evaluation.MechanicalViolations.Select(issue => $"{issue.Path}: {issue.Message}"));
-        return $"Proposal {proposal.Id}, version {proposal.Version} ({ProposalState(proposal)}). Schema revision {proposal.ActiveGameSchemaRevision}; Working Rule Set revision {proposal.WorkingRuleSetRevision}. Mechanical validation: {mechanical} Balance evaluation: no game-specific balance profile is configured in this project workspace, so no universal score was assigned. Changes in the editor save as a new proposal and never edit canonical game data.";
+        var balance = profile is null ? "No game-specific balance profile is configured for this content type and schema revision, so no universal score was assigned." : evaluation is null || !evaluation.IsMechanicallyValid ? $"Profile {profile.Profile.Id} was not measured because structural validation failed." : evaluation.BalanceConcerns.Count == 0 ? $"Profile {profile.Profile.Id}: no advisory concerns." : string.Join(" ", evaluation.BalanceConcerns.Select(concern => $"{concern.Message} Observed {concern.ObservedValue}; references: {string.Join(", ", concern.References.Select(reference => reference.Label + "=" + reference.Value))}."));
+        return $"Proposal {proposal.Id}, version {proposal.Version} ({ProposalState(proposal)}). Schema revision {proposal.ActiveGameSchemaRevision}; Working Rule Set revision {proposal.WorkingRuleSetRevision}. Mechanical validation: {mechanical} Balance evaluation: {balance} Changes in the editor save as a new proposal and never edit canonical game data.";
     }
 
-    private ContentEvaluationResult? EvaluateContentProposal(ContentProposal proposal)
+    private ContentEvaluationResult? EvaluateContentProposal(ContentProposal proposal, out ProjectContentBalanceProfile? profile)
     {
+        profile = _contentBalanceProfiles.FirstOrDefault(item => string.Equals(item.ActiveGameSchemaId, proposal.ActiveGameSchemaId, StringComparison.Ordinal) && item.ActiveGameSchemaRevision == proposal.ActiveGameSchemaRevision && string.Equals(item.Profile.EntityTypeId, proposal.EntityTypeId, StringComparison.Ordinal));
         if (_activeGameSchema is null || !string.Equals(proposal.ActiveGameSchemaId, _activeGameSchema.Id, StringComparison.Ordinal) || proposal.ActiveGameSchemaRevision != _activeGameSchema.Revision) return null;
         var data = GameDataService.CreateEmpty(_activeGameSchema, DateTimeOffset.UtcNow);
         var root = ParseJsonObject(data.DataJson, "WorldSeed could not prepare an evaluation document.");
         ((JsonArray)root["entityInstances"]!).Add(proposal.Candidate.DeepClone());
         var evaluated = data with { DataJson = root.ToJsonString() };
+        if (profile is not null) return new ContentEvaluationService().Evaluate(new ContentEvaluationRequest(_activeGameSchema, evaluated, profile.Profile));
         var validation = GameDataService.Validate(_activeGameSchema, evaluated);
         return new ContentEvaluationResult(validation.Issues.Select(issue => new MechanicalViolation(issue.Path, issue.Message)).ToArray(), []);
     }
@@ -1950,12 +1991,14 @@ public partial class MainWindow : Window
         RefreshGameDataControls();
         _contentProposalItems.Clear();
         _contentProposalDecisions.Clear();
+        _contentBalanceProfiles.Clear();
         ContentProposalEntityTypeList.ItemsSource = Array.Empty<GameDataEntityTypeItem>();
         ContentProposalList.ItemsSource = Array.Empty<ContentProposalListItem>();
         ContentProposalRequestText.Text = string.Empty;
         ContentProposalEditor.Text = "Generated candidates and their validation results appear here.";
         ContentProposalDecisionNoteText.Text = string.Empty;
         ContentProposalDecisionHistoryText.Text = "No decisions recorded.";
+        ContentBalanceProfileEditor.Text = string.Empty;
         ContentReviewSchemaText.Text = "Load an active schema and Working Rule Set before creating a proposal.";
         ContentProposalStatusText.Text = "No proposal is selected.";
         RefreshContentProposalControls();

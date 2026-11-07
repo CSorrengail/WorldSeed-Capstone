@@ -67,6 +67,24 @@ public sealed record ContentBalanceProfile(
     IReadOnlyList<string> SourceWorkingRuleIds,
     IReadOnlyList<BalanceSignal> Signals);
 
+/// <summary>A versioned, project-owned profile tied to the exact schema revision it can evaluate.</summary>
+public sealed record ProjectContentBalanceProfile(
+    string Id,
+    string ProjectId,
+    string ActiveGameSchemaId,
+    int ActiveGameSchemaRevision,
+    ContentBalanceProfile Profile,
+    int Revision,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset UpdatedAt);
+
+public interface IContentBalanceProfileStore
+{
+    Task SaveAsync(ProjectContentBalanceProfile profile, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<ProjectContentBalanceProfile>> ListAsync(string projectId, CancellationToken cancellationToken = default);
+    Task DeleteAsync(string projectId, CancellationToken cancellationToken = default);
+}
+
 public sealed record MechanicalViolation(string Path, string Message);
 public sealed record BalanceConcern(string SignalId, string EntityInstanceId, string PropertyId, decimal ObservedValue, string Message, IReadOnlyList<BalanceReference> References);
 public sealed record ContentEvaluationResult(IReadOnlyList<MechanicalViolation> MechanicalViolations, IReadOnlyList<BalanceConcern> BalanceConcerns)

@@ -27,6 +27,8 @@ builder.Services.AddSingleton<MongoProjectGameDataStore>();
 builder.Services.AddSingleton<IProjectGameDataStore>(services => services.GetRequiredService<MongoProjectGameDataStore>());
 builder.Services.AddSingleton<MongoContentProposalStore>();
 builder.Services.AddSingleton<IContentProposalStore>(services => services.GetRequiredService<MongoContentProposalStore>());
+builder.Services.AddSingleton<MongoContentBalanceProfileStore>();
+builder.Services.AddSingleton<IContentBalanceProfileStore>(services => services.GetRequiredService<MongoContentBalanceProfileStore>());
 builder.Services.AddSingleton<WorkingRuleSetValidator>();
 builder.Services.AddCors(options => options.AddDefaultPolicy(policy => policy.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()));
 
@@ -40,6 +42,7 @@ using (var scope = app.Services.CreateScope())
     await scope.ServiceProvider.GetRequiredService<MongoActiveGameSchemaStore>().EnsureIndexesAsync();
     await scope.ServiceProvider.GetRequiredService<MongoProjectGameDataStore>().EnsureIndexesAsync();
     await scope.ServiceProvider.GetRequiredService<MongoContentProposalStore>().EnsureIndexesAsync();
+    await scope.ServiceProvider.GetRequiredService<MongoContentBalanceProfileStore>().EnsureIndexesAsync();
 }
 
 app.MapGet("/health", async (MongoDesignProjectStore store, CancellationToken cancellationToken) =>
@@ -61,9 +64,10 @@ projects.MapPut("/{projectId}", async (string projectId, DesignProject project, 
     await store.SaveAsync(project, cancellationToken);
     return Results.NoContent();
 });
-projects.MapDelete("/{projectId}", async (string projectId, IDesignProjectStore store, IWorkingRuleSetStore ruleSets, IProjectSchemaProposalStore schemaProposals, IProjectSchemaChangeRequestStore schemaChangeRequests, IActiveGameSchemaStore activeSchemas, IProjectGameDataStore gameData, IContentProposalStore contentProposals, CancellationToken cancellationToken) =>
+projects.MapDelete("/{projectId}", async (string projectId, IDesignProjectStore store, IWorkingRuleSetStore ruleSets, IProjectSchemaProposalStore schemaProposals, IProjectSchemaChangeRequestStore schemaChangeRequests, IActiveGameSchemaStore activeSchemas, IProjectGameDataStore gameData, IContentProposalStore contentProposals, IContentBalanceProfileStore balanceProfiles, CancellationToken cancellationToken) =>
 {
     await contentProposals.DeleteAsync(projectId, cancellationToken);
+    await balanceProfiles.DeleteAsync(projectId, cancellationToken);
     await gameData.DeleteAsync(projectId, cancellationToken);
     await activeSchemas.DeleteAsync(projectId, cancellationToken);
     await schemaProposals.DeleteAsync(projectId, cancellationToken);
@@ -85,6 +89,17 @@ projects.MapPost("/{projectId}/content-proposals/{proposalId}/decisions", async 
     if (!string.Equals(projectId, decision.ProjectId, StringComparison.Ordinal) || !string.Equals(proposalId, decision.ProposalId, StringComparison.Ordinal)) return Results.BadRequest("The URL identifiers must match the decision.");
     if (await store.LoadProposalAsync(projectId, proposalId, cancellationToken) is null) return Results.NotFound("The proposal does not exist.");
     await store.SaveDecisionAsync(decision, cancellationToken); return Results.NoContent();
+});
+projects.MapGet("/{projectId}/content-balance-profiles", async (string projectId, IContentBalanceProfileStore store, CancellationToken cancellationToken) => Results.Ok(await store.ListAsync(projectId, cancellationToken)));
+projects.MapPut("/{projectId}/content-balance-profiles/{profileId}", async (string projectId, string profileId, ProjectContentBalanceProfile profile, IDesignProjectStore projectsStore, IActiveGameSchemaStore activeSchemas, IContentBalanceProfileStore store, CancellationToken cancellationToken) =>
+{
+    if (!string.Equals(projectId, profile.ProjectId, StringComparison.Ordinal) || !string.Equals(profileId, profile.Id, StringComparison.Ordinal)) return Results.BadRequest("The URL identifiers must match the balance profile.");
+    var active = await activeSchemas.LoadAsync(projectId, cancellationToken);
+    if (await projectsStore.LoadAsync(projectId, cancellationToken) is null) return Results.NotFound("The project does not exist.");
+    if (active is null || !string.Equals(active.Id, profile.ActiveGameSchemaId, StringComparison.Ordinal) || active.Revision != profile.ActiveGameSchemaRevision) return Results.BadRequest("A balance profile must be bound to the current active schema revision.");
+    try { _ = ContentBalanceProfileService.Create(projectId, profile.ActiveGameSchemaId, profile.ActiveGameSchemaRevision, profile.Profile, profile.CreatedAt, profile with { Id = "", Revision = 0, CreatedAt = default, UpdatedAt = default }); }
+    catch (ArgumentException ex) { return Results.BadRequest(ex.Message); }
+    await store.SaveAsync(profile, cancellationToken); return Results.NoContent();
 });
 
 projects.MapGet("/{projectId}/working-rules", async (string projectId, IWorkingRuleSetStore store, CancellationToken cancellationToken) =>
