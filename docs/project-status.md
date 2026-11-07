@@ -2,10 +2,21 @@
 
 ## Current Development Task
 
-No feature-development task is active. The project has established its
-development, QA, and advisory roles and is awaiting an owner-approved first
-end-to-end MVP demonstration definition. Autonomous development has not been
+No feature-development task is active. The owner has approved the monster/creature
+MVP vertical slice in decision 0014. Autonomous development has not been
 activated.
+
+## Workflow Verification
+
+- **Coordinator policy:** documented in `AGENTS.md` at revision `c79819d`.
+- **QA confirmation:** verified that the historical clarification-dialog report
+  applies exactly to `cb3e884`; `python qa/verify_setup.py` passed. It correctly
+  did not claim that the newer documentation-only revision was application-tested.
+- **Advisor assessment:** GREEN for evidence handling and role separation, with
+  YELLOW reminders that the QA scope is narrow and owner MVP decisions remain
+  open.
+- **Agent boundaries:** QA and the advisor made no file, test, service, or Git
+  changes during this demonstration.
 
 ## Latest Verified Application Revision
 
@@ -26,34 +37,31 @@ activated.
 - Approved screenshot baselines and broader desktop accessibility/high-DPI review
   remain future QA work, not a failure of the verified dialog workflow.
 
-## Advisor Findings And Owner Decisions Needed
+## Approved MVP Direction And Remaining Decisions
 
-The initial advisor assessment is **YELLOW**: the current architecture and
-verified foundation are aligned, but the capstone needs a narrow first end-to-end
-MVP definition before broadening infrastructure or content features.
+The owner-approved MVP requires two mechanically different TTRPG demonstrations
+of creature generation, system-specific mechanical validation and balance
+evaluation, designer approve/reject/revise actions with preserved history, and
+export. See decision 0014, `docs/mvp-plan.md`, and `qa/MVP_ACCEPTANCE.md`.
 
-Owner decisions needed:
+Remaining implementation decisions:
 
-1. Choose the first generated content type or small content set for the MVP
-   demonstration.
-2. Define the minimum balance-evaluation evidence for that slice.
-3. Decide whether retrieval/embedding is MVP-required or deferred discovery work.
-4. Define the designer decision point for the MVP: accept/reject generated game
-   data, a revision action, or another bounded review step.
-5. Define the observable outcome that makes the prototype ready for capstone
-   evaluation.
+1. Choose the two demonstration systems and document their mechanical contrast.
+2. Define each system's balance profile and reference values.
+3. Select and document the export artifact format and required fields.
+4. Define the revision-request comparison shown to the designer.
 
-These are planning decisions, not inferred requirements. See
-[project-reference.md](project-reference.md) for the supporting documentation
-gaps and authority order.
+These are implementation-design decisions, not authorization to add unrelated
+MVP scope.
 
 ## Remaining Authorized Work
 
 - Maintain the three-agent workflow and its bounded verification records.
-- Do not begin a new product feature until the owner authorizes a task that does
-  not depend on the unresolved MVP decisions, or provides those decisions.
+- Plan the monster MVP contracts and demonstration systems. Do not begin product
+  implementation until autonomous execution is explicitly activated or a bounded
+  implementation task is separately authorized.
 
 ## Next Action Required
 
-Complete the bounded orchestration demonstration for the existing verified
-revision, then await the owner's direction on the first end-to-end MVP slice.
+Complete advisor review of the approved scope, then await explicit activation of
+autonomous development or a bounded implementation task.

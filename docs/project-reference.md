@@ -21,7 +21,8 @@ product requirements or replace a decision by the project owner.
    A later accepted decision takes precedence over an earlier note when they
    conflict. In particular, decisions 0001 through 0009 define provenance and
    proposal boundaries; 0010 through 0013 define UI, local-model, localization,
-   and distribution directions.
+   and distribution directions; 0014 defines the owner-approved initial MVP
+   vertical slice.
 5. **Architecture documents** in `docs/architecture/` describe the intended
    component boundaries and current workspace design. They are implementation
    guidance and must yield to the first four sources when inconsistent.
@@ -62,16 +63,12 @@ prediction, encounter support, export, and image generation.
 
 These are review questions, not requirements:
 
-- No single, current MVP acceptance checklist reconciles the proposal's original
-  week-by-week plan with the implemented schema-first workflow.
-- The exact first end-to-end content-generation demonstration, its chosen content
-  types, and its designer review criteria are not yet specified in one approved
-  document.
-- Balance evaluation is an intended core capability in the proposal, but there is
-  no approved first balance metric, data requirement, or fallback demonstration
-  plan.
-- Retrieval/embedding research is planned but has no accepted decision defining
-  whether it is required for the MVP.
+- The owner-approved MVP scope, creature focus, designer decision workflow,
+  system-specific balance direction, and retrieval deferral are recorded in
+  decision 0014 and `docs/mvp-plan.md`.
+- The two specific demonstration systems, their balance-reference datasets, the
+  export format, and the revision-request comparison remain implementation
+  decisions that must be documented before their corresponding work begins.
 - The change-management ledger and the language-versioning model have accepted
   architectural direction but no implementation milestone or acceptance criteria.
 - QA has focused evidence for selected workflows. Approved visual baselines and a
