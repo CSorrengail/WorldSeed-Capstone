@@ -74,7 +74,7 @@ public partial class MainWindow : Window
 
     public MainWindow() : this(
         new HttpClient { Timeout = TimeSpan.FromMinutes(10) },
-        new HttpClient { BaseAddress = new Uri("http://localhost:5080/") },
+        new HttpClient { BaseAddress = DesktopEnvironment.ApiBaseUri },
         initializeOnOpen: !ShutdownSmokeRequested,
         cleanUpOnClose: true,
         autoCloseOnOpen: ShutdownSmokeRequested)

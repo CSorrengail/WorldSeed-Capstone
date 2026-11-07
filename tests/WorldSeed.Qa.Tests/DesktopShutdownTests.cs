@@ -10,6 +10,18 @@ namespace WorldSeed.Qa.Tests;
 
 public sealed class DesktopShutdownTests
 {
+    [Fact]
+    public void Api_base_uri_can_be_isolated_per_process()
+    {
+        var previous = Environment.GetEnvironmentVariable("WORLDSEED_API_BASE_URI");
+        try
+        {
+            Environment.SetEnvironmentVariable("WORLDSEED_API_BASE_URI", "http://127.0.0.1:1/");
+            Assert.Equal(new Uri("http://127.0.0.1:1/"), DesktopEnvironment.ApiBaseUri);
+        }
+        finally { Environment.SetEnvironmentVariable("WORLDSEED_API_BASE_URI", previous); }
+    }
+
     [AvaloniaFact]
     public async Task Closing_returns_immediately_then_exits_after_async_housekeeping()
     {
