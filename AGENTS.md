@@ -53,6 +53,13 @@ and QA evidence, outstanding defects, advisor findings and unresolved decisions,
 remaining authorized tasks, and next owner action. Do not duplicate detailed QA
 reports or decision records there.
 
+Do not create a tracked documentation commit for each QA run, testing result, or
+status refresh. Detailed run evidence belongs under ignored `artifacts/qa`.
+Accumulate tracked testing summaries and project-status updates, then commit them
+periodically as one consolidated documentation commit at a meaningful milestone.
+Keep functional implementation and defect-fix commits separate from that batched
+documentation commit.
+
 ## Owner Intervention Notifications
 
 Use the project-scoped notification system documented in
