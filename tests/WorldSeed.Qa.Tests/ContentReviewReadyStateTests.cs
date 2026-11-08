@@ -28,15 +28,32 @@ public sealed class ContentReviewReadyStateTests
                 ["id"] = "ready-schema",
                 ["name"] = "Ready Schema",
                 ["version"] = "1.0",
+                ["valueTypes"] = new JsonArray
+                {
+                    new JsonObject
+                    {
+                        ["metadata"] = new JsonObject { ["id"] = "creature-role", ["name"] = "Creature Role" },
+                        ["kind"] = "enumeration",
+                        ["entries"] = new JsonArray { new JsonObject { ["id"] = "skirmisher", ["name"] = "Skirmisher" } }
+                    }
+                },
                 ["entityTypes"] = new JsonArray
                 {
                     new JsonObject
                     {
                         ["metadata"] = new JsonObject { ["id"] = "creature", ["name"] = "Creature" },
-                        ["properties"] = new JsonArray()
+                        ["properties"] = new JsonArray
+                        {
+                            new JsonObject
+                            {
+                                ["metadata"] = new JsonObject { ["id"] = "creature.role", ["name"] = "Role" },
+                                ["valueType"] = new JsonObject { ["kind"] = "definedValueType", ["valueTypeId"] = "creature-role" },
+                                ["required"] = true,
+                                ["nullable"] = false
+                            }
+                        }
                     }
-                },
-                ["valueTypes"] = new JsonArray()
+                }
             };
             var active = new ActiveGameSchema("active-ready", project.Id, "0.1", "Ready Schema", schemaJson.ToJsonString(), "proposal-ready", rules.Id, rules.Revision, 1, now, now);
 
@@ -57,6 +74,7 @@ public sealed class ContentReviewReadyStateTests
             Assert.Equal("Select a content type first.", window.FindControl<TextBlock>("ContentProposalStatusText")!.Text);
 
             typeSelector.SelectedIndex = 0;
+            Assert.Contains("No Balance Profile Is Saved", window.FindControl<TextBlock>("ContentBalanceProfileStatusText")!.Text);
             await window.GenerateContentProposalAsync();
             Assert.Equal("Describe the content you want to propose.", window.FindControl<TextBlock>("ContentProposalStatusText")!.Text);
 
@@ -70,18 +88,39 @@ public sealed class ContentReviewReadyStateTests
             Assert.Equal(0, window.FindControl<ListBox>("ContentProposalList")!.SelectedIndex);
             Assert.Contains("coal-stalker", window.FindControl<TextBox>("ContentProposalEditor")!.Text);
             Assert.Contains("Saved proposal version 1", window.FindControl<TextBlock>("ContentProposalStatusText")!.Text);
+            Assert.Contains("Allowed entry IDs: 'skirmisher'", window.FindControl<TextBox>("ContentMechanicalValidationText")!.Text);
+            Assert.Contains("Open Game-Specific Balance Profile", window.FindControl<TextBox>("ContentBalanceEvaluationText")!.Text);
+
+            window.FindControl<TextBox>("ContentProposalDecisionNoteText")!.Text = "Use a valid creature role.";
+            Assert.True(await window.RequestContentProposalRevisionAsync());
+            Assert.Equal("Generate Requested Revision", generate.Content);
+            Assert.Contains("Use a valid creature role.", request.Text);
+            Assert.Contains("Existing Candidate", request.Text);
+            Assert.Contains("Allowed entry IDs: 'skirmisher'", request.Text);
+
+            await window.GenerateContentProposalAsync();
+
+            Assert.Contains("Saved requested revision as version 2", window.FindControl<TextBlock>("ContentProposalStatusText")!.Text);
+            Assert.Contains("skirmisher", window.FindControl<TextBox>("ContentProposalEditor")!.Text);
+            window.FindControl<ListBox>("ContentProposalList")!.SelectedIndex = 1;
+            Assert.Contains("Use a valid creature role.", window.FindControl<TextBox>("ContentProposalDecisionHistoryText")!.Text);
+            Assert.DoesNotContain("Replacement: None", window.FindControl<TextBox>("ContentProposalDecisionHistoryText")!.Text);
+            Assert.Equal("Generate Proposal", generate.Content);
         }
         finally { window.Close(); }
     }
 
     private sealed class ModelHandler : HttpMessageHandler
     {
+        private int _requestCount;
+
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
+            var role = Interlocked.Increment(ref _requestCount) == 1 ? "wrong" : "skirmisher";
             var body = JsonSerializer.Serialize(new
             {
                 model = "local-model",
-                message = new { content = "{\"candidate\":{\"id\":\"coal-stalker\",\"entityTypeId\":\"creature\",\"values\":{}}}" }
+                message = new { content = $"{{\"candidate\":{{\"id\":\"coal-stalker\",\"entityTypeId\":\"creature\",\"values\":{{\"creature.role\":\"{role}\"}}}}}}" }
             });
             return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StringContent(body) });
         }
@@ -91,8 +130,8 @@ public sealed class ContentReviewReadyStateTests
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
-            Assert.Equal(HttpMethod.Put, request.Method);
             Assert.Contains("/content-proposals/", request.RequestUri!.AbsolutePath);
+            Assert.True(request.Method == HttpMethod.Put || request.Method == HttpMethod.Post);
             return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.NoContent));
         }
     }

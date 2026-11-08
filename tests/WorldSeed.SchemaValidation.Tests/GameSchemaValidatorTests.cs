@@ -117,7 +117,7 @@ public class GameSchemaValidatorTests
         {"id":"data","gameSchemaId":"test","gameSchemaVersion":"1","entityInstances":[{"id":"one","entityTypeId":"node","values":{"node.mood":"wrong","node.labels":["repeat","repeat"],"node.score":{"bad":"not-a-number"},"node.note":true}}]}
         """);
         var result = new GameDataValidator().Validate(schema, data);
-        Assert.Contains(result.Issues, issue => issue.Message.Contains("Expected an entry from enumeration"));
+        Assert.Contains(result.Issues, issue => issue.Message.Contains("Expected an entry from enumeration") && issue.Message.Contains("'calm'"));
         Assert.Contains(result.Issues, issue => issue.Message.Contains("Collection items must be distinct"));
         Assert.Contains(result.Issues, issue => issue.Message.Contains("Expected integer value"));
         Assert.Contains(result.Issues, issue => issue.Message.Contains("Value does not match any union option"));

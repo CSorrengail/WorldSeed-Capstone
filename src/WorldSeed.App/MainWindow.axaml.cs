@@ -6,6 +6,7 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using WorldSeed.Content;
@@ -1440,9 +1441,12 @@ public partial class MainWindow : Window
             ? "Activate a schema that contains a content type and load a Working Rule Set before creating a proposal."
             : $"{_activeGameSchema!.Name}, schema revision {_activeGameSchema.Revision}; Working Rule Set revision {_workingRuleSet!.Revision}.";
         GenerateContentProposalButton.IsEnabled = ready;
+        StartNewContentProposalButton.IsEnabled = ready;
         SaveContentBalanceProfileButton.IsEnabled = ready && ContentProposalEntityTypeList.SelectedIndex >= 0;
 
         var selected = SelectedContentProposal;
+        var revisionBase = PendingRevisionBaseProposal();
+        GenerateContentProposalButton.Content = revisionBase is null ? "Generate Proposal" : "Generate Requested Revision";
         var canDecide = selected is not null;
         SaveContentProposalRevisionButton.IsEnabled = canDecide && ready;
         ApproveContentProposalButton.IsEnabled = canDecide;
@@ -1455,6 +1459,7 @@ public partial class MainWindow : Window
             ContentMechanicalValidationText.Text = "Select A Proposal To Validate It Against The Active Schema.";
             ContentBalanceEvaluationText.Text = "Select A Proposal To Evaluate Its Game-Specific Balance Profile.";
             ContentProposalDecisionHistoryText.Text = "No proposal is selected.";
+            ContentDecisionGuidanceText.Text = "Enter An Optional Decision Note. Revision Guidance Will Be Moved To Designer Request For Regeneration.";
             if (ready) ContentProposalStatusText.Text = "Choose a content type and describe the proposal you want the local model to create.";
             return;
         }
@@ -1462,6 +1467,9 @@ public partial class MainWindow : Window
         ContentProposalEditor.Text = PrettyJson(selected.Candidate.ToJsonString());
         ContentProposalDecisionHistoryText.Text = FormatContentProposalHistory(selected);
         RefreshContentEvaluationView(selected);
+        ContentDecisionGuidanceText.Text = revisionBase is not null
+            ? "Revision Requested. Review Or Edit Designer Request, Then Choose Generate Requested Revision."
+            : "Enter An Optional Decision Note. Request Revision Copies Your Guidance, The Candidate, And Validation Findings Into Designer Request.";
         ContentProposalStatusText.Text = DescribeContentProposalStatus(selected);
     }
 
@@ -1474,7 +1482,11 @@ public partial class MainWindow : Window
         {
             var profile = _contentBalanceProfiles.FirstOrDefault(item => item.ActiveGameSchemaId == _activeGameSchema.Id && item.ActiveGameSchemaRevision == _activeGameSchema.Revision && item.Profile.EntityTypeId == _gameDataEntityTypes[index].Id);
             ContentBalanceProfileEditor.Text = profile is null ? string.Empty : PrettyJson(JsonSerializer.Serialize(profile.Profile));
+            ContentBalanceProfileStatusText.Text = profile is null
+                ? $"No Balance Profile Is Saved For {_gameDataEntityTypes[index].Name} At Schema Revision {_activeGameSchema.Revision}. Mechanical Validation Will Still Run; Add This Game's Reference Values Below To Evaluate Balance."
+                : $"Using Profile {profile.Profile.Id}, Revision {profile.Revision}, For Schema Revision {profile.ActiveGameSchemaRevision}.";
         }
+        else ContentBalanceProfileStatusText.Text = "Select A Content Type To Inspect Its Balance Profile.";
         RefreshContentProposalControls();
     }
     private void ContentProposalList_SelectionChanged(object? sender, SelectionChangedEventArgs e) => RefreshSelectedContentProposalView();
@@ -1485,7 +1497,17 @@ public partial class MainWindow : Window
     {
         var ready = _project is not null && _activeGameSchema is not null && _workingRuleSet is { Rules.Count: > 0 } && _gameDataEntityTypes.Count > 0;
         GenerateContentProposalButton.IsEnabled = ready;
+        StartNewContentProposalButton.IsEnabled = ready;
         SaveContentBalanceProfileButton.IsEnabled = ready && ContentProposalEntityTypeList.SelectedIndex >= 0;
+    }
+
+    private void StartNewContentProposal_Click(object? sender, RoutedEventArgs e)
+    {
+        ContentProposalList.SelectedIndex = -1;
+        ContentProposalRequestText.Text = string.Empty;
+        ContentProposalDecisionNoteText.Text = string.Empty;
+        RefreshSelectedContentProposalView();
+        ContentProposalStatusText.Text = "Started A New Independent Proposal. Choose A Content Type And Enter A Designer Request.";
     }
 
     private async void GenerateContentProposal_Click(object? sender, RoutedEventArgs e) => await GenerateContentProposalAsync();
@@ -1503,7 +1525,7 @@ public partial class MainWindow : Window
         var requestText = ContentProposalRequestText.Text?.Trim();
         if (string.IsNullOrWhiteSpace(requestText)) { ContentProposalStatusText.Text = "Describe the content you want to propose."; return; }
         var selectedType = _gameDataEntityTypes[typeIndex];
-        var replaces = SelectedContentProposal;
+        var replaces = PendingRevisionBaseProposal();
         if (replaces is not null && !string.Equals(replaces.EntityTypeId, selectedType.Id, StringComparison.Ordinal))
         {
             ContentProposalStatusText.Text = "A revision must use the same content type as the selected proposal.";
@@ -1523,7 +1545,9 @@ public partial class MainWindow : Window
             ContentProposalRequestText.Text = requestText;
             RefreshContentProposalView();
             ContentProposalList.SelectedIndex = 0;
-            ContentProposalStatusText.Text = $"Saved proposal version {proposal.Version}. Review its candidate and decision history before approving it.";
+            ContentProposalStatusText.Text = replaces is null
+                ? $"Saved proposal version {proposal.Version}. Review its candidate and decision history before approving it."
+                : $"Saved requested revision as version {proposal.Version}. Review the replacement before approving or rejecting it.";
             AppLog.Info($"Saved content proposal '{proposal.Id}' for project '{_project.Id}'.");
         }
         catch (ContentProposalGenerationFormatException ex)
@@ -1604,7 +1628,24 @@ public partial class MainWindow : Window
 
     private async void ApproveContentProposal_Click(object? sender, RoutedEventArgs e) => await SaveContentProposalDecisionAsync(ContentProposalDecisionKind.Approved);
     private async void RejectContentProposal_Click(object? sender, RoutedEventArgs e) => await SaveContentProposalDecisionAsync(ContentProposalDecisionKind.Rejected);
-    private async void RequestContentProposalRevision_Click(object? sender, RoutedEventArgs e) => await SaveContentProposalDecisionAsync(ContentProposalDecisionKind.RevisionRequested);
+    private async void RequestContentProposalRevision_Click(object? sender, RoutedEventArgs e) => await RequestContentProposalRevisionAsync();
+
+    internal async Task<bool> RequestContentProposalRevisionAsync()
+    {
+        var proposal = SelectedContentProposal;
+        if (proposal is null) return false;
+        var guidance = ContentProposalDecisionNoteText.Text?.Trim();
+        if (string.IsNullOrWhiteSpace(guidance))
+        {
+            ContentProposalStatusText.Text = "Enter revision guidance before requesting a revision.";
+            return false;
+        }
+        if (!await SaveContentProposalDecisionAsync(ContentProposalDecisionKind.RevisionRequested)) return false;
+        ContentProposalRequestText.Text = BuildRevisionRequest(proposal, guidance);
+        RefreshSelectedContentProposalView();
+        ContentProposalStatusText.Text = $"Revision requested for version {proposal.Version}. Review Designer Request, then choose Generate Requested Revision.";
+        return true;
+    }
 
     private async void ExportContentProposal_Click(object? sender, RoutedEventArgs e)
     {
@@ -1623,10 +1664,10 @@ public partial class MainWindow : Window
         catch (Exception ex) { AppLog.Error("Export approved content", ex); ContentProposalStatusText.Text = "Could not export the approved proposal. See the diagnostic log."; }
     }
 
-    private async Task SaveContentProposalDecisionAsync(ContentProposalDecisionKind kind)
+    private async Task<bool> SaveContentProposalDecisionAsync(ContentProposalDecisionKind kind)
     {
         var proposal = SelectedContentProposal;
-        if (proposal is null) return;
+        if (proposal is null) return false;
         try
         {
             var decision = ContentProposalLifecycleService.Decide(proposal, kind, ContentProposalDecisionNoteText.Text, DateTimeOffset.UtcNow);
@@ -1636,16 +1677,44 @@ public partial class MainWindow : Window
             RefreshContentProposalView();
             ContentProposalStatusText.Text = $"Recorded {DisplayDecision(kind)} for proposal version {proposal.Version}.";
             AppLog.Info($"Recorded content decision '{decision.Id}' for proposal '{proposal.Id}'.");
+            return true;
         }
         catch (ArgumentException ex)
         {
             ContentProposalStatusText.Text = ex.Message;
+            return false;
         }
         catch (Exception ex)
         {
             AppLog.Error("Save content proposal decision", ex);
             ContentProposalStatusText.Text = "Could not record the designer decision. See the diagnostic log.";
+            return false;
         }
+    }
+
+    private string BuildRevisionRequest(ContentProposal proposal, string guidance)
+    {
+        var evaluation = EvaluateContentProposal(proposal, out _);
+        var text = new StringBuilder()
+            .AppendLine($"Create a corrected replacement for proposal version {proposal.Version}.")
+            .AppendLine()
+            .AppendLine("Existing Candidate:")
+            .AppendLine(PrettyJson(proposal.Candidate.ToJsonString()))
+            .AppendLine()
+            .AppendLine("Designer Revision Guidance:")
+            .AppendLine(guidance);
+        if (evaluation is { MechanicalViolations.Count: > 0 })
+        {
+            text.AppendLine().AppendLine("Mechanical Violations To Correct:");
+            foreach (var issue in evaluation.MechanicalViolations) text.AppendLine($"- {issue.Path}: {issue.Message}");
+        }
+        if (evaluation is { BalanceConcerns.Count: > 0 })
+        {
+            text.AppendLine().AppendLine("Advisory Balance Concerns To Consider:");
+            foreach (var concern in evaluation.BalanceConcerns) text.AppendLine($"- {concern.Message} Observed {concern.ObservedValue}.");
+        }
+        text.AppendLine().AppendLine($"Keep entityTypeId '{proposal.EntityTypeId}' and return one complete replacement candidate.");
+        return text.ToString().Trim();
     }
 
     private static JsonObject ParseContentCandidate(string text, string entityTypeId)
@@ -1691,11 +1760,19 @@ public partial class MainWindow : Window
 
     private ContentProposalDecision? LatestContentProposalDecision(ContentProposal proposal) => _contentProposalDecisions.Where(item => item.ProposalId == proposal.Id).OrderBy(item => item.CreatedAt).LastOrDefault();
 
+    private ContentProposal? PendingRevisionBaseProposal()
+    {
+        var proposal = SelectedContentProposal;
+        if (proposal is null || LatestContentProposalDecision(proposal)?.Kind != ContentProposalDecisionKind.RevisionRequested) return null;
+        return _contentProposalItems.Any(item => string.Equals(item.ReplacesProposalId, proposal.Id, StringComparison.Ordinal)) ? null : proposal;
+    }
+
     private string FormatContentProposalHistory(ContentProposal proposal)
     {
         var decisions = _contentProposalDecisions.Where(item => item.ProposalId == proposal.Id).OrderBy(item => item.CreatedAt).ToArray();
         if (decisions.Length == 0) return "No designer decision has been recorded. The candidate remains a proposal.";
-        return string.Join("\n\n", decisions.Select(item => $"{item.CreatedAt.LocalDateTime:g} - {DisplayDecision(item.Kind)}\n{item.Note ?? "No note."}\nReplacement: {item.ReplacementProposalId ?? "None"}"));
+        var replacement = _contentProposalItems.Where(item => string.Equals(item.ReplacesProposalId, proposal.Id, StringComparison.Ordinal)).OrderByDescending(item => item.CreatedAt).FirstOrDefault();
+        return string.Join("\n\n", decisions.Select(item => $"{item.CreatedAt.LocalDateTime:g} - {DisplayDecision(item.Kind)}\n{item.Note ?? "No note."}\nReplacement: {item.ReplacementProposalId ?? replacement?.Id ?? "None"}"));
     }
 
     private static string DisplayDecision(ContentProposalDecisionKind kind) => kind switch
@@ -2070,9 +2147,12 @@ public partial class MainWindow : Window
         ContentProposalEditor.Text = "Generated candidates and their validation results appear here.";
         ContentProposalDecisionNoteText.Text = string.Empty;
         ContentProposalDecisionHistoryText.Text = "No decisions recorded.";
+        ContentDecisionGuidanceText.Text = "Enter An Optional Decision Note. Revision Guidance Will Be Moved To Designer Request For Regeneration.";
         ContentBalanceProfileEditor.Text = string.Empty;
+        ContentBalanceProfileStatusText.Text = "Select A Content Type To Inspect Its Balance Profile.";
         ContentReviewSchemaText.Text = "Load an active schema and Working Rule Set before creating a proposal.";
         ContentProposalStatusText.Text = "No proposal is selected.";
+        GenerateContentProposalButton.Content = "Generate Proposal";
         RefreshContentProposalControls();
     }
 

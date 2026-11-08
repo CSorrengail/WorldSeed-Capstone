@@ -15,7 +15,7 @@ internal static class ContentEvaluationPresenter
                 : "Failed:\n" + string.Join("\n", evaluation.MechanicalViolations.Select(issue => $"- {issue.Path}: {issue.Message}"));
 
         var balance = profile is null
-            ? "Not Configured: This Content Type And Schema Revision Have No Game-Specific Balance Profile. WorldSeed Will Not Invent A Universal Score."
+            ? "Not Configured: This Content Type And Schema Revision Have No Game-Specific Balance Profile. Mechanical Validation Still Ran, But WorldSeed Will Not Invent A Universal Score. Open Game-Specific Balance Profile Under Proposal Setup To Add This Game's Reference Values."
             : evaluation is null
                 ? $"Unavailable: Profile {profile.Profile.Id} Cannot Be Applied Without Its Matching Active Schema Revision."
                 : !evaluation.IsMechanicallyValid

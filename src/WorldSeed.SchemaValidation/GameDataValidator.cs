@@ -95,7 +95,12 @@ public sealed class GameDataValidator
                 case "record": ValidateValues(value as JsonObject, EffectiveProperties(definition, new Dictionary<string, JsonObject>()), valueTypes, instances, path, result); break;
                 case "enumeration":
                     var entry = StringValue(value);
-                    if (entry is null || !Strings(definition, "entries", "id").Contains(entry)) result.Add(path, $"Expected an entry from enumeration '{id}'.");
+                    var allowedEntries = Strings(definition, "entries", "id").ToArray();
+                    if (entry is null || !allowedEntries.Contains(entry))
+                    {
+                        var allowed = allowedEntries.Length == 0 ? "The enumeration has no entries." : "Allowed entry IDs: " + string.Join(", ", allowedEntries.Select(value => $"'{value}'")) + ".";
+                        result.Add(path, $"Expected an entry from enumeration '{id}'. {allowed}");
+                    }
                     break;
                 case "alias": ValidateValue(value, definition["targetType"] as JsonObject, valueTypes, instances, path, result); break;
             }
