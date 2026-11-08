@@ -99,7 +99,8 @@ public sealed class GameDataValidator
                     if (entry is null || !allowedEntries.Contains(entry))
                     {
                         var allowed = allowedEntries.Length == 0 ? "The enumeration has no entries." : "Allowed entry IDs: " + string.Join(", ", allowedEntries.Select(value => $"'{value}'")) + ".";
-                        result.Add(path, $"Expected an entry from enumeration '{id}'. {allowed}");
+                        var received = value is JsonObject ? " Received a JSON object; enumeration values must be a single JSON string entry ID, not a schema descriptor." : string.Empty;
+                        result.Add(path, $"Expected a JSON string entry ID from enumeration '{id}'. {allowed}{received}");
                     }
                     break;
                 case "alias": ValidateValue(value, definition["targetType"] as JsonObject, valueTypes, instances, path, result); break;

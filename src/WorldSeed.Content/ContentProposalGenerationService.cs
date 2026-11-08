@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text;
 using WorldSeed.LlmIntegration;
 using WorldSeed.WorkingRules;
 
@@ -26,8 +27,8 @@ public sealed class ContentProposalGenerationService(ILanguageModelClient client
         if (request.Rules.Count == 0) throw new ArgumentException("At least one selected Working Rule is required.", nameof(request));
         var messages = new[]
         {
-            new LlmMessage(LlmMessageRole.System, "You propose one TTRPG content entry. Return JSON only: {\"candidate\":{\"id\":\"...\",\"entityTypeId\":\"...\",\"values\":{...}}}. Use only the supplied schema and rules. Do not invent properties, change the entity type, or claim approval."),
-            new LlmMessage(LlmMessageRole.System, "Required entityTypeId: " + request.EntityTypeId + "\nSchema: " + request.ActiveSchema.ToJsonString()),
+            new LlmMessage(LlmMessageRole.System, "You propose one TTRPG content entry. Return JSON only: {\"candidate\":{\"id\":\"...\",\"entityTypeId\":\"...\",\"values\":{...}}}. Use only the supplied runtime-value contract and rules. Do not invent properties, change the entity type, or claim approval. Candidate values are data, not schema definitions: never put kind, valueTypeId, required, nullable, metadata, or other type descriptors inside candidate.values unless the contract explicitly declares such a record field."),
+            new LlmMessage(LlmMessageRole.System, BuildRuntimeValueContract(request.ActiveSchema, request.EntityTypeId)),
             new LlmMessage(LlmMessageRole.System, "Working Rules:\n" + string.Join("\n", request.Rules.Select(rule => $"[{rule.Id}] {rule.AuthoritativeText}"))),
             new LlmMessage(LlmMessageRole.User, request.DesignerRequest)
         };
@@ -47,4 +48,120 @@ public sealed class ContentProposalGenerationService(ILanguageModelClient client
         }
         catch (JsonException) { throw new ContentProposalGenerationFormatException("The model did not return valid JSON."); }
     }
+
+    internal static string BuildRuntimeValueContract(JsonObject schema, string entityTypeId)
+    {
+        var entity = (schema["entityTypes"] as JsonArray)?.OfType<JsonObject>()
+            .FirstOrDefault(candidate => string.Equals(DefinitionId(candidate), entityTypeId, StringComparison.Ordinal));
+        if (entity is null) return $"Required entityTypeId: {entityTypeId}\nThe selected entity type is missing from the active schema.";
+
+        var valueTypes = (schema["valueTypes"] as JsonArray)?.OfType<JsonObject>()
+            .Where(candidate => DefinitionId(candidate) is not null)
+            .ToDictionary(candidate => DefinitionId(candidate)!, StringComparer.Ordinal) ?? [];
+        var properties = EffectiveProperties(schema, entity).ToArray();
+        var exampleValues = new JsonObject();
+        var text = new StringBuilder()
+            .AppendLine($"Required entityTypeId: {entityTypeId}")
+            .AppendLine("Runtime candidate value contract (instructions only; do not copy these descriptions into candidate.values):");
+
+        if (properties.Length == 0) text.AppendLine("- values must be an empty JSON object.");
+        foreach (var property in properties)
+        {
+            var propertyId = DefinitionId(property) ?? property["name"]?.GetValue<string>();
+            if (string.IsNullOrWhiteSpace(propertyId)) continue;
+            var required = property["required"]?.GetValue<bool>() == true ? "required" : "optional";
+            var nullable = property["nullable"]?.GetValue<bool>() == true ? ", nullable" : string.Empty;
+            var constraints = property["constraints"] is JsonObject constraintObject ? $" Declared constraints: {constraintObject.ToJsonString()}." : string.Empty;
+            text.AppendLine($"- values.{propertyId} ({required}{nullable}): {DescribeRuntimeValue(property["valueType"] as JsonObject, valueTypes)}{constraints}");
+            if (property["required"]?.GetValue<bool>() == true)
+                exampleValues[propertyId] = ExampleRuntimeValue(property["valueType"] as JsonObject, valueTypes);
+        }
+
+        var example = new JsonObject
+        {
+            ["candidate"] = new JsonObject
+            {
+                ["id"] = "replace-with-content-id",
+                ["entityTypeId"] = entityTypeId,
+                ["values"] = exampleValues
+            }
+        };
+        return text.AppendLine("Example output shape (replace placeholder values while preserving their JSON types):")
+            .Append(example.ToJsonString()).ToString();
+    }
+
+    private static IEnumerable<JsonObject> EffectiveProperties(JsonObject schema, JsonObject entity)
+    {
+        var fragments = (schema["schemaFragments"] as JsonArray)?.OfType<JsonObject>()
+            .Where(candidate => DefinitionId(candidate) is not null)
+            .ToDictionary(candidate => DefinitionId(candidate)!, StringComparer.Ordinal) ?? [];
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var fragmentId in entity["fragmentIds"]?.AsArray().OfType<JsonValue>().Select(value => value.TryGetValue<string>(out var id) ? id : null).Where(id => id is not null).Cast<string>() ?? [])
+            if (fragments.TryGetValue(fragmentId, out var fragment))
+                foreach (var property in fragment["properties"]?.AsArray().OfType<JsonObject>() ?? [])
+                    if (DefinitionId(property) is { } propertyId && seen.Add(propertyId)) yield return property;
+        foreach (var property in entity["properties"]?.AsArray().OfType<JsonObject>() ?? [])
+            if (DefinitionId(property) is { } propertyId && seen.Add(propertyId)) yield return property;
+    }
+
+    private static string DescribeRuntimeValue(JsonObject? type, IReadOnlyDictionary<string, JsonObject> valueTypes)
+    {
+        var kind = type?["kind"]?.GetValue<string>();
+        if (kind == "primitive") return $"JSON {PrimitiveDescription(type?["name"]?.GetValue<string>())}.";
+        if (kind == "definedValueType" && type?["valueTypeId"]?.GetValue<string>() is { } valueTypeId && valueTypes.TryGetValue(valueTypeId, out var definition))
+        {
+            var definitionKind = definition["kind"]?.GetValue<string>();
+            if (definitionKind == "enumeration")
+            {
+                var entries = definition["entries"]?.AsArray().OfType<JsonObject>().Select(DefinitionId).Where(id => id is not null).Cast<string>().ToArray() ?? [];
+                return entries.Length == 0
+                    ? $"JSON string entry ID from enumeration '{valueTypeId}', which currently has no entries."
+                    : $"one JSON string entry ID from enumeration '{valueTypeId}': {string.Join(", ", entries.Select(entry => JsonSerializer.Serialize(entry)))}.";
+            }
+            if (definitionKind == "alias") return DescribeRuntimeValue(definition["targetType"] as JsonObject, valueTypes);
+            if (definitionKind == "record") return $"JSON object matching record '{valueTypeId}'.";
+        }
+        if (kind == "collection") return $"JSON array whose items are {DescribeRuntimeValue(type?["itemType"] as JsonObject, valueTypes).TrimEnd('.').ToLowerInvariant()}.";
+        if (kind == "reference") return "JSON string containing an existing allowed entity-instance ID.";
+        if (kind == "map") return "JSON object whose keys and values follow the declared map types.";
+        if (kind == "union") return "a JSON value matching one declared union option.";
+        return "JSON value matching the declared schema type.";
+    }
+
+    private static JsonNode? ExampleRuntimeValue(JsonObject? type, IReadOnlyDictionary<string, JsonObject> valueTypes)
+    {
+        var kind = type?["kind"]?.GetValue<string>();
+        if (kind == "primitive") return type?["name"]?.GetValue<string>() switch
+        {
+            "integer" => JsonValue.Create(0),
+            "decimal" => JsonValue.Create(0.0),
+            "boolean" => JsonValue.Create(false),
+            _ => JsonValue.Create("replace-with-value")
+        };
+        if (kind == "definedValueType" && type?["valueTypeId"]?.GetValue<string>() is { } valueTypeId && valueTypes.TryGetValue(valueTypeId, out var definition))
+        {
+            if (definition["kind"]?.GetValue<string>() == "enumeration")
+                return JsonValue.Create(definition["entries"]?.AsArray().OfType<JsonObject>().Select(DefinitionId).FirstOrDefault(id => id is not null) ?? "replace-with-entry-id");
+            if (definition["kind"]?.GetValue<string>() == "alias") return ExampleRuntimeValue(definition["targetType"] as JsonObject, valueTypes);
+            if (definition["kind"]?.GetValue<string>() == "record") return new JsonObject();
+        }
+        if (kind == "collection") return new JsonArray();
+        if (kind == "map" || kind == "record") return new JsonObject();
+        if (kind == "union") return ExampleRuntimeValue(type?["options"]?.AsArray().OfType<JsonObject>().FirstOrDefault(), valueTypes);
+        if (kind == "reference") return JsonValue.Create("replace-with-entity-instance-id");
+        return null;
+    }
+
+    private static string PrimitiveDescription(string? name) => name switch
+    {
+        "integer" => "integer number",
+        "decimal" => "number",
+        "boolean" => "boolean",
+        "date" or "dateTime" => "string",
+        "any" => "value",
+        _ => "string"
+    };
+
+    private static string? DefinitionId(JsonObject definition) =>
+        (definition["metadata"] as JsonObject)?["id"]?.GetValue<string>() ?? definition["id"]?.GetValue<string>();
 }
