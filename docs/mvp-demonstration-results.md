@@ -12,6 +12,11 @@ Content Review controls and production generation path with local
 balance presentation, designer revision/approval/rejection, and approved export
 provenance. See `artifacts/qa/connected-desktop-6887ab9/report.md`.
 
+On 2026-11-10 the owner also completed the normal-launcher chainmail workflow,
+including schema-gap routing and approved export. The resulting proposal-lineage
+correction was independently verified at revision `29719c4`; see
+`artifacts/qa/20261110-proposal-lineage/report.md`.
+
 Run the evidence generator with:
 
 ```powershell
@@ -49,8 +54,9 @@ provenance.
 
 ## Limits
 
-This is not a claim that live LLM output is always correct. The connected run is
-headless and isolated; it does not claim manual launcher use, rendered visual
-review, real user data, or the interactive save picker. Broader retrieval,
+This is not a claim that live LLM output is always correct. The connected QA run
+is headless and isolated; the separate owner smoke supplies normal-launcher and
+interactive export evidence but not automated visual-regression or accessibility
+coverage. Broader retrieval,
 generated system design, applying approved proposals to canonical Game Data,
 and expanded human-readable export remain future work outside this MVP.

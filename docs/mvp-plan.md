@@ -58,3 +58,21 @@ specific schema, constraints, and reference values used to evaluate its creature
 The MVP is ready for capstone evaluation only when QA has independently verified
 the acceptance contract, the two-system results are documented, and the designer
 can observe the complete flow without relying on undocumented manual repair.
+
+## Required Continuation Beyond This Vertical Slice
+
+Completing the creature MVP does not complete WorldSeed's product vision. The
+next-stage plan must retain both of these owner-required capabilities:
+
+1. **Rule-conforming content expansion:** the AI can propose genuinely new game
+   content, such as specific weapons or creatures, using the project's rules,
+   schema, existing content, and recorded designer decisions as constraints. It
+   must not be limited to restructuring examples already supplied by the user.
+2. **Human-readable game publication:** canonical rules and approved game data
+   can be assembled into organized source/rulebook text for people to read. This
+   publication artifact is distinct from the structured JSON/provenance export
+   used by the MVP workflow.
+
+Both remain proposal-and-review workflows under human control. Neither capability
+may introduce universal TTRPG concepts or replace canonical structured knowledge
+with untraceable model output.

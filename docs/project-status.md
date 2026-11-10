@@ -1,5 +1,13 @@
 # WorldSeed Project Status
 
+## Approved MVP Status
+
+**Completed and independently verified on 2026-11-10.** The approved creature
+vertical slice satisfies its ingestion, generation, system-specific mechanical
+validation, system-specific balance evaluation, designer decision/history,
+approved export, two-system, and observable-workflow criteria. This completion
+does not claim that WorldSeed's larger product vision is finished.
+
 Standalone testing and status commits were consolidated locally on 2026-11-07.
 QA reports retain the original commit IDs they actually tested; rewriting commit
 parents changed the equivalent IDs on `main`. The pre-consolidation history is
@@ -7,18 +15,18 @@ preserved at `backup/main-before-test-doc-squash-20261107`.
 
 ## Current Development Task
 
-The owner-authorized creature MVP implementation and isolated connected QA are
-complete. Tested revision `6887ab9` (current equivalent `c569cbc`) connected the
+The owner-authorized creature MVP implementation, isolated connected QA, and
+normal-launcher smoke workflow are complete. Tested revision `6887ab9` (current equivalent `c569cbc`) connected the
 actual Content Review controls and production generation path to local
 `gemma3:12b`, an isolated Docker API and
 Mongo database, persistence/reload, mechanical validation, game-specific
 balance evaluation, revision history, approval/rejection, and approval-gated
 export. QA independently passed that flow without reproducing the corrected
-proposal-list stack overflow. A final normal-launcher manual desktop run remains
-before the reopened usability objective can be called complete. The configured
-Windows automation binaries exist and run directly, but both supported tool
-surfaces still fail to initialize after a kernel reset, indicating a stale or
-broken Codex computer-control session rather than a missing WorldSeed resource.
+proposal-list stack overflow. On 2026-11-10 the owner completed the normal-launcher
+smoke workflow: the corrected chainmail request generated without a value-shape
+error, routed an unrepresentable armor-value concept to Schema, and exported
+successfully. The owner marked the run passed while identifying proposal lineage
+after schema changes as the remaining usability problem.
 
 Manual smoke testing then exposed unclear recovery from mechanical validation
 failures and an incomplete revision workflow. Revision `0202da6` now lists
@@ -49,6 +57,15 @@ checks and an API build; a non-persisting live `gemma3:12b` SOT fixture returned
 mechanical violations. Evidence is retained at
 `artifacts/qa/20261110-content-schema-gaps/report.md`.
 
+Revision `29719c4` closes the proposal-lineage problem from the successful manual
+smoke. WorldSeed retains the original designer request, labels proposals tied to
+older schema revisions, and can re-evaluate one against the current schema as a
+linked replacement. Only the current lineage tip appears in the proposal list;
+older versions and decisions remain visible in its history. QA passed all 114
+tests, six focused headless UI checks, persistence compatibility, and both
+Release builds. Evidence is retained at
+`artifacts/qa/20261110-proposal-lineage/report.md`.
+
 The completed workflow covers traceable fixture rules and schemas, bounded
 proposal generation, hard mechanical validation, game-specific advisory balance
 profiles, designer approval/rejection/revision history, approval-gated JSON
@@ -72,6 +89,20 @@ remains available for any later owner-action stop.
   changes during this demonstration.
 
 ## Latest Verified Application Revision
+
+- **Tested revision:** `29719c4` - Re-evaluate proposal lineages after schema
+  changes.
+- **QA result:** PASS on the exact clean revision: 114 solution tests, six
+  focused headless Avalonia checks, five lifecycle/export checks, two Mongo
+  compatibility checks, and clean API and App Release builds.
+- **Behavior:** original designer requests survive persistence and export;
+  historical-schema proposals receive explicit unavailable evaluation state;
+  re-evaluation produces a linked current-schema replacement while the proposal
+  list shows one current lineage tip and preserves earlier versions in history.
+- **Evidence:** `artifacts/qa/20261110-proposal-lineage/report.md`.
+- **Manual evidence:** the owner passed the normal-launcher chainmail and export
+  workflow immediately before this correction and accepted schema routing for
+  an unrepresentable concept.
 
 - **Tested revision:** `3241c82` - Report content schema coverage gaps.
 - **QA result:** PASS on the exact revision with only this accumulated status
@@ -320,9 +351,9 @@ of creature generation, system-specific mechanical validation and balance
 evaluation, designer approve/reject/revise actions with preserved history, and
 export. See decision 0014, `docs/mvp-plan.md`, and `qa/MVP_ACCEPTANCE.md`.
 
-No implementation decision remains for the approved MVP. The owner reopened
-completion until the normal user workflow, rather than only its individual
-components and deterministic fixtures, has credible connected evidence.
+No implementation decision remains for the approved MVP. The reopened normal
+user workflow now has owner-observed launcher evidence plus independent coverage
+of the schema re-evaluation correction.
 
 ## Advisor Review Of Approved Scope
 
@@ -360,21 +391,32 @@ components and deterministic fixtures, has credible connected evidence.
   armor-value rule/property and references is a game-design choice, not an
   implementation assumption. It is not required to verify the generic workflow.
 
+## MVP Completion Advisor Review
+
+- **Revision and evidence reviewed:** application revision `29719c4`, its QA
+  report, the two-system demonstration contracts/results, connected Emberbound
+  evidence, and the owner's normal-launcher smoke.
+- **Assessment:** GREEN. All owner-approved creature-MVP acceptance criteria are
+  credibly satisfied; no required criterion remains unmet.
+- **Non-blocking limitation:** Windows visual automation remains unavailable, and
+  the lineage QA was headless rather than screenshot-based. This is optional UX
+  and automation debt, not missing functional acceptance evidence.
+- **Continuation boundary:** genuinely new rule-conforming content expansion and
+  human-readable rulebook/source publication remain required next-stage product
+  capabilities. They are explicitly not claimed complete by this MVP.
+- **Owner decisions:** none are needed to close the approved MVP. A later owner
+  decision is needed to prioritize the two continuation capabilities and any
+  game-specific SoT schema additions.
+
 ## Remaining Authorized Work
 
-- Run one final manual desktop check from the normal launcher: generate and
-  select a proposal, inspect mechanical and balance output, request a revision,
-  approve or reject, reload the project, export the approved proposal, and close
-  the app without a residual WorldSeed process.
-- Further product expansion or optional hardening requires a new authorized
-  task.
+- No additional implementation task is authorized after completion of the
+  approved creature MVP.
+- The recorded next-stage capabilities are AI-assisted creation of new
+  rule-conforming game content beyond imported examples and publication of
+  canonical project content as organized human-readable source/rulebook text.
 
 ## Next Action Required
 
-The owner must perform the final normal-launcher desktop check manually because
-both available computer-control surfaces fail before they can observe a window.
-Run `RunWorldSeed.bat --restart --rebuild`, then use `qa/MANUAL_MVP_SMOKE.md`.
-For the SOT chainmail request, confirm the candidate uses the string `heavy` and
-the Schema Coverage panel separately identifies armor value as unrepresentable.
-Report the first step that differs from the guide. Development should evaluate
-any observed WorldSeed failure before the usable MVP is marked complete.
+The owner may choose which recorded continuation capability to prioritize next.
+Until then, preserve the verified MVP and do not silently expand its scope.
