@@ -49,4 +49,14 @@ public sealed class ContentEvaluationPresentationTests
         Assert.Contains("Not Configured", presentation.Balance);
         Assert.Contains("Will Not Invent A Universal Score", presentation.Balance);
     }
+
+    [Fact]
+    public void Historical_schema_requires_re_evaluation_before_any_evaluation_claim()
+    {
+        var presentation = ContentEvaluationPresenter.Present(null, null);
+
+        Assert.Contains("Historical", presentation.Mechanical);
+        Assert.Contains("Re-Evaluate", presentation.Balance);
+        Assert.DoesNotContain("Mechanical Validation Still Ran", presentation.Balance);
+    }
 }

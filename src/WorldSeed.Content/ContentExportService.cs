@@ -20,6 +20,7 @@ public static class ContentExportService
             ["content"] = proposal.Candidate.DeepClone(), ["gameSchemaId"] = gameSchema["id"]?.DeepClone(), ["gameSchemaVersion"] = gameSchema["version"]?.DeepClone(),
             ["workingRuleSetId"] = proposal.WorkingRuleSetId, ["workingRuleSetRevision"] = proposal.WorkingRuleSetRevision,
             ["proposalId"] = proposal.Id, ["proposalVersion"] = proposal.Version,
+            ["designerRequest"] = proposal.DesignerRequest,
             ["schemaGapAnalysis"] = new JsonObject
             {
                 ["reported"] = proposal.SchemaGaps is not null,

@@ -19,7 +19,8 @@ public sealed record ContentProposal(
     int Version,
     DateTimeOffset CreatedAt,
     string? ReplacesProposalId = null,
-    IReadOnlyList<ContentSchemaGap>? SchemaGaps = null);
+    IReadOnlyList<ContentSchemaGap>? SchemaGaps = null,
+    string? DesignerRequest = null);
 
 /// <summary>An advisory model observation that a designer request exceeds the active game-owned schema.</summary>
 public sealed record ContentSchemaGap(string RequestedConcept, string Reason, string? SuggestedSchemaChange = null);

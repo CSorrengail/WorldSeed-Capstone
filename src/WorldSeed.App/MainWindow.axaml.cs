@@ -1421,15 +1421,15 @@ public partial class MainWindow : Window
 
     private void RefreshContentProposalView()
     {
-        var selectedProposalId = ContentProposalList.SelectedIndex is var proposalIndex && proposalIndex >= 0 && proposalIndex < _contentProposalItems.Count
-            ? _contentProposalItems[proposalIndex].Id : null;
+        var selectedProposalId = SelectedContentProposal?.Id;
         var selectedTypeId = ContentProposalEntityTypeList.SelectedIndex is var typeIndex && typeIndex >= 0 && typeIndex < _gameDataEntityTypes.Count
             ? _gameDataEntityTypes[typeIndex].Id : null;
+        var visibleProposals = CurrentContentProposalTips().ToArray();
 
         ContentProposalEntityTypeList.ItemsSource = _gameDataEntityTypes.ToArray();
         ContentProposalEntityTypeList.SelectedIndex = selectedTypeId is null ? -1 : _gameDataEntityTypes.FindIndex(item => item.Id == selectedTypeId);
-        ContentProposalList.ItemsSource = _contentProposalItems.Select(item => new ContentProposalListItem(item, ProposalState(item))).ToArray();
-        ContentProposalList.SelectedIndex = selectedProposalId is null ? -1 : _contentProposalItems.FindIndex(item => item.Id == selectedProposalId);
+        ContentProposalList.ItemsSource = visibleProposals.Select(item => new ContentProposalListItem(item, ProposalState(item))).ToArray();
+        ContentProposalList.SelectedIndex = selectedProposalId is null ? -1 : Array.FindIndex(visibleProposals, item => item.Id == selectedProposalId);
 
         RefreshSelectedContentProposalView();
     }
@@ -1446,6 +1446,8 @@ public partial class MainWindow : Window
 
         var selected = SelectedContentProposal;
         var revisionBase = PendingRevisionBaseProposal();
+        var usesCurrentSchema = selected is not null && _activeGameSchema is not null && string.Equals(selected.ActiveGameSchemaId, _activeGameSchema.Id, StringComparison.Ordinal) && selected.ActiveGameSchemaRevision == _activeGameSchema.Revision;
+        var selectedTypeStillExists = selected is not null && _gameDataEntityTypes.Any(item => item.Id == selected.EntityTypeId);
         GenerateContentProposalButton.Content = revisionBase is null ? "Generate Proposal" : "Generate Requested Revision";
         var canDecide = selected is not null;
         SaveContentProposalRevisionButton.IsEnabled = canDecide && ready;
@@ -1453,6 +1455,8 @@ public partial class MainWindow : Window
         RejectContentProposalButton.IsEnabled = canDecide;
         RequestContentProposalRevisionButton.IsEnabled = canDecide;
         ExportContentProposalButton.IsEnabled = selected is not null && LatestContentProposalDecision(selected)?.Kind == ContentProposalDecisionKind.Approved && _activeGameSchema is not null;
+        ReevaluateContentProposalButton.IsVisible = selected is not null && !usesCurrentSchema;
+        ReevaluateContentProposalButton.IsEnabled = ready && selectedTypeStillExists;
         if (selected is null)
         {
             ContentProposalEditor.Text = "Generated Candidates Appear Here.";
@@ -1460,6 +1464,7 @@ public partial class MainWindow : Window
             ContentBalanceEvaluationText.Text = "Select A Proposal To Evaluate Its Game-Specific Balance Profile.";
             ContentSchemaGapText.Text = "Select A Proposal To Review Whether The Active Schema Covers Its Request.";
             OpenSchemaForContentGapButton.IsVisible = false;
+            ReevaluateContentProposalButton.IsVisible = false;
             ContentProposalDecisionHistoryText.Text = "No proposal is selected.";
             ContentDecisionGuidanceText.Text = "Enter An Optional Decision Note. Revision Guidance Will Be Moved To Designer Request For Regeneration.";
             if (ready) ContentProposalStatusText.Text = "Choose a content type and describe the proposal you want the local model to create.";
@@ -1477,7 +1482,19 @@ public partial class MainWindow : Window
         ContentProposalStatusText.Text = DescribeContentProposalStatus(selected);
     }
 
-    private ContentProposal? SelectedContentProposal => ContentProposalList.SelectedIndex is var index && index >= 0 && index < _contentProposalItems.Count ? _contentProposalItems[index] : null;
+    private ContentProposal? SelectedContentProposal => (ContentProposalList.SelectedItem as ContentProposalListItem)?.Proposal;
+
+    private IEnumerable<ContentProposal> CurrentContentProposalTips()
+    {
+        var replacedIds = _contentProposalItems.Where(item => !string.IsNullOrWhiteSpace(item.ReplacesProposalId)).Select(item => item.ReplacesProposalId!).ToHashSet(StringComparer.Ordinal);
+        return _contentProposalItems.Where(item => !replacedIds.Contains(item.Id)).OrderByDescending(item => item.CreatedAt);
+    }
+
+    private void SelectContentProposal(string proposalId)
+    {
+        var items = (ContentProposalList.ItemsSource as IEnumerable<ContentProposalListItem>)?.ToArray() ?? [];
+        ContentProposalList.SelectedIndex = Array.FindIndex(items, item => string.Equals(item.Proposal.Id, proposalId, StringComparison.Ordinal));
+    }
 
     private void ContentProposalEntityTypeList_SelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
@@ -1516,25 +1533,28 @@ public partial class MainWindow : Window
 
     private async void GenerateContentProposal_Click(object? sender, RoutedEventArgs e) => await GenerateContentProposalAsync();
 
-    internal async Task GenerateContentProposalAsync()
+    internal Task<bool> GenerateContentProposalAsync() => GenerateContentProposalCoreAsync();
+
+    private async Task<bool> GenerateContentProposalCoreAsync(ContentProposal? forcedBase = null, string? forcedInstruction = null, string? persistedDesignerRequest = null)
     {
         var typeIndex = ContentProposalEntityTypeList.SelectedIndex;
         if (_project is null || _activeGameSchema is null || _workingRuleSet is null || _gameDataEntityTypes.Count == 0)
         {
             ContentProposalStatusText.Text = "Load a project, active schema content type, and Working Rule Set first.";
-            return;
+            return false;
         }
-        if (ModelSelector.SelectedItem is not string model) { ContentProposalStatusText.Text = "Select a local model first."; return; }
-        if (typeIndex < 0 || typeIndex >= _gameDataEntityTypes.Count) { ContentProposalStatusText.Text = "Select a content type first."; return; }
-        var requestText = ContentProposalRequestText.Text?.Trim();
-        if (string.IsNullOrWhiteSpace(requestText)) { ContentProposalStatusText.Text = "Describe the content you want to propose."; return; }
+        if (ModelSelector.SelectedItem is not string model) { ContentProposalStatusText.Text = "Select a local model first."; return false; }
+        if (typeIndex < 0 || typeIndex >= _gameDataEntityTypes.Count) { ContentProposalStatusText.Text = "Select a content type first."; return false; }
+        var requestText = forcedInstruction?.Trim() ?? ContentProposalRequestText.Text?.Trim();
+        if (string.IsNullOrWhiteSpace(requestText)) { ContentProposalStatusText.Text = "Describe the content you want to propose."; return false; }
         var selectedType = _gameDataEntityTypes[typeIndex];
-        var replaces = PendingRevisionBaseProposal();
+        var replaces = forcedBase ?? PendingRevisionBaseProposal();
         if (replaces is not null && !string.Equals(replaces.EntityTypeId, selectedType.Id, StringComparison.Ordinal))
         {
             ContentProposalStatusText.Text = "A revision must use the same content type as the selected proposal.";
-            return;
+            return false;
         }
+        var designerRequest = persistedDesignerRequest?.Trim() ?? replaces?.DesignerRequest ?? ContentProposalRequestText.Text?.Trim() ?? requestText;
 
         GenerateContentProposalButton.IsEnabled = false;
         ContentProposalStatusText.Text = $"Generating a reviewable {selectedType.Name} proposal with {model}. Nothing will be added to game data.";
@@ -1543,30 +1563,80 @@ public partial class MainWindow : Window
         {
             var schema = ParseJsonObject(_activeGameSchema.SchemaJson, "The active schema is not valid JSON.");
             var result = await new ContentProposalGenerationService(capture).GenerateAsync(new ContentProposalGenerationRequest(_project.Id, selectedType.Id, schema, _workingRuleSet.Rules, requestText));
-            var proposal = ContentProposalLifecycleService.Create(_project.Id, selectedType.Id, result.Candidate, _activeGameSchema.Id, _activeGameSchema.Revision, _workingRuleSet.Id, _workingRuleSet.Revision, DateTimeOffset.UtcNow, replaces, result.SchemaGaps);
+            var proposal = ContentProposalLifecycleService.Create(_project.Id, selectedType.Id, result.Candidate, _activeGameSchema.Id, _activeGameSchema.Revision, _workingRuleSet.Id, _workingRuleSet.Revision, DateTimeOffset.UtcNow, replaces, result.SchemaGaps, designerRequest);
             await _contentProposals.SaveProposalAsync(proposal);
             _contentProposalItems.Insert(0, proposal);
-            ContentProposalRequestText.Text = requestText;
+            ContentProposalRequestText.Text = designerRequest;
             RefreshContentProposalView();
-            ContentProposalList.SelectedIndex = 0;
+            SelectContentProposal(proposal.Id);
             ContentProposalStatusText.Text = replaces is null
                 ? $"Saved proposal version {proposal.Version}. Review its candidate and decision history before approving it."
-                : $"Saved requested revision as version {proposal.Version}. Review the replacement before approving or rejecting it.";
+                : $"Saved replacement version {proposal.Version} against schema revision {_activeGameSchema.Revision}. Review it before approving or rejecting it.";
             AppLog.Info($"Saved content proposal '{proposal.Id}' for project '{_project.Id}'.");
+            return true;
         }
         catch (ContentProposalGenerationFormatException ex)
         {
             AppLog.Error("Generate content proposal", ex);
             ContentProposalStatusText.Text = "The local model returned a candidate WorldSeed could not safely use. Nothing was saved.";
             ContentProposalEditor.Text = $"Format Detail: {ex.Message}\n\nRaw Model Output (For Diagnosis):\n{Preview(capture.Last?.Content)}";
+            return false;
         }
         catch (Exception ex)
         {
             AppLog.Error("Generate content proposal", ex);
             ContentProposalStatusText.Text = "Could not generate a proposal. Nothing was added to game data.";
             ContentProposalEditor.Text = $"{ex.GetType().Name}: {ex.Message}\n\nDiagnostic Log: {AppLog.CurrentPath}";
+            return false;
         }
         finally { RefreshContentProposalControls(); }
+    }
+
+    private async void ReevaluateContentProposal_Click(object? sender, RoutedEventArgs e) => await ReevaluateContentProposalAsync();
+
+    internal async Task<bool> ReevaluateContentProposalAsync()
+    {
+        var proposal = SelectedContentProposal;
+        if (proposal is null || _activeGameSchema is null)
+        {
+            ContentProposalStatusText.Text = "Select a historical proposal and activate the updated schema first.";
+            return false;
+        }
+        if (string.Equals(proposal.ActiveGameSchemaId, _activeGameSchema.Id, StringComparison.Ordinal) && proposal.ActiveGameSchemaRevision == _activeGameSchema.Revision)
+        {
+            ContentProposalStatusText.Text = "This proposal already uses the current active schema revision.";
+            return false;
+        }
+        var typeIndex = _gameDataEntityTypes.FindIndex(item => string.Equals(item.Id, proposal.EntityTypeId, StringComparison.Ordinal));
+        if (typeIndex < 0)
+        {
+            ContentProposalStatusText.Text = "The current schema no longer contains this proposal's content type. Review the schema before re-evaluating it.";
+            return false;
+        }
+        var originalRequest = proposal.DesignerRequest ?? ContentProposalRequestText.Text?.Trim();
+        if (string.IsNullOrWhiteSpace(originalRequest))
+        {
+            ContentProposalStatusText.Text = "This older proposal did not retain its designer request. Enter the original request in Designer Request, then try again.";
+            return false;
+        }
+        ContentProposalEntityTypeList.SelectedIndex = typeIndex;
+        var instruction = BuildSchemaReevaluationRequest(proposal, originalRequest);
+        return await GenerateContentProposalCoreAsync(proposal, instruction, originalRequest);
+    }
+
+    private string BuildSchemaReevaluationRequest(ContentProposal proposal, string designerRequest)
+    {
+        var text = new StringBuilder()
+            .AppendLine($"Re-evaluate proposal version {proposal.Version} against the current active schema revision {_activeGameSchema!.Revision}.")
+            .AppendLine()
+            .AppendLine("Original Designer Request:")
+            .AppendLine(designerRequest)
+            .AppendLine()
+            .AppendLine("Existing Candidate:")
+            .AppendLine(PrettyJson(proposal.Candidate.ToJsonString()))
+            .AppendLine()
+            .AppendLine("Use newly available fields when they represent the original request. Preserve compatible content, omit unsupported fields, and report any remaining schema gaps.");
+        return text.ToString().Trim();
     }
 
     internal void RestoreContentReviewWorkspace(
@@ -1574,7 +1644,9 @@ public partial class MainWindow : Window
         WorkingRuleSet workingRuleSet,
         ActiveGameSchema activeGameSchema,
         ProjectGameData projectGameData,
-        IEnumerable<ProjectContentBalanceProfile>? balanceProfiles = null)
+        IEnumerable<ProjectContentBalanceProfile>? balanceProfiles = null,
+        IEnumerable<ContentProposal>? proposals = null,
+        IEnumerable<ContentProposalDecision>? decisions = null)
     {
         _project = project;
         _workingRuleSet = workingRuleSet;
@@ -1582,8 +1654,13 @@ public partial class MainWindow : Window
         _projectGameData = projectGameData;
         _contentBalanceProfiles.Clear();
         if (balanceProfiles is not null) _contentBalanceProfiles.AddRange(balanceProfiles);
+        _contentProposalItems.Clear();
+        if (proposals is not null) _contentProposalItems.AddRange(proposals);
+        _contentProposalDecisions.Clear();
+        if (decisions is not null) _contentProposalDecisions.AddRange(decisions);
         RefreshWorkingRulesView();
         RefreshGameDataView();
+        RefreshContentProposalView();
     }
 
     private async void SaveContentProposalRevision_Click(object? sender, RoutedEventArgs e)
@@ -1593,11 +1670,11 @@ public partial class MainWindow : Window
         try
         {
             var candidate = ParseContentCandidate(ContentProposalEditor.Text ?? string.Empty, selected.EntityTypeId);
-            var revision = ContentProposalLifecycleService.Create(_project.Id, selected.EntityTypeId, candidate, _activeGameSchema.Id, _activeGameSchema.Revision, _workingRuleSet.Id, _workingRuleSet.Revision, DateTimeOffset.UtcNow, selected, selected.SchemaGaps);
+            var revision = ContentProposalLifecycleService.Create(_project.Id, selected.EntityTypeId, candidate, _activeGameSchema.Id, _activeGameSchema.Revision, _workingRuleSet.Id, _workingRuleSet.Revision, DateTimeOffset.UtcNow, selected, selected.SchemaGaps, selected.DesignerRequest);
             await _contentProposals.SaveProposalAsync(revision);
             _contentProposalItems.Insert(0, revision);
             RefreshContentProposalView();
-            ContentProposalList.SelectedIndex = 0;
+            SelectContentProposal(revision.Id);
             ContentProposalStatusText.Text = $"Saved version {revision.Version} as a replacement proposal. It remains outside canonical game data.";
         }
         catch (Exception ex)
@@ -1744,7 +1821,10 @@ public partial class MainWindow : Window
 
     private string DescribeContentProposalStatus(ContentProposal proposal)
     {
-        return $"Proposal {proposal.Id}, Version {proposal.Version} ({ProposalState(proposal)}). Schema Revision {proposal.ActiveGameSchemaRevision}; Working Rule Set Revision {proposal.WorkingRuleSetRevision}. Editing And Saving Creates A New Proposal Version; It Never Rewrites This Version Or Canonical Game Data.";
+        var schemaStatus = _activeGameSchema is not null && string.Equals(proposal.ActiveGameSchemaId, _activeGameSchema.Id, StringComparison.Ordinal) && proposal.ActiveGameSchemaRevision == _activeGameSchema.Revision
+            ? $"Current Schema Revision {proposal.ActiveGameSchemaRevision}."
+            : $"Historical Schema Revision {proposal.ActiveGameSchemaRevision}; Re-Evaluate This Proposal After Activating The Updated Schema.";
+        return $"Proposal {proposal.Candidate["id"]?.GetValue<string>() ?? proposal.Id}, Version {proposal.Version} ({ProposalState(proposal)}). {schemaStatus} Working Rule Set Revision {proposal.WorkingRuleSetRevision}. Older Versions Stay In This Proposal's History Instead Of Appearing As Separate Current Proposals.";
     }
 
     private void RefreshContentEvaluationView(ContentProposal proposal)
@@ -1785,10 +1865,27 @@ public partial class MainWindow : Window
 
     private string FormatContentProposalHistory(ContentProposal proposal)
     {
-        var decisions = _contentProposalDecisions.Where(item => item.ProposalId == proposal.Id).OrderBy(item => item.CreatedAt).ToArray();
-        if (decisions.Length == 0) return "No designer decision has been recorded. The candidate remains a proposal.";
-        var replacement = _contentProposalItems.Where(item => string.Equals(item.ReplacesProposalId, proposal.Id, StringComparison.Ordinal)).OrderByDescending(item => item.CreatedAt).FirstOrDefault();
-        return string.Join("\n\n", decisions.Select(item => $"{item.CreatedAt.LocalDateTime:g} - {DisplayDecision(item.Kind)}\n{item.Note ?? "No note."}\nReplacement: {item.ReplacementProposalId ?? replacement?.Id ?? "None"}"));
+        var lineage = new List<ContentProposal>();
+        var current = proposal;
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        while (visited.Add(current.Id))
+        {
+            lineage.Add(current);
+            if (string.IsNullOrWhiteSpace(current.ReplacesProposalId)) break;
+            var previous = _contentProposalItems.FirstOrDefault(item => string.Equals(item.Id, current.ReplacesProposalId, StringComparison.Ordinal));
+            if (previous is null) break;
+            current = previous;
+        }
+
+        return string.Join("\n\n", lineage.Select((version, index) =>
+        {
+            var decisions = _contentProposalDecisions.Where(item => item.ProposalId == version.Id).OrderBy(item => item.CreatedAt).ToArray();
+            var decisionText = decisions.Length == 0
+                ? "Decision: Awaiting Review"
+                : string.Join("\n", decisions.Select(item => $"Decision: {DisplayDecision(item.Kind)}" + (string.IsNullOrWhiteSpace(item.Note) ? string.Empty : $" - {item.Note}")));
+            var requestText = string.IsNullOrWhiteSpace(version.DesignerRequest) ? "Request: Not Retained For This Earlier Version" : $"Request: {version.DesignerRequest}";
+            return $"Version {version.Version}{(index == 0 ? " (Current)" : string.Empty)} - Schema Revision {version.ActiveGameSchemaRevision} - {version.CreatedAt.LocalDateTime:g}\n{requestText}\n{decisionText}";
+        }));
     }
 
     private static string DisplayDecision(ContentProposalDecisionKind kind) => kind switch
@@ -2163,6 +2260,7 @@ public partial class MainWindow : Window
         ContentProposalEditor.Text = "Generated candidates and their validation results appear here.";
         ContentSchemaGapText.Text = "Select A Proposal To Review Whether The Active Schema Covers Its Request.";
         OpenSchemaForContentGapButton.IsVisible = false;
+        ReevaluateContentProposalButton.IsVisible = false;
         ContentProposalDecisionNoteText.Text = string.Empty;
         ContentProposalDecisionHistoryText.Text = "No decisions recorded.";
         ContentDecisionGuidanceText.Text = "Enter An Optional Decision Note. Revision Guidance Will Be Moved To Designer Request For Regeneration.";
@@ -2284,7 +2382,7 @@ public partial class MainWindow : Window
     }
     private sealed record ContentProposalListItem(ContentProposal Proposal, string State)
     {
-        public override string ToString() => $"{Proposal.EntityTypeId} v{Proposal.Version} - {State}";
+        public override string ToString() => $"{Proposal.Candidate["id"]?.GetValue<string>() ?? Proposal.EntityTypeId} - {Proposal.EntityTypeId} v{Proposal.Version} - {State}";
     }
     private sealed class CapturingClient(ILanguageModelClient inner) : ILanguageModelClient { public LlmChatResponse? Last { get; private set; } public async Task<LlmChatResponse> CompleteAsync(LlmChatRequest request, CancellationToken cancellationToken = default) => Last = await inner.CompleteAsync(request, cancellationToken); }
 }

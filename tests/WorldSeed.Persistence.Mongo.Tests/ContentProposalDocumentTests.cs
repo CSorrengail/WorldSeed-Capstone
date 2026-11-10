@@ -31,7 +31,8 @@ public sealed class ContentProposalDocumentTests
             7,
             1,
             createdAt,
-            SchemaGaps: [new ContentSchemaGap("reach", "No reach property exists.", "Add reach to the schema.")]);
+            SchemaGaps: [new ContentSchemaGap("reach", "No reach property exists.", "Add reach to the schema.")],
+            DesignerRequest: "Create an ember wolf with reach.");
 
         var document = ContentProposalDocument.FromDomain(proposal);
 
@@ -46,6 +47,7 @@ public sealed class ContentProposalDocumentTests
         Assert.Equal(proposal.CreatedAt, restored.CreatedAt);
         Assert.True(JsonNode.DeepEquals(proposal.Candidate, restored.Candidate));
         Assert.Equal("reach", Assert.Single(restored.SchemaGaps!).RequestedConcept);
+        Assert.Equal(proposal.DesignerRequest, restored.DesignerRequest);
     }
 
     [Fact]
@@ -54,9 +56,11 @@ public sealed class ContentProposalDocumentTests
         var legacy = new ContentProposalDocument("proposal-legacy", "project-1", "monster", BsonDocument.Parse("{ id: 'legacy', entityTypeId: 'monster', values: {} }"), "schema-1", 1, "rules-1", 1, 1, DateTimeOffset.UtcNow, null);
         var bson = legacy.ToBsonDocument();
         bson.Remove(nameof(ContentProposalDocument.SchemaGaps));
+        bson.Remove(nameof(ContentProposalDocument.DesignerRequest));
 
         var restored = BsonSerializer.Deserialize<ContentProposalDocument>(bson).ToDomain();
 
         Assert.Null(restored.SchemaGaps);
+        Assert.Null(restored.DesignerRequest);
     }
 }

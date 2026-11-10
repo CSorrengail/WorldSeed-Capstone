@@ -14,11 +14,11 @@ internal static class ContentEvaluationPresenter
                 ? "Passed: No Mechanical Violations Were Found In The Active Schema."
                 : "Failed:\n" + string.Join("\n", evaluation.MechanicalViolations.Select(issue => $"- {issue.Path}: {issue.Message}"));
 
-        var balance = profile is null
+        var balance = evaluation is null
+            ? "Unavailable: Re-Evaluate This Proposal With The Current Active Schema Before Running Mechanical Or Balance Evaluation."
+            : profile is null
             ? "Not Configured: This Content Type And Schema Revision Have No Game-Specific Balance Profile. Mechanical Validation Still Ran, But WorldSeed Will Not Invent A Universal Score. Open Game-Specific Balance Profile Under Proposal Setup To Add This Game's Reference Values."
-            : evaluation is null
-                ? $"Unavailable: Profile {profile.Profile.Id} Cannot Be Applied Without Its Matching Active Schema Revision."
-                : !evaluation.IsMechanicallyValid
+            : !evaluation.IsMechanicallyValid
                     ? $"Not Run: Fix Mechanical Violations Before Measuring Profile {profile.Profile.Id}."
                     : evaluation.BalanceConcerns.Count == 0
                         ? $"Passed: Profile {profile.Profile.Id} Found No Advisory Balance Concerns."

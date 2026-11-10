@@ -3,6 +3,7 @@ using System.Text.Json;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using WorldSeed.App;
+using WorldSeed.Content;
 using WorldSeed.DesignSessions;
 using WorldSeed.GameData;
 using WorldSeed.WorkingRules;
@@ -102,14 +103,53 @@ public sealed class ContentReviewReadyStateTests
 
             await window.GenerateContentProposalAsync();
 
-            Assert.Contains("Saved requested revision as version 2", window.FindControl<TextBlock>("ContentProposalStatusText")!.Text);
+            Assert.Contains("Saved replacement version 2 against schema revision 1", window.FindControl<TextBlock>("ContentProposalStatusText")!.Text);
             Assert.Contains("skirmisher", window.FindControl<TextBox>("ContentProposalEditor")!.Text);
             Assert.Contains("fits the active schema", window.FindControl<TextBlock>("ContentSchemaGapText")!.Text, StringComparison.OrdinalIgnoreCase);
             Assert.False(window.FindControl<Button>("OpenSchemaForContentGapButton")!.IsVisible);
-            window.FindControl<ListBox>("ContentProposalList")!.SelectedIndex = 1;
+            Assert.Single(window.FindControl<ListBox>("ContentProposalList")!.Items.Cast<object>());
+            Assert.Contains("Version 2 (Current)", window.FindControl<TextBox>("ContentProposalDecisionHistoryText")!.Text);
+            Assert.Contains("Version 1", window.FindControl<TextBox>("ContentProposalDecisionHistoryText")!.Text);
             Assert.Contains("Use a valid creature role.", window.FindControl<TextBox>("ContentProposalDecisionHistoryText")!.Text);
-            Assert.DoesNotContain("Replacement: None", window.FindControl<TextBox>("ContentProposalDecisionHistoryText")!.Text);
             Assert.Equal("Generate Proposal", generate.Content);
+        }
+        finally { window.Close(); }
+    }
+
+    [AvaloniaFact]
+    public async Task Historical_proposal_can_be_re_evaluated_as_one_lineage_against_current_schema()
+    {
+        using var model = new HttpClient(new ReevaluateModelHandler());
+        using var api = new HttpClient(new ProposalApiHandler()) { BaseAddress = new Uri("http://qa.invalid/") };
+        var window = new MainWindow(model, api);
+        try
+        {
+            var now = DateTimeOffset.UtcNow;
+            var project = DesignProjectService.Create("rebase-project", "Rebase Project");
+            var rule = new WorkingRule("creature-definition", "Creature Definition", WorkingRuleKind.Definition, "Creatures have roles and may have reach.", [], [], [], [], null, [], []);
+            var rules = new WorkingRuleSet("rebase-rules", project.Id, "0.1", "Rebase Rules", null, 1, now, now, [rule], [], [], [], []);
+            var currentSchemaJson = JsonNode.Parse("""
+                {"id":"rebase-schema","name":"Rebase Schema","version":"1.1","entityTypes":[{"metadata":{"id":"creature","name":"Creature"},"properties":[{"metadata":{"id":"role","name":"Role"},"valueType":{"kind":"primitive","name":"string"},"required":true,"nullable":false},{"metadata":{"id":"reach","name":"Reach"},"valueType":{"kind":"primitive","name":"integer"},"required":true,"nullable":false}]}],"valueTypes":[]}
+                """)!.AsObject();
+            var active = new ActiveGameSchema("active-rebase", project.Id, "0.1", "Rebase Schema", currentSchemaJson.ToJsonString(), "proposal-ready", rules.Id, rules.Revision, 2, now, now);
+            var historical = ContentProposalLifecycleService.Create(project.Id, "creature", JsonNode.Parse("""{"id":"coal-stalker","entityTypeId":"creature","values":{"role":"skirmisher"}}""")!.AsObject(), "active-rebase", 1, rules.Id, rules.Revision, now, schemaGaps: [new ContentSchemaGap("reach", "No reach property existed.")], designerRequest: "Create a coal stalker with reach 2.");
+
+            window.RestoreContentReviewWorkspace(project, rules, active, GameDataService.CreateEmpty(active, now), proposals: [historical]);
+            window.FindControl<ComboBox>("ModelSelector")!.ItemsSource = new[] { "local-model" };
+            window.FindControl<ComboBox>("ModelSelector")!.SelectedIndex = 0;
+            window.FindControl<ListBox>("ContentProposalList")!.SelectedIndex = 0;
+
+            Assert.True(window.FindControl<Button>("ReevaluateContentProposalButton")!.IsVisible);
+            Assert.Contains("Historical", window.FindControl<TextBox>("ContentMechanicalValidationText")!.Text);
+            Assert.True(await window.ReevaluateContentProposalAsync());
+
+            Assert.Single(window.FindControl<ListBox>("ContentProposalList")!.Items.Cast<object>());
+            Assert.Contains("\"reach\": 2", window.FindControl<TextBox>("ContentProposalEditor")!.Text);
+            Assert.Contains("Version 2 (Current)", window.FindControl<TextBox>("ContentProposalDecisionHistoryText")!.Text);
+            Assert.Contains("Version 1", window.FindControl<TextBox>("ContentProposalDecisionHistoryText")!.Text);
+            Assert.Contains("Create a coal stalker with reach 2.", window.FindControl<TextBox>("ContentProposalDecisionHistoryText")!.Text);
+            Assert.False(window.FindControl<Button>("ReevaluateContentProposalButton")!.IsVisible);
+            Assert.StartsWith("Passed:", window.FindControl<TextBox>("ContentMechanicalValidationText")!.Text);
         }
         finally { window.Close(); }
     }
@@ -129,6 +169,19 @@ public sealed class ContentReviewReadyStateTests
             {
                 model = "local-model",
                 message = new { content = $"{{\"candidate\":{{\"id\":\"coal-stalker\",\"entityTypeId\":\"creature\",\"values\":{{\"creature.role\":\"{role}\"}}}},\"schemaGaps\":{schemaGaps}}}" }
+            });
+            return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StringContent(body) });
+        }
+    }
+
+    private sealed class ReevaluateModelHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var body = JsonSerializer.Serialize(new
+            {
+                model = "local-model",
+                message = new { content = "{\"candidate\":{\"id\":\"coal-stalker\",\"entityTypeId\":\"creature\",\"values\":{\"role\":\"skirmisher\",\"reach\":2}},\"schemaGaps\":[]}" }
             });
             return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StringContent(body) });
         }
