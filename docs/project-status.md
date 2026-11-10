@@ -20,6 +20,35 @@ Windows automation binaries exist and run directly, but both supported tool
 surfaces still fail to initialize after a kernel reset, indicating a stale or
 broken Codex computer-control session rather than a missing WorldSeed resource.
 
+Manual smoke testing then exposed unclear recovery from mechanical validation
+failures and an incomplete revision workflow. Revision `0202da6` now lists
+allowed enumeration IDs, explains how to configure a missing game-specific
+balance profile, and turns a recorded revision request into an explicit
+Generate Requested Revision workflow with replacement linkage. Independent QA
+passed the focused headless workflow, blank-guidance and new-proposal checks,
+and 34 content/schema regressions. Evidence is retained at
+`artifacts/qa/20261108-content-revision-guidance/report.md`. Owner verification
+through a rebuilt normal-launcher client remains the next manual check.
+
+The owner's chainmail smoke test then identified a value-shape defect: the local
+model inferred the correct `heavy` category but copied its schema descriptor into
+`candidate.values`. Revision `0550b71` replaces the broad schema prompt with a
+selected-type runtime-value contract and clarifies descriptor-shaped validation
+errors. QA passed 36 focused regressions, and a non-persisting live
+`gemma3:12b` fixture run returned `"weightCategory": "heavy"` with zero
+mechanical violations. Evidence is retained at
+`artifacts/qa/20261108-runtime-value-contract/report.md`.
+
+Revision `3241c82` closes the remaining silent-omission problem exposed by that
+test. Content generation now records advisory schema gaps separately from the
+candidate, shows them in Content Review, points the designer to the existing
+Schema workspace, retains them through proposal versions and Mongo persistence,
+and includes them as non-canonical export provenance. QA passed 47 automated
+checks and an API build; a non-persisting live `gemma3:12b` SOT fixture returned
+`"weightCategory": "heavy"` plus a separate `armorValue` schema gap with zero
+mechanical violations. Evidence is retained at
+`artifacts/qa/20261110-content-schema-gaps/report.md`.
+
 The completed workflow covers traceable fixture rules and schemas, bounded
 proposal generation, hard mechanical validation, game-specific advisory balance
 profiles, designer approval/rejection/revision history, approval-gated JSON
@@ -43,6 +72,47 @@ remains available for any later owner-action stop.
   changes during this demonstration.
 
 ## Latest Verified Application Revision
+
+- **Tested revision:** `3241c82` - Report content schema coverage gaps.
+- **QA result:** PASS on the exact revision with only this accumulated status
+  file dirty: 13 Content tests, 23 SchemaValidation tests, 2 Mongo persistence
+  tests, 9 headless UI tests, an API Release build, and one non-persisting live
+  `gemma3:12b` SOT fixture probe.
+- **Behavior:** representable candidate values remain schema-conformant;
+  unsupported requested concepts are explicit advisory gaps rather than invented
+  fields or silent omissions. Reported, no-gap, and legacy/unreported states are
+  distinct. Gaps survive persistence, revision context, and approved export
+  provenance without modifying canonical schema or game data.
+- **Evidence:** `artifacts/qa/20261110-content-schema-gaps/report.md`.
+- **Isolation:** QA used fixture data only and did not access the normal launcher,
+  port 5080, user projects, the development API/Mongo stack, or Docker volumes.
+
+- **Tested revision:** `0550b71` - Distinguish schema types from content values.
+- **QA result:** PASS on the exact revision with only the accumulated status file
+  dirty: 12 Content tests, 23 SchemaValidation tests, one focused Content Review
+  test, and one non-persisting live `gemma3:12b` fixture probe.
+- **Behavior:** content prompts describe runtime property values rather than
+  exposing the entire schema as an output template. Enumeration fields name
+  their exact string entry IDs and show a correctly typed example. Descriptor
+  objects remain invalid and now receive explicit correction guidance.
+- **Evidence:** `artifacts/qa/20261108-runtime-value-contract/report.md`.
+- **Isolation:** QA used fixture schema/rules only and did not access the normal
+  app, API, Mongo, Docker volumes, port 5080, or user project data.
+
+- **Tested revision:** `0202da6` - Guide content proposal revisions.
+- **QA result:** PASS on the exact clean revision: one tracked Content Review
+  headless test, one disposable headless UI probe, 11 Content tests, and 23
+  SchemaValidation tests.
+- **Behavior:** mechanical enumeration errors show allowed IDs; missing balance
+  profiles point to the profile editor without inventing a universal score;
+  revision guidance becomes a visible Designer Request; requested regeneration
+  creates and links a replacement; blank guidance is refused; Start New Proposal
+  resets the workflow.
+- **Evidence:**
+  `artifacts/qa/20261108-content-revision-guidance/report.md`.
+- **Boundary:** no live model/API/Docker/normal-launcher path was used for this
+  focused correction. An existing user-owned app process was observed and left
+  untouched.
 
 - **Tested revision:** `6887ab9` - Prevent content proposal selection recursion,
   following deterministic Content Review readiness at `438a01f`.
@@ -233,6 +303,11 @@ remains available for any later owner-action stop.
 ## Open Defects And Technical Limits
 
 - No confirmed product defect is currently open.
+- On 2026-11-10 both supported Windows computer-control surfaces failed before
+  listing windows with `failed to start Node runtime: The system cannot find the
+  path specified. (os error 3)`, including after a runtime reset. This is an
+  environment/tooling blocker to automated normal-launcher visual evidence, not
+  a reproduced WorldSeed defect.
 - A user-running Debug `WorldSeed.App.exe` can lock Debug build output. QA uses
   isolated Release builds and must not terminate a user-owned process.
 - Approved screenshot baselines and broader desktop accessibility/high-DPI review
@@ -272,6 +347,19 @@ components and deterministic fixtures, has credible connected evidence.
   proposals to canonical Game Data are not approved MVP requirements.
 - **Owner decisions:** none.
 
+## Latest Advisor Schema-Coverage Review
+
+- **Revision reviewed:** `0550b71` and the owner's SOT chainmail observation.
+- **Assessment:** YELLOW, non-blocking. Correct schema conformance was GREEN;
+  silent omission of requested but unrepresentable concepts was a bounded
+  usability risk rather than an MVP architecture failure.
+- **Response:** completed at verified revision `3241c82`. WorldSeed now reports
+  game-specific schema gaps without inventing an armor property or universal
+  balance model.
+- **Remaining owner decision:** whether the SOT schema should actually gain an
+  armor-value rule/property and references is a game-design choice, not an
+  implementation assumption. It is not required to verify the generic workflow.
+
 ## Remaining Authorized Work
 
 - Run one final manual desktop check from the normal launcher: generate and
@@ -283,8 +371,10 @@ components and deterministic fixtures, has credible connected evidence.
 
 ## Next Action Required
 
-The owner must either restart the Codex desktop session so computer control can
-be retried, or perform the final normal-launcher desktop check manually. Both
-available computer-control surfaces currently fail before they can observe an
-application window. Development should evaluate any observed WorldSeed failure
-before the usable MVP is marked complete.
+The owner must perform the final normal-launcher desktop check manually because
+both available computer-control surfaces fail before they can observe a window.
+Run `RunWorldSeed.bat --restart --rebuild`, then use `qa/MANUAL_MVP_SMOKE.md`.
+For the SOT chainmail request, confirm the candidate uses the string `heavy` and
+the Schema Coverage panel separately identifies armor value as unrepresentable.
+Report the first step that differs from the guide. Development should evaluate
+any observed WorldSeed failure before the usable MVP is marked complete.
