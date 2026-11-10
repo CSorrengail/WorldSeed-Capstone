@@ -30,6 +30,14 @@ internal sealed class HttpContentProposalClient(HttpClient http)
         await EnsureSuccessAsync(response, cancellationToken);
     }
 
+    public async Task<ContentApplication> ApplyApprovedAsync(string projectId, string proposalId, CancellationToken cancellationToken = default)
+    {
+        using var response = await _http.PostAsync($"api/projects/{Uri.EscapeDataString(projectId)}/content-proposals/{Uri.EscapeDataString(proposalId)}/apply", null, cancellationToken);
+        await EnsureSuccessAsync(response, cancellationToken);
+        return await response.Content.ReadFromJsonAsync<ContentApplication>(JsonOptions, cancellationToken)
+            ?? throw new HttpRequestException("WorldSeed local service did not return the content application record.");
+    }
+
     public async Task<IReadOnlyList<ProjectContentBalanceProfile>> LoadBalanceProfilesAsync(string projectId, CancellationToken cancellationToken = default)
     {
         using var response = await _http.GetAsync($"api/projects/{Uri.EscapeDataString(projectId)}/content-balance-profiles", cancellationToken);
@@ -51,4 +59,7 @@ internal sealed class HttpContentProposalClient(HttpClient http)
     }
 }
 
-internal sealed record ContentProposalWorkspace(IReadOnlyList<ContentProposal> Proposals, IReadOnlyList<ContentProposalDecision> Decisions);
+internal sealed record ContentProposalWorkspace(
+    IReadOnlyList<ContentProposal> Proposals,
+    IReadOnlyList<ContentProposalDecision> Decisions,
+    IReadOnlyList<ContentApplication>? Applications = null);

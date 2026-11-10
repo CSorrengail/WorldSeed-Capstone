@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using System.Text.Json;
+using System.Net.Http.Json;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using WorldSeed.App;
@@ -193,6 +194,46 @@ public sealed class ContentReviewReadyStateTests
         finally { window.Close(); }
     }
 
+    [AvaloniaFact]
+    public async Task Approved_proposal_requires_warning_confirmation_then_becomes_canonical()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var project = DesignProjectService.Create("apply-project", "Apply Project");
+        var rule = new WorkingRule("creature-definition", "Creature Definition", WorkingRuleKind.Definition, "Creatures have names.", [], [], [], [], null, [], []);
+        var rules = new WorkingRuleSet("apply-rules", project.Id, "0.1", "Apply Rules", null, 1, now, now, [rule], [], [], [], []);
+        var schemaJson = JsonNode.Parse("""{"id":"apply-schema","name":"Apply Schema","version":"1","entityTypes":[{"metadata":{"id":"creature","name":"Creature"},"properties":[{"metadata":{"id":"name","name":"Name"},"valueType":{"kind":"primitive","name":"string"},"required":true,"nullable":false}]}],"valueTypes":[]}""")!.AsObject();
+        var active = new ActiveGameSchema("active-apply", project.Id, "0.1", "Apply Schema", schemaJson.ToJsonString(), "proposal-apply", rules.Id, rules.Revision, 1, now, now);
+        var gameData = GameDataService.CreateEmpty(active, now);
+        var proposal = ContentProposalLifecycleService.Create(project.Id, "creature", JsonNode.Parse("""{"id":"glass-fox","entityTypeId":"creature","values":{"name":"Glass Fox"}}""")!.AsObject(), active.Id, active.Revision, rules.Id, rules.Revision, now, schemaGaps: [new ContentSchemaGap("lore", "Lore is not represented by this schema.")], designerRequest: "Create a glass fox.");
+        var approval = ContentProposalLifecycleService.Decide(proposal, ContentProposalDecisionKind.Approved, "Use it.", now);
+        var prepared = ContentApplicationService.Prepare(proposal, approval, active, gameData, now);
+        var applied = ContentApplicationService.Complete(prepared.Application, prepared.UpdatedGameData, now.AddSeconds(1));
+        var apiHandler = new ApplicationApiHandler(applied, prepared.UpdatedGameData);
+        using var model = new HttpClient(new ReevaluateModelHandler());
+        using var api = new HttpClient(apiHandler) { BaseAddress = new Uri("http://qa.invalid/") };
+        var window = new MainWindow(model, api);
+        try
+        {
+            window.RestoreContentReviewWorkspace(project, rules, active, gameData, proposals: [proposal], decisions: [approval]);
+            window.FindControl<ListBox>("ContentProposalList")!.SelectedIndex = 0;
+            var apply = window.FindControl<Button>("ApplyApprovedContentButton")!;
+            Assert.True(apply.IsEnabled);
+
+            Assert.False(await window.ApplyApprovedContentAsync());
+            Assert.Equal(0, apiHandler.ApplyCalls);
+            Assert.Equal("Confirm Apply With Warnings", apply.Content);
+            Assert.Contains("advisory", window.FindControl<TextBlock>("ContentProposalStatusText")!.Text, StringComparison.OrdinalIgnoreCase);
+
+            Assert.True(await window.ApplyApprovedContentAsync());
+            Assert.Equal(1, apiHandler.ApplyCalls);
+            Assert.Equal("Applied To Game Data", apply.Content);
+            Assert.False(apply.IsEnabled);
+            Assert.Contains("glass-fox", window.FindControl<TextBox>("GameDataJsonText")!.Text);
+            Assert.Contains("application event", window.FindControl<TextBlock>("ContentProposalStatusText")!.Text);
+        }
+        finally { window.Close(); }
+    }
+
     private sealed class ModelHandler : HttpMessageHandler
     {
         private int _requestCount;
@@ -249,6 +290,24 @@ public sealed class ContentReviewReadyStateTests
             Assert.Contains("/content-proposals/", request.RequestUri!.AbsolutePath);
             Assert.True(request.Method == HttpMethod.Put || request.Method == HttpMethod.Post);
             return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.NoContent));
+        }
+    }
+
+    private sealed class ApplicationApiHandler(ContentApplication application, ProjectGameData gameData) : HttpMessageHandler
+    {
+        private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+        public int ApplyCalls { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (request.Method == HttpMethod.Post && request.RequestUri!.AbsolutePath.EndsWith("/apply", StringComparison.Ordinal))
+            {
+                ApplyCalls++;
+                return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = JsonContent.Create(application, options: JsonOptions) });
+            }
+            if (request.Method == HttpMethod.Get && request.RequestUri!.AbsolutePath.EndsWith("/game-data", StringComparison.Ordinal))
+                return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = JsonContent.Create(gameData, options: JsonOptions) });
+            throw new InvalidOperationException($"Unexpected QA request: {request.Method} {request.RequestUri}");
         }
     }
 }

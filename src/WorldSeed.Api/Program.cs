@@ -27,6 +27,8 @@ builder.Services.AddSingleton<MongoProjectGameDataStore>();
 builder.Services.AddSingleton<IProjectGameDataStore>(services => services.GetRequiredService<MongoProjectGameDataStore>());
 builder.Services.AddSingleton<MongoContentProposalStore>();
 builder.Services.AddSingleton<IContentProposalStore>(services => services.GetRequiredService<MongoContentProposalStore>());
+builder.Services.AddSingleton<MongoContentApplicationStore>();
+builder.Services.AddSingleton<IContentApplicationStore>(services => services.GetRequiredService<MongoContentApplicationStore>());
 builder.Services.AddSingleton<MongoContentBalanceProfileStore>();
 builder.Services.AddSingleton<IContentBalanceProfileStore>(services => services.GetRequiredService<MongoContentBalanceProfileStore>());
 builder.Services.AddSingleton<WorkingRuleSetValidator>();
@@ -42,6 +44,7 @@ using (var scope = app.Services.CreateScope())
     await scope.ServiceProvider.GetRequiredService<MongoActiveGameSchemaStore>().EnsureIndexesAsync();
     await scope.ServiceProvider.GetRequiredService<MongoProjectGameDataStore>().EnsureIndexesAsync();
     await scope.ServiceProvider.GetRequiredService<MongoContentProposalStore>().EnsureIndexesAsync();
+    await scope.ServiceProvider.GetRequiredService<MongoContentApplicationStore>().EnsureIndexesAsync();
     await scope.ServiceProvider.GetRequiredService<MongoContentBalanceProfileStore>().EnsureIndexesAsync();
 }
 
@@ -64,8 +67,9 @@ projects.MapPut("/{projectId}", async (string projectId, DesignProject project, 
     await store.SaveAsync(project, cancellationToken);
     return Results.NoContent();
 });
-projects.MapDelete("/{projectId}", async (string projectId, IDesignProjectStore store, IWorkingRuleSetStore ruleSets, IProjectSchemaProposalStore schemaProposals, IProjectSchemaChangeRequestStore schemaChangeRequests, IActiveGameSchemaStore activeSchemas, IProjectGameDataStore gameData, IContentProposalStore contentProposals, IContentBalanceProfileStore balanceProfiles, CancellationToken cancellationToken) =>
+projects.MapDelete("/{projectId}", async (string projectId, IDesignProjectStore store, IWorkingRuleSetStore ruleSets, IProjectSchemaProposalStore schemaProposals, IProjectSchemaChangeRequestStore schemaChangeRequests, IActiveGameSchemaStore activeSchemas, IProjectGameDataStore gameData, IContentProposalStore contentProposals, IContentApplicationStore contentApplications, IContentBalanceProfileStore balanceProfiles, CancellationToken cancellationToken) =>
 {
+    await contentApplications.DeleteAsync(projectId, cancellationToken);
     await contentProposals.DeleteAsync(projectId, cancellationToken);
     await balanceProfiles.DeleteAsync(projectId, cancellationToken);
     await gameData.DeleteAsync(projectId, cancellationToken);
@@ -77,7 +81,7 @@ projects.MapDelete("/{projectId}", async (string projectId, IDesignProjectStore 
     return Results.NoContent();
 });
 
-projects.MapGet("/{projectId}/content-proposals", async (string projectId, IContentProposalStore store, CancellationToken cancellationToken) => Results.Ok(new { proposals = await store.ListProposalsAsync(projectId, cancellationToken), decisions = await store.ListDecisionsAsync(projectId, cancellationToken) }));
+projects.MapGet("/{projectId}/content-proposals", async (string projectId, IContentProposalStore store, IContentApplicationStore applications, CancellationToken cancellationToken) => Results.Ok(new { proposals = await store.ListProposalsAsync(projectId, cancellationToken), decisions = await store.ListDecisionsAsync(projectId, cancellationToken), applications = await applications.ListAsync(projectId, cancellationToken) }));
 projects.MapPut("/{projectId}/content-proposals/{proposalId}", async (string projectId, string proposalId, ContentProposal proposal, IDesignProjectStore projectsStore, IContentProposalStore store, CancellationToken cancellationToken) =>
 {
     if (!string.Equals(projectId, proposal.ProjectId, StringComparison.Ordinal) || !string.Equals(proposalId, proposal.Id, StringComparison.Ordinal)) return Results.BadRequest("The URL identifiers must match the proposal.");
@@ -89,6 +93,47 @@ projects.MapPost("/{projectId}/content-proposals/{proposalId}/decisions", async 
     if (!string.Equals(projectId, decision.ProjectId, StringComparison.Ordinal) || !string.Equals(proposalId, decision.ProposalId, StringComparison.Ordinal)) return Results.BadRequest("The URL identifiers must match the decision.");
     if (await store.LoadProposalAsync(projectId, proposalId, cancellationToken) is null) return Results.NotFound("The proposal does not exist.");
     await store.SaveDecisionAsync(decision, cancellationToken); return Results.NoContent();
+});
+projects.MapPost("/{projectId}/content-proposals/{proposalId}/apply", async (string projectId, string proposalId, IContentProposalStore proposals, IContentApplicationStore applications, IActiveGameSchemaStore activeSchemas, IProjectGameDataStore gameData, CancellationToken cancellationToken) =>
+{
+    var proposal = await proposals.LoadProposalAsync(projectId, proposalId, cancellationToken);
+    if (proposal is null) return Results.NotFound("The proposal does not exist.");
+    var existingApplication = await applications.LoadAsync(projectId, proposalId, proposal.Version, cancellationToken);
+    if (existingApplication is { Status: ContentApplicationStatus.Applied }) return Results.Ok(existingApplication);
+
+    var latestDecision = (await proposals.ListDecisionsAsync(projectId, cancellationToken))
+        .Where(decision => decision.ProposalId == proposal.Id && decision.ProposalVersion == proposal.Version)
+        .OrderBy(decision => decision.CreatedAt)
+        .LastOrDefault();
+    if (latestDecision is not { Kind: ContentProposalDecisionKind.Approved })
+        return Results.Conflict("The exact proposal version must have a current approval decision before it can be applied.");
+    var activeSchema = await activeSchemas.LoadAsync(projectId, cancellationToken);
+    var currentGameData = await gameData.LoadAsync(projectId, cancellationToken);
+    if (activeSchema is null || currentGameData is null) return Results.Conflict("The project needs a current active schema and canonical Game Data before content can be applied.");
+
+    if (existingApplication is { Status: ContentApplicationStatus.Pending } && ContentApplicationService.CanonicalEntryMatches(existingApplication, currentGameData))
+    {
+        var recovered = ContentApplicationService.Complete(existingApplication, currentGameData, DateTimeOffset.UtcNow);
+        await applications.SaveAsync(recovered, cancellationToken);
+        return Results.Ok(recovered);
+    }
+
+    try
+    {
+        var preparation = ContentApplicationService.Prepare(proposal, latestDecision, activeSchema, currentGameData, DateTimeOffset.UtcNow);
+        var pending = existingApplication ?? preparation.Application;
+        if (existingApplication is not null && (!string.Equals(existingApplication.CandidateFingerprint, preparation.Application.CandidateFingerprint, StringComparison.Ordinal) || !string.Equals(existingApplication.ApprovalDecisionId, preparation.Application.ApprovalDecisionId, StringComparison.Ordinal)))
+            return Results.Conflict("The pending application no longer matches the approved proposal and decision. Nothing was changed.");
+        await applications.SaveAsync(pending, cancellationToken);
+        await gameData.SaveAsync(preparation.UpdatedGameData, cancellationToken);
+        var applied = ContentApplicationService.Complete(pending, preparation.UpdatedGameData, DateTimeOffset.UtcNow);
+        await applications.SaveAsync(applied, cancellationToken);
+        return Results.Ok(applied);
+    }
+    catch (InvalidOperationException exception)
+    {
+        return Results.Conflict(exception.Message);
+    }
 });
 projects.MapGet("/{projectId}/content-balance-profiles", async (string projectId, IContentBalanceProfileStore store, CancellationToken cancellationToken) => Results.Ok(await store.ListAsync(projectId, cancellationToken)));
 projects.MapPut("/{projectId}/content-balance-profiles/{profileId}", async (string projectId, string profileId, ProjectContentBalanceProfile profile, IDesignProjectStore projectsStore, IActiveGameSchemaStore activeSchemas, IContentBalanceProfileStore store, CancellationToken cancellationToken) =>

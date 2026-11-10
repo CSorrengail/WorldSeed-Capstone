@@ -9,6 +9,16 @@ namespace WorldSeed.Persistence.Mongo.Tests;
 public sealed class ContentProposalDocumentTests
 {
     [Fact]
+    public void Content_application_is_bson_safe()
+    {
+        var application = new ContentApplication("application-1", "project-1", "proposal-1", 2, "decision-1", "glass-fox", "creature", "{\"id\":\"glass-fox\"}", new string('a', 64), "schema-1", 3, "game-data-1", ContentApplicationStatus.Applied, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+
+        var restored = BsonSerializer.Deserialize<ContentApplication>(application.ToBson());
+
+        Assert.Equal(application, restored);
+    }
+
+    [Fact]
     public void Candidate_RoundTripsThroughBsonSafeDocument()
     {
         var createdAt = new DateTimeOffset(2026, 11, 7, 16, 30, 0, TimeSpan.Zero);

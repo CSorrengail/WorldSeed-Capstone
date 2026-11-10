@@ -47,6 +47,7 @@ public partial class MainWindow : Window
     private readonly List<GameDataEntityInstanceItem> _gameDataEntityInstances = [];
     private readonly List<ContentProposal> _contentProposalItems = [];
     private readonly List<ContentProposalDecision> _contentProposalDecisions = [];
+    private readonly List<ContentApplication> _contentApplications = [];
     private readonly List<ProjectContentBalanceProfile> _contentBalanceProfiles = [];
     private int _projectLoadGeneration;
     private bool _updatingProjectSelector;
@@ -57,6 +58,7 @@ public partial class MainWindow : Window
     private ActiveGameSchema? _activeGameSchema;
     private ProjectGameData? _projectGameData;
     private string? _pendingSchemaQuestion;
+    private string? _pendingContentApplicationProposalId;
     private bool _processingSchemaQueue;
     private bool _buildingGameStructures;
     private bool _applyingSchemaChange;
@@ -1405,6 +1407,8 @@ public partial class MainWindow : Window
             _contentProposalItems.AddRange(workspace.Proposals);
             _contentProposalDecisions.Clear();
             _contentProposalDecisions.AddRange(workspace.Decisions);
+            _contentApplications.Clear();
+            _contentApplications.AddRange(workspace.Applications ?? []);
             _contentBalanceProfiles.Clear();
             _contentBalanceProfiles.AddRange(await _contentProposals.LoadBalanceProfilesAsync(projectId));
         }
@@ -1413,6 +1417,7 @@ public partial class MainWindow : Window
             AppLog.Error("Load content proposals", ex);
             _contentProposalItems.Clear();
             _contentProposalDecisions.Clear();
+            _contentApplications.Clear();
             _contentBalanceProfiles.Clear();
             ContentProposalStatusText.Text = "Could not load saved proposals. See the diagnostic log.";
         }
@@ -1458,6 +1463,7 @@ public partial class MainWindow : Window
         ExportContentProposalButton.IsEnabled = selected is not null && LatestContentProposalDecision(selected)?.Kind == ContentProposalDecisionKind.Approved && _activeGameSchema is not null;
         ReevaluateContentProposalButton.IsVisible = selected is not null && !usesCurrentSchema;
         ReevaluateContentProposalButton.IsEnabled = ready && selectedTypeStillExists;
+        RefreshContentApplicationControl(selected, ready, usesCurrentSchema);
         if (selected is null)
         {
             ContentProposalEditor.Text = "Generated Candidates Appear Here.";
@@ -1487,6 +1493,30 @@ public partial class MainWindow : Window
 
     private ContentProposal? SelectedContentProposal => (ContentProposalList.SelectedItem as ContentProposalListItem)?.Proposal;
 
+    private void RefreshContentApplicationControl(ContentProposal? proposal, bool ready, bool usesCurrentSchema)
+    {
+        if (proposal is null)
+        {
+            ApplyApprovedContentButton.Content = "Apply Approved To Game Data";
+            ApplyApprovedContentButton.IsEnabled = false;
+            return;
+        }
+        var application = ContentApplicationFor(proposal);
+        if (application is { Status: ContentApplicationStatus.Applied })
+        {
+            ApplyApprovedContentButton.Content = "Applied To Game Data";
+            ApplyApprovedContentButton.IsEnabled = false;
+            return;
+        }
+        ApplyApprovedContentButton.Content = string.Equals(_pendingContentApplicationProposalId, proposal.Id, StringComparison.Ordinal)
+            ? "Confirm Apply With Warnings"
+            : application is { Status: ContentApplicationStatus.Pending } ? "Resume Apply To Game Data" : "Apply Approved To Game Data";
+        ApplyApprovedContentButton.IsEnabled = ready && usesCurrentSchema && LatestContentProposalDecision(proposal)?.Kind == ContentProposalDecisionKind.Approved;
+    }
+
+    private ContentApplication? ContentApplicationFor(ContentProposal proposal) =>
+        _contentApplications.FirstOrDefault(application => application.ProposalId == proposal.Id && application.ProposalVersion == proposal.Version);
+
     private IEnumerable<ContentProposal> CurrentContentProposalTips()
     {
         var replacedIds = _contentProposalItems.Where(item => !string.IsNullOrWhiteSpace(item.ReplacesProposalId)).Select(item => item.ReplacesProposalId!).ToHashSet(StringComparer.Ordinal);
@@ -1513,7 +1543,12 @@ public partial class MainWindow : Window
         else ContentBalanceProfileStatusText.Text = "Select A Content Type To Inspect Its Balance Profile.";
         RefreshContentProposalControls();
     }
-    private void ContentProposalList_SelectionChanged(object? sender, SelectionChangedEventArgs e) => RefreshSelectedContentProposalView();
+    private void ContentProposalList_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (!string.Equals(_pendingContentApplicationProposalId, SelectedContentProposal?.Id, StringComparison.Ordinal))
+            _pendingContentApplicationProposalId = null;
+        RefreshSelectedContentProposalView();
+    }
     private void ContentProposalRequestText_TextChanged(object? sender, TextChangedEventArgs e) => RefreshContentProposalControls();
     private void ModelSelector_SelectionChanged(object? sender, SelectionChangedEventArgs e) => RefreshContentProposalControls();
 
@@ -1705,7 +1740,8 @@ public partial class MainWindow : Window
         ProjectGameData projectGameData,
         IEnumerable<ProjectContentBalanceProfile>? balanceProfiles = null,
         IEnumerable<ContentProposal>? proposals = null,
-        IEnumerable<ContentProposalDecision>? decisions = null)
+        IEnumerable<ContentProposalDecision>? decisions = null,
+        IEnumerable<ContentApplication>? applications = null)
     {
         _project = project;
         _workingRuleSet = workingRuleSet;
@@ -1717,6 +1753,8 @@ public partial class MainWindow : Window
         if (proposals is not null) _contentProposalItems.AddRange(proposals);
         _contentProposalDecisions.Clear();
         if (decisions is not null) _contentProposalDecisions.AddRange(decisions);
+        _contentApplications.Clear();
+        if (applications is not null) _contentApplications.AddRange(applications);
         RefreshWorkingRulesView();
         RefreshGameDataView();
         RefreshContentProposalView();
@@ -1804,6 +1842,67 @@ public partial class MainWindow : Window
         catch (Exception ex) { AppLog.Error("Export approved content", ex); ContentProposalStatusText.Text = "Could not export the approved proposal. See the diagnostic log."; }
     }
 
+    private async void ApplyApprovedContent_Click(object? sender, RoutedEventArgs e) => await ApplyApprovedContentAsync();
+
+    internal async Task<bool> ApplyApprovedContentAsync()
+    {
+        var proposal = SelectedContentProposal;
+        if (_project is null || _activeGameSchema is null || _projectGameData is null || proposal is null) return false;
+        if (LatestContentProposalDecision(proposal)?.Kind != ContentProposalDecisionKind.Approved)
+        {
+            ContentProposalStatusText.Text = "Approve this exact proposal version before applying it to canonical Game Data.";
+            return false;
+        }
+        var evaluation = EvaluateContentProposal(proposal, out _);
+        if (evaluation is null || !evaluation.IsMechanicallyValid)
+        {
+            ContentProposalStatusText.Text = "The proposal must pass mechanical validation against the current active schema before it can be applied.";
+            return false;
+        }
+        var application = ContentApplicationFor(proposal);
+        var warningCount = (proposal.SchemaGaps?.Count ?? 0) + (proposal.SimilarityWarnings?.Count ?? 0) + evaluation.BalanceConcerns.Count;
+        if (application is not { Status: ContentApplicationStatus.Pending } && warningCount > 0 && !string.Equals(_pendingContentApplicationProposalId, proposal.Id, StringComparison.Ordinal))
+        {
+            _pendingContentApplicationProposalId = proposal.Id;
+            RefreshSelectedContentProposalView();
+            ContentProposalStatusText.Text = $"This approved proposal has {warningCount} advisory schema, similarity, or balance warning(s). Review the visible warnings, then choose Confirm Apply With Warnings to add it to canonical Game Data.";
+            return false;
+        }
+
+        ApplyApprovedContentButton.IsEnabled = false;
+        try
+        {
+            var applied = await _contentProposals.ApplyApprovedAsync(_project.Id, proposal.Id);
+            _contentApplications.RemoveAll(item => item.ProposalId == applied.ProposalId && item.ProposalVersion == applied.ProposalVersion);
+            _contentApplications.Add(applied);
+            _projectGameData = await _gameDataWorkspace.LoadGameDataAsync(_project.Id);
+            _pendingContentApplicationProposalId = null;
+            RefreshGameDataView();
+            RefreshSelectedContentProposalView();
+            ContentProposalStatusText.Text = $"Applied approved proposal version {proposal.Version} as canonical {applied.EntityInstanceId}. The proposal, approval, and application event remain in history.";
+            return true;
+        }
+        catch (HttpRequestException exception)
+        {
+            AppLog.Error("Apply approved content", exception);
+            ContentProposalStatusText.Text = exception.Message;
+            return false;
+        }
+        catch (Exception exception)
+        {
+            AppLog.Error("Apply approved content", exception);
+            ContentProposalStatusText.Text = "Could not apply the approved proposal. Canonical Game Data was not intentionally overwritten; see the diagnostic log.";
+            return false;
+        }
+        finally
+        {
+            var current = SelectedContentProposal;
+            var ready = _project is not null && _activeGameSchema is not null && _workingRuleSet is { Rules.Count: > 0 } && _gameDataEntityTypes.Count > 0;
+            var usesCurrentSchema = current is not null && _activeGameSchema is not null && string.Equals(current.ActiveGameSchemaId, _activeGameSchema.Id, StringComparison.Ordinal) && current.ActiveGameSchemaRevision == _activeGameSchema.Revision;
+            RefreshContentApplicationControl(current, ready, usesCurrentSchema);
+        }
+    }
+
     private async Task<bool> SaveContentProposalDecisionAsync(ContentProposalDecisionKind kind)
     {
         var proposal = SelectedContentProposal;
@@ -1813,6 +1912,7 @@ public partial class MainWindow : Window
             var decision = ContentProposalLifecycleService.Decide(proposal, kind, ContentProposalDecisionNoteText.Text, DateTimeOffset.UtcNow);
             await _contentProposals.SaveDecisionAsync(decision);
             _contentProposalDecisions.Add(decision);
+            _pendingContentApplicationProposalId = null;
             ContentProposalDecisionNoteText.Text = string.Empty;
             RefreshContentProposalView();
             ContentProposalStatusText.Text = $"Recorded {DisplayDecision(kind)} for proposal version {proposal.Version}.";
@@ -2328,6 +2428,8 @@ public partial class MainWindow : Window
         RefreshGameDataControls();
         _contentProposalItems.Clear();
         _contentProposalDecisions.Clear();
+        _contentApplications.Clear();
+        _pendingContentApplicationProposalId = null;
         _contentBalanceProfiles.Clear();
         ContentProposalEntityTypeList.ItemsSource = Array.Empty<GameDataEntityTypeItem>();
         ContentProposalList.ItemsSource = Array.Empty<ContentProposalListItem>();
