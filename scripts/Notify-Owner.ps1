@@ -85,9 +85,14 @@ function Invoke-Playback {
         if ($soundPath) {
             $player = New-Object System.Media.SoundPlayer $soundPath
             $player.Load()
+            # Windows alarm WAVs can be several seconds long. Play three short,
+            # recognizable pulses instead of replaying the entire file three times.
+            $pulseMilliseconds = if ($NotificationCategory -eq 'Interruption') { 450 } elseif ($NotificationCategory -eq 'MvpComplete') { 280 } else { 320 }
             1..3 | ForEach-Object {
-                $player.PlaySync()
-                Start-Sleep -Milliseconds 250
+                $player.Play()
+                Start-Sleep -Milliseconds $pulseMilliseconds
+                $player.Stop()
+                if ($_ -lt 3) { Start-Sleep -Milliseconds 90 }
             }
             $method = 'System.Media.SoundPlayer'
         }
@@ -95,13 +100,13 @@ function Invoke-Playback {
             $frequencies = if ($NotificationCategory -eq 'Interruption') { @(740, 560, 740) } elseif ($NotificationCategory -eq 'MvpComplete') { @(880, 1047, 1319) } else { @(1047, 784, 1047) }
             foreach ($frequency in $frequencies) {
                 try {
-                    [Console]::Beep($frequency, 250)
+                    [Console]::Beep($frequency, 180)
                 }
                 catch {
                     [System.Media.SystemSounds]::Exclamation.Play()
-                    Start-Sleep -Milliseconds 250
+                    Start-Sleep -Milliseconds 180
                 }
-                Start-Sleep -Milliseconds 125
+                Start-Sleep -Milliseconds 80
             }
         }
     }
@@ -109,7 +114,7 @@ function Invoke-Playback {
         $method = 'SystemSoundsFallback'
         1..3 | ForEach-Object {
             [System.Media.SystemSounds]::Exclamation.Play()
-            Start-Sleep -Milliseconds 300
+            Start-Sleep -Milliseconds 180
         }
     }
     finally {
