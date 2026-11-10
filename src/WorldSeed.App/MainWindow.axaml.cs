@@ -52,6 +52,9 @@ public partial class MainWindow : Window
     private readonly List<ContentApplication> _contentApplications = [];
     private readonly List<ProjectContentBalanceProfile> _contentBalanceProfiles = [];
     private readonly List<PublicationSnapshot> _publicationSnapshots = [];
+    private readonly List<PublicationEdition> _publicationEditions = [];
+    private readonly List<PublicationSectionPlanItem> _publicationSectionPlan = [];
+    private readonly List<PublicationSectionPlanItem> _publicationEntityPlan = [];
     private int _projectLoadGeneration;
     private bool _updatingProjectSelector;
     private string? _pendingDeletionProjectId;
@@ -1435,6 +1438,8 @@ public partial class MainWindow : Window
         {
             _publicationSnapshots.Clear();
             _publicationSnapshots.AddRange(await _publications.ListAsync(projectId));
+            _publicationEditions.Clear();
+            _publicationEditions.AddRange(await _publications.ListEditionsAsync(projectId));
             RefreshPublicationView();
             PublicationStatusText.Text = _publicationSnapshots.Count == 0
                 ? "No Publication Snapshots Exist. Create One From The Current Valid Project State."
@@ -1444,6 +1449,7 @@ public partial class MainWindow : Window
         {
             AppLog.Error("Load publication snapshots", exception);
             _publicationSnapshots.Clear();
+            _publicationEditions.Clear();
             RefreshPublicationView();
             PublicationStatusText.Text = "Could Not Load Publication Snapshots. See The Diagnostic Log.";
         }
@@ -1455,24 +1461,89 @@ public partial class MainWindow : Window
         var items = _publicationSnapshots.OrderByDescending(snapshot => snapshot.CreatedAt).Select(snapshot => new PublicationSnapshotListItem(snapshot)).ToArray();
         PublicationSnapshotList.ItemsSource = items;
         PublicationSnapshotList.SelectedIndex = selectedId is null ? -1 : Array.FindIndex(items, item => item.Snapshot.Id == selectedId);
+        RefreshPublicationEditionList();
         RefreshSelectedPublicationView();
     }
 
     private PublicationSnapshot? SelectedPublicationSnapshot => (PublicationSnapshotList.SelectedItem as PublicationSnapshotListItem)?.Snapshot;
+    private PublicationEdition? SelectedPublicationEdition => (PublicationEditionList.SelectedItem as PublicationEditionListItem)?.Edition;
+
+    private void RefreshPublicationEditionList()
+    {
+        var selectedEditionId = SelectedPublicationEdition?.Id;
+        var snapshotId = SelectedPublicationSnapshot?.Id;
+        var items = _publicationEditions.Where(edition => edition.SnapshotId == snapshotId).OrderByDescending(edition => edition.CreatedAt).Select(edition => new PublicationEditionListItem(edition)).ToArray();
+        PublicationEditionList.ItemsSource = items;
+        PublicationEditionList.SelectedIndex = selectedEditionId is null ? -1 : Array.FindIndex(items, item => item.Edition.Id == selectedEditionId);
+    }
 
     private void RefreshSelectedPublicationView()
     {
         var selected = SelectedPublicationSnapshot;
+        var edition = SelectedPublicationEdition;
         CreatePublicationSnapshotButton.IsEnabled = _project is not null && _workingRuleSet is not null && _activeGameSchema is not null && _projectGameData is not null;
         ExportPublicationMarkdownButton.IsEnabled = selected is not null;
         ExportPublicationManifestButton.IsEnabled = selected is not null;
-        PublicationMarkdownText.Text = selected?.Markdown ?? "No Publication Snapshot Is Selected.";
-        PublicationManifestText.Text = selected?.ManifestJson ?? "No Manifest Is Selected.";
-        if (selected is not null)
+        CreatePublicationEditionButton.IsEnabled = selected is not null;
+        var hasEdition = edition is not null;
+        PublicationEditionTitleText.IsEnabled = hasEdition;
+        PublicationEditionSubtitleText.IsEnabled = hasEdition;
+        PublicationSectionPlanList.IsEnabled = hasEdition;
+        PublicationEntityPlanList.IsEnabled = hasEdition;
+        TogglePublicationSectionButton.IsEnabled = hasEdition;
+        MovePublicationSectionUpButton.IsEnabled = hasEdition;
+        MovePublicationSectionDownButton.IsEnabled = hasEdition;
+        MovePublicationEntityUpButton.IsEnabled = hasEdition;
+        MovePublicationEntityDownButton.IsEnabled = hasEdition;
+        SavePublicationEditionButton.IsEnabled = hasEdition;
+        ReadyPublicationEditionButton.IsEnabled = hasEdition;
+        ExportPublicationEditionMarkdownButton.IsEnabled = edition?.State == PublicationEditionState.Ready;
+        ExportPublicationEditionManifestButton.IsEnabled = hasEdition;
+        PublicationMarkdownText.Text = edition?.Markdown ?? selected?.Markdown ?? "No Publication Snapshot Or Edition Is Selected.";
+        PublicationManifestText.Text = edition?.ManifestJson ?? selected?.ManifestJson ?? "No Manifest Is Selected.";
+        if (edition is not null)
+            PublicationStatusText.Text = $"Edition Revision {edition.Revision} Is {edition.State}. It References Immutable Snapshot {edition.SnapshotId}.";
+        else if (selected is not null)
             PublicationStatusText.Text = $"Snapshot {selected.Id}: Working Rule Set Revision {selected.WorkingRuleSetRevision}, Schema Revision {selected.ActiveGameSchemaRevision}, {selected.IncludedEntityIds.Count} Canonical Entry/Entries.";
     }
 
-    private void PublicationSnapshotList_SelectionChanged(object? sender, SelectionChangedEventArgs e) => RefreshSelectedPublicationView();
+    private void PublicationSnapshotList_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        RefreshPublicationEditionList();
+        PublicationEditionTitleText.Text = string.Empty;
+        PublicationEditionSubtitleText.Text = string.Empty;
+        _publicationSectionPlan.Clear();
+        _publicationEntityPlan.Clear();
+        RefreshPublicationPlanLists();
+        RefreshSelectedPublicationView();
+    }
+
+    private void PublicationEditionList_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        var edition = SelectedPublicationEdition;
+        var snapshot = SelectedPublicationSnapshot;
+        _publicationSectionPlan.Clear();
+        _publicationEntityPlan.Clear();
+        if (edition is not null && snapshot is not null)
+        {
+            PublicationEditionTitleText.Text = edition.Title;
+            PublicationEditionSubtitleText.Text = edition.Subtitle ?? string.Empty;
+            var descriptors = PublicationEditionService.DescribeSections(snapshot).ToDictionary(section => section.Id, StringComparer.Ordinal);
+            var included = edition.IncludedSectionIds.ToHashSet(StringComparer.Ordinal);
+            foreach (var id in edition.SectionOrder) if (descriptors.TryGetValue(id, out var section)) _publicationSectionPlan.Add(new PublicationSectionPlanItem(section.Id, section.Title, included.Contains(section.Id)));
+            foreach (var id in edition.EntitySectionOrder) if (descriptors.TryGetValue(id, out var section)) _publicationEntityPlan.Add(new PublicationSectionPlanItem(section.Id, section.Title, true));
+        }
+        RefreshPublicationPlanLists();
+        RefreshSelectedPublicationView();
+    }
+
+    private void RefreshPublicationPlanLists()
+    {
+        PublicationSectionPlanList.ItemsSource = null;
+        PublicationSectionPlanList.ItemsSource = _publicationSectionPlan.ToArray();
+        PublicationEntityPlanList.ItemsSource = null;
+        PublicationEntityPlanList.ItemsSource = _publicationEntityPlan.ToArray();
+    }
 
     private async void CreatePublicationSnapshot_Click(object? sender, RoutedEventArgs e) => await CreatePublicationSnapshotAsync();
 
@@ -1513,6 +1584,109 @@ public partial class MainWindow : Window
         }
     }
 
+    private async void CreatePublicationEdition_Click(object? sender, RoutedEventArgs e) => await CreatePublicationEditionAsync();
+    private async void SavePublicationEdition_Click(object? sender, RoutedEventArgs e) => await SavePublicationEditionRevisionAsync(markReady: false);
+    private async void ReadyPublicationEdition_Click(object? sender, RoutedEventArgs e) => await SavePublicationEditionRevisionAsync(markReady: true);
+
+    internal async Task<bool> CreatePublicationEditionAsync()
+    {
+        var snapshot = SelectedPublicationSnapshot;
+        if (_project is null || snapshot is null)
+        {
+            PublicationStatusText.Text = "Select An Immutable Publication Snapshot Before Creating An Edition.";
+            return false;
+        }
+        try
+        {
+            var sections = PublicationEditionService.DescribeSections(snapshot);
+            var request = new PublicationEditionRevisionRequest(
+                snapshot.ProjectName,
+                null,
+                sections.Where(section => !section.IsEntityType).Select(section => section.Id).ToArray(),
+                sections.Where(section => !section.IsEntityType).Select(section => section.Id).ToArray(),
+                sections.Where(section => section.IsEntityType).Select(section => section.Id).ToArray(),
+                false);
+            var edition = await _publications.SaveEditionAsync(_project.Id, snapshot.Id, request);
+            _publicationEditions.Insert(0, edition);
+            RefreshPublicationEditionList();
+            PublicationEditionList.SelectedIndex = 0;
+            PublicationStatusText.Text = "Created Draft Edition Revision 1. Adjust Only Its Presentation Plan, Then Save A Draft Revision Or Mark It Ready.";
+            return true;
+        }
+        catch (Exception exception)
+        {
+            AppLog.Error("Create publication edition", exception);
+            PublicationStatusText.Text = exception is HttpRequestException ? exception.Message : "Could Not Create The Publication Edition. See The Diagnostic Log.";
+            return false;
+        }
+    }
+
+    internal async Task<bool> SavePublicationEditionRevisionAsync(bool markReady)
+    {
+        var snapshot = SelectedPublicationSnapshot;
+        var edition = SelectedPublicationEdition;
+        if (_project is null || snapshot is null || edition is null)
+        {
+            PublicationStatusText.Text = "Select A Publication Edition Before Saving A Revision.";
+            return false;
+        }
+        if (string.IsNullOrWhiteSpace(PublicationEditionTitleText.Text))
+        {
+            PublicationStatusText.Text = "An Edition Title Is Required.";
+            return false;
+        }
+        try
+        {
+            var request = new PublicationEditionRevisionRequest(
+                PublicationEditionTitleText.Text,
+                PublicationEditionSubtitleText.Text,
+                _publicationSectionPlan.Select(section => section.Id).ToArray(),
+                _publicationSectionPlan.Where(section => section.Included).Select(section => section.Id).ToArray(),
+                _publicationEntityPlan.Select(section => section.Id).ToArray(),
+                markReady,
+                edition.Id,
+                edition.Revision);
+            var saved = await _publications.SaveEditionAsync(_project.Id, snapshot.Id, request);
+            _publicationEditions.Insert(0, saved);
+            RefreshPublicationEditionList();
+            PublicationEditionList.SelectedIndex = 0;
+            PublicationStatusText.Text = markReady
+                ? $"Marked Edition Revision {saved.Revision} Ready For Export."
+                : $"Saved Draft Edition Revision {saved.Revision}. Review Its Deterministic Preview Before Marking It Ready.";
+            return true;
+        }
+        catch (Exception exception)
+        {
+            AppLog.Error("Save publication edition", exception);
+            PublicationStatusText.Text = exception is HttpRequestException ? exception.Message : "Could Not Save The Publication Edition Revision. See The Diagnostic Log.";
+            return false;
+        }
+    }
+
+    private void TogglePublicationSection_Click(object? sender, RoutedEventArgs e)
+    {
+        var index = PublicationSectionPlanList.SelectedIndex;
+        if (index < 0 || index >= _publicationSectionPlan.Count) return;
+        _publicationSectionPlan[index].Included = !_publicationSectionPlan[index].Included;
+        RefreshPublicationPlanLists();
+        PublicationSectionPlanList.SelectedIndex = index;
+    }
+
+    private void MovePublicationSectionUp_Click(object? sender, RoutedEventArgs e) => MovePublicationPlanItem(_publicationSectionPlan, PublicationSectionPlanList, -1);
+    private void MovePublicationSectionDown_Click(object? sender, RoutedEventArgs e) => MovePublicationPlanItem(_publicationSectionPlan, PublicationSectionPlanList, 1);
+    private void MovePublicationEntityUp_Click(object? sender, RoutedEventArgs e) => MovePublicationPlanItem(_publicationEntityPlan, PublicationEntityPlanList, -1);
+    private void MovePublicationEntityDown_Click(object? sender, RoutedEventArgs e) => MovePublicationPlanItem(_publicationEntityPlan, PublicationEntityPlanList, 1);
+
+    private void MovePublicationPlanItem(List<PublicationSectionPlanItem> items, ListBox list, int offset)
+    {
+        var index = list.SelectedIndex;
+        var target = index + offset;
+        if (index < 0 || target < 0 || target >= items.Count) return;
+        (items[index], items[target]) = (items[target], items[index]);
+        RefreshPublicationPlanLists();
+        list.SelectedIndex = target;
+    }
+
     private async void ExportPublicationMarkdown_Click(object? sender, RoutedEventArgs e) => await ExportPublicationAsync(manifest: false);
     private async void ExportPublicationManifest_Click(object? sender, RoutedEventArgs e) => await ExportPublicationAsync(manifest: true);
 
@@ -1542,11 +1716,42 @@ public partial class MainWindow : Window
         }
     }
 
-    internal void RestorePublicationWorkspace(DesignProject project, IEnumerable<PublicationSnapshot> snapshots)
+    private async void ExportPublicationEditionMarkdown_Click(object? sender, RoutedEventArgs e) => await ExportPublicationEditionAsync(manifest: false);
+    private async void ExportPublicationEditionManifest_Click(object? sender, RoutedEventArgs e) => await ExportPublicationEditionAsync(manifest: true);
+
+    private async Task ExportPublicationEditionAsync(bool manifest)
+    {
+        var edition = SelectedPublicationEdition;
+        if (edition is null || (!manifest && edition.State != PublicationEditionState.Ready)) return;
+        try
+        {
+            var extension = manifest ? ".edition-manifest.json" : ".md";
+            var target = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+            {
+                Title = manifest ? "Export Publication Edition Provenance" : "Export Ready Publication Edition",
+                SuggestedFileName = $"{edition.Title}-r{edition.Revision}{extension}",
+                FileTypeChoices = [new FilePickerFileType(manifest ? "WorldSeed Edition Manifest" : "Markdown") { Patterns = manifest ? ["*.json"] : ["*.md"] }]
+            });
+            if (target is null) return;
+            await using var stream = await target.OpenWriteAsync();
+            await using var writer = new StreamWriter(stream);
+            await writer.WriteAsync(manifest ? edition.ManifestJson : edition.Markdown);
+            PublicationStatusText.Text = manifest ? "Exported The Edition Provenance Manifest." : "Exported The Ready Publication Edition.";
+        }
+        catch (Exception exception)
+        {
+            AppLog.Error("Export publication edition", exception);
+            PublicationStatusText.Text = "Could Not Export The Publication Edition. See The Diagnostic Log.";
+        }
+    }
+
+    internal void RestorePublicationWorkspace(DesignProject project, IEnumerable<PublicationSnapshot> snapshots, IEnumerable<PublicationEdition>? editions = null)
     {
         _project = project;
         _publicationSnapshots.Clear();
         _publicationSnapshots.AddRange(snapshots);
+        _publicationEditions.Clear();
+        _publicationEditions.AddRange(editions ?? []);
         RefreshPublicationView();
     }
 
@@ -2558,6 +2763,9 @@ public partial class MainWindow : Window
         _pendingContentApplicationProposalId = null;
         _contentBalanceProfiles.Clear();
         _publicationSnapshots.Clear();
+        _publicationEditions.Clear();
+        _publicationSectionPlan.Clear();
+        _publicationEntityPlan.Clear();
         ContentProposalEntityTypeList.ItemsSource = Array.Empty<GameDataEntityTypeItem>();
         ContentProposalList.ItemsSource = Array.Empty<ContentProposalListItem>();
         ContentProposalRequestText.Text = string.Empty;
@@ -2575,12 +2783,22 @@ public partial class MainWindow : Window
         ContentProposalStatusText.Text = "No proposal is selected.";
         GenerateContentProposalButton.Content = "Generate Proposal";
         PublicationSnapshotList.ItemsSource = Array.Empty<PublicationSnapshotListItem>();
-        PublicationMarkdownText.Text = "No Publication Snapshot Is Selected.";
+        PublicationEditionList.ItemsSource = Array.Empty<PublicationEditionListItem>();
+        PublicationSectionPlanList.ItemsSource = Array.Empty<PublicationSectionPlanItem>();
+        PublicationEntityPlanList.ItemsSource = Array.Empty<PublicationSectionPlanItem>();
+        PublicationEditionTitleText.Text = string.Empty;
+        PublicationEditionSubtitleText.Text = string.Empty;
+        PublicationMarkdownText.Text = "No Publication Snapshot Or Edition Is Selected.";
         PublicationManifestText.Text = "No Manifest Is Selected.";
         PublicationStatusText.Text = "Load A Project To Build Or Review Publication Snapshots.";
         CreatePublicationSnapshotButton.IsEnabled = false;
         ExportPublicationMarkdownButton.IsEnabled = false;
         ExportPublicationManifestButton.IsEnabled = false;
+        CreatePublicationEditionButton.IsEnabled = false;
+        SavePublicationEditionButton.IsEnabled = false;
+        ReadyPublicationEditionButton.IsEnabled = false;
+        ExportPublicationEditionMarkdownButton.IsEnabled = false;
+        ExportPublicationEditionManifestButton.IsEnabled = false;
         RefreshContentProposalControls();
     }
 
@@ -2699,6 +2917,17 @@ public partial class MainWindow : Window
     private sealed record PublicationSnapshotListItem(PublicationSnapshot Snapshot)
     {
         public override string ToString() => $"{Snapshot.CreatedAt.LocalDateTime:g} - Rules r{Snapshot.WorkingRuleSetRevision} / Schema r{Snapshot.ActiveGameSchemaRevision}";
+    }
+    private sealed record PublicationEditionListItem(PublicationEdition Edition)
+    {
+        public override string ToString() => $"{Edition.Title} - r{Edition.Revision} ({Edition.State})";
+    }
+    private sealed class PublicationSectionPlanItem(string id, string title, bool included)
+    {
+        public string Id { get; } = id;
+        public string Title { get; } = title;
+        public bool Included { get; set; } = included;
+        public override string ToString() => $"{(Included ? "Included" : "Omitted")} - {Title}";
     }
     private sealed class CapturingClient(ILanguageModelClient inner) : ILanguageModelClient { public LlmChatResponse? Last { get; private set; } public async Task<LlmChatResponse> CompleteAsync(LlmChatRequest request, CancellationToken cancellationToken = default) => Last = await inner.CompleteAsync(request, cancellationToken); }
 }

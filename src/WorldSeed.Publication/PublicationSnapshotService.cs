@@ -27,6 +27,7 @@ public interface IPublicationSnapshotStore
 {
     Task SaveAsync(PublicationSnapshot snapshot, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<PublicationSnapshot>> ListAsync(string projectId, CancellationToken cancellationToken = default);
+    Task<PublicationSnapshot?> LoadAsync(string projectId, string snapshotId, CancellationToken cancellationToken = default);
     Task DeleteAsync(string projectId, CancellationToken cancellationToken = default);
 }
 

@@ -24,6 +24,21 @@ internal sealed class HttpPublicationClient(HttpClient http)
             ?? throw new HttpRequestException("WorldSeed local service did not return the publication snapshot.");
     }
 
+    public async Task<IReadOnlyList<PublicationEdition>> ListEditionsAsync(string projectId, CancellationToken cancellationToken = default)
+    {
+        using var response = await _http.GetAsync($"api/projects/{Uri.EscapeDataString(projectId)}/publication-editions", cancellationToken);
+        await EnsureSuccessAsync(response, cancellationToken);
+        return await response.Content.ReadFromJsonAsync<IReadOnlyList<PublicationEdition>>(JsonOptions, cancellationToken) ?? [];
+    }
+
+    public async Task<PublicationEdition> SaveEditionAsync(string projectId, string snapshotId, PublicationEditionRevisionRequest request, CancellationToken cancellationToken = default)
+    {
+        using var response = await _http.PostAsJsonAsync($"api/projects/{Uri.EscapeDataString(projectId)}/publications/{Uri.EscapeDataString(snapshotId)}/editions", request, JsonOptions, cancellationToken);
+        await EnsureSuccessAsync(response, cancellationToken);
+        return await response.Content.ReadFromJsonAsync<PublicationEdition>(JsonOptions, cancellationToken)
+            ?? throw new HttpRequestException("WorldSeed local service did not return the publication edition.");
+    }
+
     private static async Task EnsureSuccessAsync(HttpResponseMessage response, CancellationToken cancellationToken)
     {
         if (response.IsSuccessStatusCode) return;

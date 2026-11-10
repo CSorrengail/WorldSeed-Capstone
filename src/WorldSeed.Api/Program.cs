@@ -34,6 +34,8 @@ builder.Services.AddSingleton<MongoContentBalanceProfileStore>();
 builder.Services.AddSingleton<IContentBalanceProfileStore>(services => services.GetRequiredService<MongoContentBalanceProfileStore>());
 builder.Services.AddSingleton<MongoPublicationSnapshotStore>();
 builder.Services.AddSingleton<IPublicationSnapshotStore>(services => services.GetRequiredService<MongoPublicationSnapshotStore>());
+builder.Services.AddSingleton<MongoPublicationEditionStore>();
+builder.Services.AddSingleton<IPublicationEditionStore>(services => services.GetRequiredService<MongoPublicationEditionStore>());
 builder.Services.AddSingleton<WorkingRuleSetValidator>();
 builder.Services.AddCors(options => options.AddDefaultPolicy(policy => policy.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()));
 
@@ -50,6 +52,7 @@ using (var scope = app.Services.CreateScope())
     await scope.ServiceProvider.GetRequiredService<MongoContentApplicationStore>().EnsureIndexesAsync();
     await scope.ServiceProvider.GetRequiredService<MongoContentBalanceProfileStore>().EnsureIndexesAsync();
     await scope.ServiceProvider.GetRequiredService<MongoPublicationSnapshotStore>().EnsureIndexesAsync();
+    await scope.ServiceProvider.GetRequiredService<MongoPublicationEditionStore>().EnsureIndexesAsync();
 }
 
 app.MapGet("/health", async (MongoDesignProjectStore store, CancellationToken cancellationToken) =>
@@ -71,8 +74,9 @@ projects.MapPut("/{projectId}", async (string projectId, DesignProject project, 
     await store.SaveAsync(project, cancellationToken);
     return Results.NoContent();
 });
-projects.MapDelete("/{projectId}", async (string projectId, IDesignProjectStore store, IWorkingRuleSetStore ruleSets, IProjectSchemaProposalStore schemaProposals, IProjectSchemaChangeRequestStore schemaChangeRequests, IActiveGameSchemaStore activeSchemas, IProjectGameDataStore gameData, IContentProposalStore contentProposals, IContentApplicationStore contentApplications, IContentBalanceProfileStore balanceProfiles, IPublicationSnapshotStore publications, CancellationToken cancellationToken) =>
+projects.MapDelete("/{projectId}", async (string projectId, IDesignProjectStore store, IWorkingRuleSetStore ruleSets, IProjectSchemaProposalStore schemaProposals, IProjectSchemaChangeRequestStore schemaChangeRequests, IActiveGameSchemaStore activeSchemas, IProjectGameDataStore gameData, IContentProposalStore contentProposals, IContentApplicationStore contentApplications, IContentBalanceProfileStore balanceProfiles, IPublicationSnapshotStore publications, IPublicationEditionStore publicationEditions, CancellationToken cancellationToken) =>
 {
+    await publicationEditions.DeleteAsync(projectId, cancellationToken);
     await publications.DeleteAsync(projectId, cancellationToken);
     await contentApplications.DeleteAsync(projectId, cancellationToken);
     await contentProposals.DeleteAsync(projectId, cancellationToken);
@@ -155,6 +159,28 @@ projects.MapPost("/{projectId}/publications", async (string projectId, IDesignPr
         var snapshot = PublicationSnapshotService.Create(project.Name, rules, schema, data, DateTimeOffset.UtcNow);
         await publications.SaveAsync(snapshot, cancellationToken);
         return Results.Ok(snapshot);
+    }
+    catch (ArgumentException exception) { return Results.BadRequest(exception.Message); }
+    catch (InvalidOperationException exception) { return Results.Conflict(exception.Message); }
+});
+projects.MapGet("/{projectId}/publication-editions", async (string projectId, IPublicationEditionStore editions, CancellationToken cancellationToken) =>
+    Results.Ok(await editions.ListAsync(projectId, cancellationToken)));
+projects.MapPost("/{projectId}/publications/{snapshotId}/editions", async (string projectId, string snapshotId, PublicationEditionRevisionRequest request, IPublicationSnapshotStore publications, IPublicationEditionStore editions, CancellationToken cancellationToken) =>
+{
+    var snapshot = await publications.LoadAsync(projectId, snapshotId, cancellationToken);
+    if (snapshot is null) return Results.NotFound("The immutable publication snapshot does not exist.");
+    PublicationEdition? prior = null;
+    if (request.BasedOnEditionId is not null || request.BasedOnRevision is not null)
+    {
+        var requestedBase = (await editions.ListAsync(projectId, cancellationToken)).SingleOrDefault(edition => edition.Id == request.BasedOnEditionId && edition.Revision == request.BasedOnRevision);
+        if (requestedBase is null) return Results.Conflict("The requested base publication edition does not exist. Reload the edition history.");
+        prior = await editions.LoadLatestAsync(projectId, requestedBase.SeriesId, cancellationToken);
+    }
+    try
+    {
+        var edition = PublicationEditionService.CreateRevision(snapshot, request, prior, DateTimeOffset.UtcNow);
+        await editions.SaveAsync(edition, cancellationToken);
+        return Results.Ok(edition);
     }
     catch (ArgumentException exception) { return Results.BadRequest(exception.Message); }
     catch (InvalidOperationException exception) { return Results.Conflict(exception.Message); }

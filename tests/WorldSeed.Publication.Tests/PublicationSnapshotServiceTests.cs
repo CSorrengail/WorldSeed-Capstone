@@ -43,6 +43,48 @@ public sealed class PublicationSnapshotServiceTests
         Assert.Contains("valid canonical Game Data", Assert.Throws<InvalidOperationException>(() => PublicationSnapshotService.Create("Test", rules, schema, data with { DataJson = invalidRoot.ToJsonString() }, Now)).Message);
     }
 
+    [Fact]
+    public void Creates_revisioned_designer_edition_without_changing_snapshot_mechanics()
+    {
+        var (rules, schema, data) = Fixture();
+        var snapshot = PublicationSnapshotService.Create("Test Game", rules, schema, data, Now);
+        var draft = PublicationEditionService.CreateInitial(snapshot, Now);
+        var descriptors = PublicationEditionService.DescribeSections(snapshot);
+        var entityIds = descriptors.Where(section => section.IsEntityType).Select(section => section.Id).ToArray();
+        var topIds = descriptors.Where(section => !section.IsEntityType).Select(section => section.Id).Reverse().ToArray();
+        var relationshipId = descriptors.Single(section => section.Title == "Relationships").Id;
+        var request = new PublicationEditionRevisionRequest("Field Guide", "Designer Edition", topIds, topIds.Where(id => id != relationshipId).ToArray(), entityIds, true, draft.Id, draft.Revision);
+
+        var ready = PublicationEditionService.CreateRevision(snapshot, request, draft, Now.AddMinutes(1));
+
+        Assert.Equal(2, ready.Revision);
+        Assert.Equal(PublicationEditionState.Ready, ready.State);
+        Assert.Contains("# Field Guide", ready.Markdown);
+        Assert.Contains("_Designer Edition_", ready.Markdown);
+        Assert.Contains("Glass Fox", ready.Markdown);
+        Assert.DoesNotContain("## Relationships", ready.Markdown);
+        Assert.Contains(snapshot.GameDataFingerprint, ready.Markdown);
+        Assert.Contains(snapshot.Id, ready.Markdown);
+        var manifest = JsonNode.Parse(ready.ManifestJson)!.AsObject();
+        Assert.Equal(snapshot.Id, manifest["snapshotId"]!.GetValue<string>());
+        Assert.Equal(2, manifest["editionRevision"]!.GetValue<int>());
+        Assert.Equal("Ready", manifest["state"]!.GetValue<string>());
+        Assert.Equal(snapshot.GameDataFingerprint, manifest["gameDataFingerprint"]!.GetValue<string>());
+        Assert.Contains("Creatures have a role.", snapshot.Markdown);
+    }
+
+    [Fact]
+    public void Refuses_stale_or_invalid_edition_plans()
+    {
+        var (rules, schema, data) = Fixture();
+        var snapshot = PublicationSnapshotService.Create("Test Game", rules, schema, data, Now);
+        var draft = PublicationEditionService.CreateInitial(snapshot, Now);
+        var invalid = new PublicationEditionRevisionRequest("Test", null, ["rules"], ["rules"], [], false, draft.Id, draft.Revision);
+        Assert.Contains("every available", Assert.Throws<InvalidOperationException>(() => PublicationEditionService.CreateRevision(snapshot, invalid, draft, Now)).Message);
+        var stale = invalid with { SectionOrder = draft.SectionOrder, IncludedSectionIds = draft.IncludedSectionIds, EntitySectionOrder = draft.EntitySectionOrder, BasedOnRevision = 0 };
+        Assert.Contains("changed", Assert.Throws<InvalidOperationException>(() => PublicationEditionService.CreateRevision(snapshot, stale, draft, Now)).Message);
+    }
+
     private static (WorkingRuleSet Rules, ActiveGameSchema Schema, ProjectGameData Data) Fixture()
     {
         var rule = new WorkingRule("rule-1", "Creature Rule", WorkingRuleKind.Rule, "Creatures have a role.", [], [], [], [], null, [], []);
