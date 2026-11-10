@@ -209,7 +209,8 @@ public sealed class ContentReviewReadyStateTests
         var prepared = ContentApplicationService.Prepare(proposal, approval, active, gameData, now);
         var applied = ContentApplicationService.Complete(prepared.Application, prepared.UpdatedGameData, now.AddSeconds(1));
         var apiHandler = new ApplicationApiHandler(applied, prepared.UpdatedGameData);
-        using var model = new HttpClient(new ReevaluateModelHandler());
+        var postApplyModelHandler = new PostApplyModelHandler();
+        using var model = new HttpClient(postApplyModelHandler);
         using var api = new HttpClient(apiHandler) { BaseAddress = new Uri("http://qa.invalid/") };
         var window = new MainWindow(model, api);
         try
@@ -230,6 +231,13 @@ public sealed class ContentReviewReadyStateTests
             Assert.False(apply.IsEnabled);
             Assert.Contains("glass-fox", window.FindControl<TextBox>("GameDataJsonText")!.Text);
             Assert.Contains("application event", window.FindControl<TextBlock>("ContentProposalStatusText")!.Text);
+
+            window.FindControl<ComboBox>("ModelSelector")!.ItemsSource = new[] { "local-model" };
+            window.FindControl<ComboBox>("ModelSelector")!.SelectedIndex = 0;
+            window.FindControl<ComboBox>("ContentProposalEntityTypeList")!.SelectedIndex = 0;
+            Assert.True(await window.SuggestContentProposalAsync());
+            Assert.Contains("glass-fox", postApplyModelHandler.RequestBody);
+            Assert.Contains("stone-moth", window.FindControl<TextBox>("ContentProposalEditor")!.Text);
         }
         finally { window.Close(); }
     }
@@ -307,7 +315,20 @@ public sealed class ContentReviewReadyStateTests
             }
             if (request.Method == HttpMethod.Get && request.RequestUri!.AbsolutePath.EndsWith("/game-data", StringComparison.Ordinal))
                 return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = JsonContent.Create(gameData, options: JsonOptions) });
+            if (request.Method == HttpMethod.Put && request.RequestUri!.AbsolutePath.Contains("/content-proposals/", StringComparison.Ordinal))
+                return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.NoContent));
             throw new InvalidOperationException($"Unexpected QA request: {request.Method} {request.RequestUri}");
+        }
+    }
+
+    private sealed class PostApplyModelHandler : HttpMessageHandler
+    {
+        public string? RequestBody { get; private set; }
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            RequestBody = await request.Content!.ReadAsStringAsync(cancellationToken);
+            var body = JsonSerializer.Serialize(new { model = "local-model", message = new { content = "{\"candidate\":{\"id\":\"stone-moth\",\"entityTypeId\":\"creature\",\"values\":{\"name\":\"Stone Moth\"}},\"schemaGaps\":[]}" } });
+            return new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StringContent(body) };
         }
     }
 }

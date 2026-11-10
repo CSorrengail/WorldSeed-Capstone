@@ -14,6 +14,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\WorldSeed.LlmIntegration\WorldSeed.LlmIntegration.csproj" />
+    <ProjectReference Include="..\WorldSeed.Publication\WorldSeed.Publication.csproj" />
     <ProjectReference Include="..\WorldSeed.DesignSessions\WorldSeed.DesignSessions.csproj" />
     <ProjectReference Include="..\WorldSeed.Content\WorldSeed.Content.csproj" />
     <ProjectReference Include="..\WorldSeed.GameData\WorldSeed.GameData.csproj" />

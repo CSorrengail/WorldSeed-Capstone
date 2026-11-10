@@ -3,6 +3,7 @@ using WorldSeed.Content;
 using WorldSeed.DesignSessions;
 using WorldSeed.GameData;
 using WorldSeed.Persistence.Mongo;
+using WorldSeed.Publication;
 using WorldSeed.SchemaTranslation;
 using WorldSeed.WorkingRules;
 
@@ -31,6 +32,8 @@ builder.Services.AddSingleton<MongoContentApplicationStore>();
 builder.Services.AddSingleton<IContentApplicationStore>(services => services.GetRequiredService<MongoContentApplicationStore>());
 builder.Services.AddSingleton<MongoContentBalanceProfileStore>();
 builder.Services.AddSingleton<IContentBalanceProfileStore>(services => services.GetRequiredService<MongoContentBalanceProfileStore>());
+builder.Services.AddSingleton<MongoPublicationSnapshotStore>();
+builder.Services.AddSingleton<IPublicationSnapshotStore>(services => services.GetRequiredService<MongoPublicationSnapshotStore>());
 builder.Services.AddSingleton<WorkingRuleSetValidator>();
 builder.Services.AddCors(options => options.AddDefaultPolicy(policy => policy.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()));
 
@@ -46,6 +49,7 @@ using (var scope = app.Services.CreateScope())
     await scope.ServiceProvider.GetRequiredService<MongoContentProposalStore>().EnsureIndexesAsync();
     await scope.ServiceProvider.GetRequiredService<MongoContentApplicationStore>().EnsureIndexesAsync();
     await scope.ServiceProvider.GetRequiredService<MongoContentBalanceProfileStore>().EnsureIndexesAsync();
+    await scope.ServiceProvider.GetRequiredService<MongoPublicationSnapshotStore>().EnsureIndexesAsync();
 }
 
 app.MapGet("/health", async (MongoDesignProjectStore store, CancellationToken cancellationToken) =>
@@ -67,8 +71,9 @@ projects.MapPut("/{projectId}", async (string projectId, DesignProject project, 
     await store.SaveAsync(project, cancellationToken);
     return Results.NoContent();
 });
-projects.MapDelete("/{projectId}", async (string projectId, IDesignProjectStore store, IWorkingRuleSetStore ruleSets, IProjectSchemaProposalStore schemaProposals, IProjectSchemaChangeRequestStore schemaChangeRequests, IActiveGameSchemaStore activeSchemas, IProjectGameDataStore gameData, IContentProposalStore contentProposals, IContentApplicationStore contentApplications, IContentBalanceProfileStore balanceProfiles, CancellationToken cancellationToken) =>
+projects.MapDelete("/{projectId}", async (string projectId, IDesignProjectStore store, IWorkingRuleSetStore ruleSets, IProjectSchemaProposalStore schemaProposals, IProjectSchemaChangeRequestStore schemaChangeRequests, IActiveGameSchemaStore activeSchemas, IProjectGameDataStore gameData, IContentProposalStore contentProposals, IContentApplicationStore contentApplications, IContentBalanceProfileStore balanceProfiles, IPublicationSnapshotStore publications, CancellationToken cancellationToken) =>
 {
+    await publications.DeleteAsync(projectId, cancellationToken);
     await contentApplications.DeleteAsync(projectId, cancellationToken);
     await contentProposals.DeleteAsync(projectId, cancellationToken);
     await balanceProfiles.DeleteAsync(projectId, cancellationToken);
@@ -134,6 +139,25 @@ projects.MapPost("/{projectId}/content-proposals/{proposalId}/apply", async (str
     {
         return Results.Conflict(exception.Message);
     }
+});
+projects.MapGet("/{projectId}/publications", async (string projectId, IPublicationSnapshotStore publications, CancellationToken cancellationToken) =>
+    Results.Ok(await publications.ListAsync(projectId, cancellationToken)));
+projects.MapPost("/{projectId}/publications", async (string projectId, IDesignProjectStore projectsStore, IWorkingRuleSetStore ruleSets, IActiveGameSchemaStore activeSchemas, IProjectGameDataStore gameData, IPublicationSnapshotStore publications, CancellationToken cancellationToken) =>
+{
+    var project = await projectsStore.LoadAsync(projectId, cancellationToken);
+    if (project is null) return Results.NotFound("The project does not exist.");
+    var rules = await ruleSets.LoadAsync(projectId, cancellationToken);
+    var schema = await activeSchemas.LoadAsync(projectId, cancellationToken);
+    var data = await gameData.LoadAsync(projectId, cancellationToken);
+    if (rules is null || schema is null || data is null) return Results.Conflict("Publication requires a Working Rule Set, active schema, and canonical Game Data.");
+    try
+    {
+        var snapshot = PublicationSnapshotService.Create(project.Name, rules, schema, data, DateTimeOffset.UtcNow);
+        await publications.SaveAsync(snapshot, cancellationToken);
+        return Results.Ok(snapshot);
+    }
+    catch (ArgumentException exception) { return Results.BadRequest(exception.Message); }
+    catch (InvalidOperationException exception) { return Results.Conflict(exception.Message); }
 });
 projects.MapGet("/{projectId}/content-balance-profiles", async (string projectId, IContentBalanceProfileStore store, CancellationToken cancellationToken) => Results.Ok(await store.ListAsync(projectId, cancellationToken)));
 projects.MapPut("/{projectId}/content-balance-profiles/{profileId}", async (string projectId, string profileId, ProjectContentBalanceProfile profile, IDesignProjectStore projectsStore, IActiveGameSchemaStore activeSchemas, IContentBalanceProfileStore store, CancellationToken cancellationToken) =>

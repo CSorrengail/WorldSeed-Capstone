@@ -13,6 +13,7 @@ using WorldSeed.Content;
 using WorldSeed.DesignSessions;
 using WorldSeed.GameData;
 using WorldSeed.LlmIntegration;
+using WorldSeed.Publication;
 using WorldSeed.RuleDrafting;
 using WorldSeed.SchemaTranslation;
 using WorldSeed.SourceIngestion;
@@ -35,6 +36,7 @@ public partial class MainWindow : Window
     private readonly IProjectSchemaChangeRequestStore _schemaChangeRequestStore;
     private readonly HttpGameDataWorkspaceClient _gameDataWorkspace;
     private readonly HttpContentProposalClient _contentProposals;
+    private readonly HttpPublicationClient _publications;
     private readonly WorldSeedSettingsStore _settingsStore = new();
     private readonly DispatcherTimer _inactivityTimer = new() { Interval = TimeSpan.FromSeconds(10) };
     private readonly List<DesignProjectSummary> _projectSummaries = [];
@@ -49,6 +51,7 @@ public partial class MainWindow : Window
     private readonly List<ContentProposalDecision> _contentProposalDecisions = [];
     private readonly List<ContentApplication> _contentApplications = [];
     private readonly List<ProjectContentBalanceProfile> _contentBalanceProfiles = [];
+    private readonly List<PublicationSnapshot> _publicationSnapshots = [];
     private int _projectLoadGeneration;
     private bool _updatingProjectSelector;
     private string? _pendingDeletionProjectId;
@@ -97,6 +100,7 @@ public partial class MainWindow : Window
         _schemaChangeRequestStore = new HttpProjectSchemaChangeRequestStore(_apiHttp);
         _gameDataWorkspace = new HttpGameDataWorkspaceClient(_apiHttp);
         _contentProposals = new HttpContentProposalClient(_apiHttp);
+        _publications = new HttpPublicationClient(_apiHttp);
         InitializeComponent();
         _settings = _settingsStore.Load();
         _inactivityTimer.Tick += InactivityTimer_Tick;
@@ -285,6 +289,7 @@ public partial class MainWindow : Window
                 await LoadSchemaChangeRequestsAsync(_project.Id);
                 await LoadGameDataWorkspaceAsync(_project.Id);
                 await LoadContentProposalsAsync(_project.Id);
+                await LoadPublicationSnapshotsAsync(_project.Id);
                 RefreshNotes(); ShowSelectedSource();
                 ProjectLocationText.Text = "Project database: http://localhost:5080 (Docker local stack)";
                 _updatingProjectSelector = true;
@@ -1424,6 +1429,127 @@ public partial class MainWindow : Window
         RefreshContentProposalView();
     }
 
+    private async Task LoadPublicationSnapshotsAsync(string projectId)
+    {
+        try
+        {
+            _publicationSnapshots.Clear();
+            _publicationSnapshots.AddRange(await _publications.ListAsync(projectId));
+            RefreshPublicationView();
+            PublicationStatusText.Text = _publicationSnapshots.Count == 0
+                ? "No Publication Snapshots Exist. Create One From The Current Valid Project State."
+                : $"Loaded {_publicationSnapshots.Count} Immutable Publication Snapshot(s).";
+        }
+        catch (Exception exception)
+        {
+            AppLog.Error("Load publication snapshots", exception);
+            _publicationSnapshots.Clear();
+            RefreshPublicationView();
+            PublicationStatusText.Text = "Could Not Load Publication Snapshots. See The Diagnostic Log.";
+        }
+    }
+
+    private void RefreshPublicationView()
+    {
+        var selectedId = SelectedPublicationSnapshot?.Id;
+        var items = _publicationSnapshots.OrderByDescending(snapshot => snapshot.CreatedAt).Select(snapshot => new PublicationSnapshotListItem(snapshot)).ToArray();
+        PublicationSnapshotList.ItemsSource = items;
+        PublicationSnapshotList.SelectedIndex = selectedId is null ? -1 : Array.FindIndex(items, item => item.Snapshot.Id == selectedId);
+        RefreshSelectedPublicationView();
+    }
+
+    private PublicationSnapshot? SelectedPublicationSnapshot => (PublicationSnapshotList.SelectedItem as PublicationSnapshotListItem)?.Snapshot;
+
+    private void RefreshSelectedPublicationView()
+    {
+        var selected = SelectedPublicationSnapshot;
+        CreatePublicationSnapshotButton.IsEnabled = _project is not null && _workingRuleSet is not null && _activeGameSchema is not null && _projectGameData is not null;
+        ExportPublicationMarkdownButton.IsEnabled = selected is not null;
+        ExportPublicationManifestButton.IsEnabled = selected is not null;
+        PublicationMarkdownText.Text = selected?.Markdown ?? "No Publication Snapshot Is Selected.";
+        PublicationManifestText.Text = selected?.ManifestJson ?? "No Manifest Is Selected.";
+        if (selected is not null)
+            PublicationStatusText.Text = $"Snapshot {selected.Id}: Working Rule Set Revision {selected.WorkingRuleSetRevision}, Schema Revision {selected.ActiveGameSchemaRevision}, {selected.IncludedEntityIds.Count} Canonical Entry/Entries.";
+    }
+
+    private void PublicationSnapshotList_SelectionChanged(object? sender, SelectionChangedEventArgs e) => RefreshSelectedPublicationView();
+
+    private async void CreatePublicationSnapshot_Click(object? sender, RoutedEventArgs e) => await CreatePublicationSnapshotAsync();
+
+    internal async Task<bool> CreatePublicationSnapshotAsync()
+    {
+        if (_project is null)
+        {
+            PublicationStatusText.Text = "Load A Project Before Creating A Publication Snapshot.";
+            return false;
+        }
+        CreatePublicationSnapshotButton.IsEnabled = false;
+        try
+        {
+            var snapshot = await _publications.CreateAsync(_project.Id);
+            _publicationSnapshots.Insert(0, snapshot);
+            RefreshPublicationView();
+            PublicationSnapshotList.SelectedIndex = 0;
+            PublicationStatusText.Text = $"Created An Immutable Markdown Snapshot With {snapshot.IncludedEntityIds.Count} Canonical Entry/Entries. Review It Before Exporting.";
+            return true;
+        }
+        catch (HttpRequestException exception)
+        {
+            AppLog.Error("Create publication snapshot", exception);
+            PublicationStatusText.Text = exception.Message;
+            return false;
+        }
+        catch (Exception exception)
+        {
+            AppLog.Error("Create publication snapshot", exception);
+            PublicationStatusText.Text = "Could Not Create The Publication Snapshot. See The Diagnostic Log.";
+            return false;
+        }
+        finally
+        {
+            CreatePublicationSnapshotButton.IsEnabled = _project is not null && _workingRuleSet is not null && _activeGameSchema is not null && _projectGameData is not null;
+            ExportPublicationMarkdownButton.IsEnabled = SelectedPublicationSnapshot is not null;
+            ExportPublicationManifestButton.IsEnabled = SelectedPublicationSnapshot is not null;
+        }
+    }
+
+    private async void ExportPublicationMarkdown_Click(object? sender, RoutedEventArgs e) => await ExportPublicationAsync(manifest: false);
+    private async void ExportPublicationManifest_Click(object? sender, RoutedEventArgs e) => await ExportPublicationAsync(manifest: true);
+
+    private async Task ExportPublicationAsync(bool manifest)
+    {
+        var snapshot = SelectedPublicationSnapshot;
+        if (snapshot is null) return;
+        try
+        {
+            var extension = manifest ? ".manifest.json" : ".md";
+            var target = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+            {
+                Title = manifest ? "Export Publication Provenance" : "Export Human-Readable Publication",
+                SuggestedFileName = $"{snapshot.ProjectName}-{snapshot.CreatedAt:yyyyMMdd-HHmmss}{extension}",
+                FileTypeChoices = [new FilePickerFileType(manifest ? "WorldSeed Manifest" : "Markdown") { Patterns = manifest ? ["*.json"] : ["*.md"] }]
+            });
+            if (target is null) return;
+            await using var stream = await target.OpenWriteAsync();
+            await using var writer = new StreamWriter(stream);
+            await writer.WriteAsync(manifest ? snapshot.ManifestJson : snapshot.Markdown);
+            PublicationStatusText.Text = manifest ? "Exported The Publication Provenance Manifest." : "Exported The Human-Readable Markdown Publication.";
+        }
+        catch (Exception exception)
+        {
+            AppLog.Error("Export publication", exception);
+            PublicationStatusText.Text = "Could Not Export The Publication Snapshot. See The Diagnostic Log.";
+        }
+    }
+
+    internal void RestorePublicationWorkspace(DesignProject project, IEnumerable<PublicationSnapshot> snapshots)
+    {
+        _project = project;
+        _publicationSnapshots.Clear();
+        _publicationSnapshots.AddRange(snapshots);
+        RefreshPublicationView();
+    }
+
     private void RefreshContentProposalView()
     {
         var selectedProposalId = SelectedContentProposal?.Id;
@@ -2431,6 +2557,7 @@ public partial class MainWindow : Window
         _contentApplications.Clear();
         _pendingContentApplicationProposalId = null;
         _contentBalanceProfiles.Clear();
+        _publicationSnapshots.Clear();
         ContentProposalEntityTypeList.ItemsSource = Array.Empty<GameDataEntityTypeItem>();
         ContentProposalList.ItemsSource = Array.Empty<ContentProposalListItem>();
         ContentProposalRequestText.Text = string.Empty;
@@ -2447,6 +2574,13 @@ public partial class MainWindow : Window
         ContentReviewSchemaText.Text = "Load an active schema and Working Rule Set before creating a proposal.";
         ContentProposalStatusText.Text = "No proposal is selected.";
         GenerateContentProposalButton.Content = "Generate Proposal";
+        PublicationSnapshotList.ItemsSource = Array.Empty<PublicationSnapshotListItem>();
+        PublicationMarkdownText.Text = "No Publication Snapshot Is Selected.";
+        PublicationManifestText.Text = "No Manifest Is Selected.";
+        PublicationStatusText.Text = "Load A Project To Build Or Review Publication Snapshots.";
+        CreatePublicationSnapshotButton.IsEnabled = false;
+        ExportPublicationMarkdownButton.IsEnabled = false;
+        ExportPublicationManifestButton.IsEnabled = false;
         RefreshContentProposalControls();
     }
 
@@ -2561,6 +2695,10 @@ public partial class MainWindow : Window
     private sealed record ContentProposalListItem(ContentProposal Proposal, string State)
     {
         public override string ToString() => $"{Proposal.Candidate["id"]?.GetValue<string>() ?? Proposal.EntityTypeId} - {Proposal.EntityTypeId} v{Proposal.Version} - {State}";
+    }
+    private sealed record PublicationSnapshotListItem(PublicationSnapshot Snapshot)
+    {
+        public override string ToString() => $"{Snapshot.CreatedAt.LocalDateTime:g} - Rules r{Snapshot.WorkingRuleSetRevision} / Schema r{Snapshot.ActiveGameSchemaRevision}";
     }
     private sealed class CapturingClient(ILanguageModelClient inner) : ILanguageModelClient { public LlmChatResponse? Last { get; private set; } public async Task<LlmChatResponse> CompleteAsync(LlmChatRequest request, CancellationToken cancellationToken = default) => Last = await inner.CompleteAsync(request, cancellationToken); }
 }
