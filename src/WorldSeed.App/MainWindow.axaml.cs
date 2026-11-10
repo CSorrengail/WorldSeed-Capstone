@@ -1441,6 +1441,7 @@ public partial class MainWindow : Window
             ? "Activate a schema that contains a content type and load a Working Rule Set before creating a proposal."
             : $"{_activeGameSchema!.Name}, schema revision {_activeGameSchema.Revision}; Working Rule Set revision {_workingRuleSet!.Revision}.";
         GenerateContentProposalButton.IsEnabled = ready;
+        SuggestContentProposalButton.IsEnabled = ready;
         StartNewContentProposalButton.IsEnabled = ready;
         SaveContentBalanceProfileButton.IsEnabled = ready && ContentProposalEntityTypeList.SelectedIndex >= 0;
 
@@ -1463,6 +1464,7 @@ public partial class MainWindow : Window
             ContentMechanicalValidationText.Text = "Select A Proposal To Validate It Against The Active Schema.";
             ContentBalanceEvaluationText.Text = "Select A Proposal To Evaluate Its Game-Specific Balance Profile.";
             ContentSchemaGapText.Text = "Select A Proposal To Review Whether The Active Schema Covers Its Request.";
+            ContentGenerationContextText.Text = "No Generation Context Is Selected.";
             OpenSchemaForContentGapButton.IsVisible = false;
             ReevaluateContentProposalButton.IsVisible = false;
             ContentProposalDecisionHistoryText.Text = "No proposal is selected.";
@@ -1473,6 +1475,7 @@ public partial class MainWindow : Window
 
         ContentProposalEditor.Text = PrettyJson(selected.Candidate.ToJsonString());
         ContentSchemaGapText.Text = FormatContentSchemaGaps(selected.SchemaGaps);
+        ContentGenerationContextText.Text = FormatContentGenerationContext(selected);
         OpenSchemaForContentGapButton.IsVisible = selected.SchemaGaps is { Count: > 0 };
         ContentProposalDecisionHistoryText.Text = FormatContentProposalHistory(selected);
         RefreshContentEvaluationView(selected);
@@ -1518,6 +1521,7 @@ public partial class MainWindow : Window
     {
         var ready = _project is not null && _activeGameSchema is not null && _workingRuleSet is { Rules.Count: > 0 } && _gameDataEntityTypes.Count > 0;
         GenerateContentProposalButton.IsEnabled = ready;
+        SuggestContentProposalButton.IsEnabled = ready;
         StartNewContentProposalButton.IsEnabled = ready;
         SaveContentBalanceProfileButton.IsEnabled = ready && ContentProposalEntityTypeList.SelectedIndex >= 0;
     }
@@ -1533,9 +1537,26 @@ public partial class MainWindow : Window
 
     private async void GenerateContentProposal_Click(object? sender, RoutedEventArgs e) => await GenerateContentProposalAsync();
 
+    private async void SuggestContentProposal_Click(object? sender, RoutedEventArgs e) => await SuggestContentProposalAsync();
+
     internal Task<bool> GenerateContentProposalAsync() => GenerateContentProposalCoreAsync();
 
-    private async Task<bool> GenerateContentProposalCoreAsync(ContentProposal? forcedBase = null, string? forcedInstruction = null, string? persistedDesignerRequest = null)
+    internal Task<bool> SuggestContentProposalAsync()
+    {
+        var typeIndex = ContentProposalEntityTypeList.SelectedIndex;
+        if (typeIndex < 0 || typeIndex >= _gameDataEntityTypes.Count)
+        {
+            ContentProposalStatusText.Text = "Select a content type first.";
+            return Task.FromResult(false);
+        }
+        var selectedType = _gameDataEntityTypes[typeIndex];
+        var request = $"Propose one original {selectedType.Name} that expands this project's canonical content while following the active schema and Working Rules. Use the supplied canonical entries and designer decisions as context, but do not copy an existing entry.";
+        ContentProposalList.SelectedIndex = -1;
+        ContentProposalDecisionNoteText.Text = string.Empty;
+        return GenerateContentProposalCoreAsync(forcedInstruction: request, persistedDesignerRequest: request, usePendingRevision: false);
+    }
+
+    private async Task<bool> GenerateContentProposalCoreAsync(ContentProposal? forcedBase = null, string? forcedInstruction = null, string? persistedDesignerRequest = null, bool usePendingRevision = true)
     {
         var typeIndex = ContentProposalEntityTypeList.SelectedIndex;
         if (_project is null || _activeGameSchema is null || _workingRuleSet is null || _gameDataEntityTypes.Count == 0)
@@ -1548,7 +1569,7 @@ public partial class MainWindow : Window
         var requestText = forcedInstruction?.Trim() ?? ContentProposalRequestText.Text?.Trim();
         if (string.IsNullOrWhiteSpace(requestText)) { ContentProposalStatusText.Text = "Describe the content you want to propose."; return false; }
         var selectedType = _gameDataEntityTypes[typeIndex];
-        var replaces = forcedBase ?? PendingRevisionBaseProposal();
+        var replaces = forcedBase ?? (usePendingRevision ? PendingRevisionBaseProposal() : null);
         if (replaces is not null && !string.Equals(replaces.EntityTypeId, selectedType.Id, StringComparison.Ordinal))
         {
             ContentProposalStatusText.Text = "A revision must use the same content type as the selected proposal.";
@@ -1562,8 +1583,10 @@ public partial class MainWindow : Window
         try
         {
             var schema = ParseJsonObject(_activeGameSchema.SchemaJson, "The active schema is not valid JSON.");
-            var result = await new ContentProposalGenerationService(capture).GenerateAsync(new ContentProposalGenerationRequest(_project.Id, selectedType.Id, schema, _workingRuleSet.Rules, requestText));
-            var proposal = ContentProposalLifecycleService.Create(_project.Id, selectedType.Id, result.Candidate, _activeGameSchema.Id, _activeGameSchema.Revision, _workingRuleSet.Id, _workingRuleSet.Revision, DateTimeOffset.UtcNow, replaces, result.SchemaGaps, designerRequest);
+            var canonicalContext = CanonicalContentContext(selectedType.Id);
+            var decisionContext = DesignerDecisionContext(selectedType.Id);
+            var result = await new ContentProposalGenerationService(capture).GenerateAsync(new ContentProposalGenerationRequest(_project.Id, selectedType.Id, schema, _workingRuleSet.Rules, requestText, canonicalContext, decisionContext));
+            var proposal = ContentProposalLifecycleService.Create(_project.Id, selectedType.Id, result.Candidate, _activeGameSchema.Id, _activeGameSchema.Revision, _workingRuleSet.Id, _workingRuleSet.Revision, DateTimeOffset.UtcNow, replaces, result.SchemaGaps, designerRequest, result.GenerationContext, result.SimilarityWarnings);
             await _contentProposals.SaveProposalAsync(proposal);
             _contentProposalItems.Insert(0, proposal);
             ContentProposalRequestText.Text = designerRequest;
@@ -1590,6 +1613,42 @@ public partial class MainWindow : Window
             return false;
         }
         finally { RefreshContentProposalControls(); }
+    }
+
+    private IReadOnlyList<JsonObject> CanonicalContentContext(string entityTypeId)
+    {
+        if (_projectGameData is null || _activeGameSchema is null || !string.Equals(_projectGameData.ActiveGameSchemaId, _activeGameSchema.Id, StringComparison.Ordinal) || _projectGameData.ActiveGameSchemaRevision != _activeGameSchema.Revision)
+            return [];
+        try
+        {
+            var data = ParseJsonObject(_projectGameData.DataJson, "Game data is not valid JSON.");
+            return (data["entityInstances"] as JsonArray)?.OfType<JsonObject>()
+                .Where(entry => string.Equals(entry["entityTypeId"]?.GetValue<string>(), entityTypeId, StringComparison.Ordinal))
+                .OrderBy(entry => entry["id"]?.GetValue<string>(), StringComparer.Ordinal)
+                .Take(ContentProposalGenerationService.MaximumCanonicalEntries)
+                .Select(entry => (JsonObject)entry.DeepClone())
+                .ToArray() ?? [];
+        }
+        catch (Exception exception)
+        {
+            AppLog.Error("Select canonical content context", exception);
+            return [];
+        }
+    }
+
+    private IReadOnlyList<ContentGenerationDecisionContext> DesignerDecisionContext(string entityTypeId)
+    {
+        if (_activeGameSchema is null) return [];
+        var proposals = _contentProposalItems.ToDictionary(item => item.Id, StringComparer.Ordinal);
+        return _contentProposalDecisions
+            .OrderByDescending(decision => decision.CreatedAt)
+            .Where(decision => proposals.TryGetValue(decision.ProposalId, out var proposal) &&
+                string.Equals(proposal.EntityTypeId, entityTypeId, StringComparison.Ordinal) &&
+                string.Equals(proposal.ActiveGameSchemaId, _activeGameSchema.Id, StringComparison.Ordinal) &&
+                proposal.ActiveGameSchemaRevision == _activeGameSchema.Revision)
+            .Take(ContentProposalGenerationService.MaximumDesignerDecisions)
+            .Select(decision => new ContentGenerationDecisionContext(decision.Id, decision.Kind, decision.Note))
+            .ToArray();
     }
 
     private async void ReevaluateContentProposal_Click(object? sender, RoutedEventArgs e) => await ReevaluateContentProposalAsync();
@@ -1808,6 +1867,22 @@ public partial class MainWindow : Window
         if (gaps is null) return "Schema Coverage Was Not Reported For This Earlier Proposal. Review Its Request And Candidate Manually.";
         if (gaps.Count == 0) return "The Model Reported That The Designer Request Fits The Active Schema. This Is Advisory; Mechanical Validation Still Checks The Candidate.";
         return "The Active Schema Cannot Represent Every Requested Concept:\n" + string.Join("\n", gaps.Select(gap => $"- {gap.RequestedConcept}: {gap.Reason}" + (string.IsNullOrWhiteSpace(gap.SuggestedSchemaChange) ? string.Empty : $" Suggested Schema Change: {gap.SuggestedSchemaChange}"))) + "\nOpen The Schema Workspace To Review A Game-Specific Change Before Relying On The Omitted Concept.";
+    }
+
+    private static string FormatContentGenerationContext(ContentProposal proposal)
+    {
+        if (proposal.GenerationContext is null)
+            return "Generation Context Was Not Recorded For This Earlier Proposal.";
+        var canonical = proposal.GenerationContext.CanonicalEntityIds.Count == 0
+            ? "Canonical Entries: None"
+            : "Canonical Entries: " + string.Join(", ", proposal.GenerationContext.CanonicalEntityIds);
+        var decisions = proposal.GenerationContext.DesignerDecisionIds.Count == 0
+            ? "Designer Decisions: None"
+            : "Designer Decisions: " + string.Join(", ", proposal.GenerationContext.DesignerDecisionIds);
+        var warnings = proposal.SimilarityWarnings is not { Count: > 0 }
+            ? "Similarity Review: No Obvious Duplicate Values Were Detected."
+            : "Similarity Review:\n" + string.Join("\n", proposal.SimilarityWarnings.Select(warning => $"- {warning.CanonicalEntityId}: {warning.Reason}"));
+        return $"Bounded Context Used For This Proposal.\n{canonical}\n{decisions}\n{warnings}";
     }
 
     private static JsonObject ParseContentCandidate(string text, string entityTypeId)
@@ -2259,6 +2334,7 @@ public partial class MainWindow : Window
         ContentProposalRequestText.Text = string.Empty;
         ContentProposalEditor.Text = "Generated candidates and their validation results appear here.";
         ContentSchemaGapText.Text = "Select A Proposal To Review Whether The Active Schema Covers Its Request.";
+        ContentGenerationContextText.Text = "No Generation Context Is Selected.";
         OpenSchemaForContentGapButton.IsVisible = false;
         ReevaluateContentProposalButton.IsVisible = false;
         ContentProposalDecisionNoteText.Text = string.Empty;

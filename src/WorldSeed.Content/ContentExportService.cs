@@ -7,6 +7,8 @@ namespace WorldSeed.Content;
 /// <summary>Produces the MVP's portable JSON artifact only for an explicitly approved proposal.</summary>
 public static class ContentExportService
 {
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
     public static string ExportApproved(ContentProposal proposal, ContentProposalDecision decision, ActiveGameSchema schema)
     {
         ArgumentNullException.ThrowIfNull(proposal); ArgumentNullException.ThrowIfNull(decision); ArgumentNullException.ThrowIfNull(schema);
@@ -21,6 +23,8 @@ public static class ContentExportService
             ["workingRuleSetId"] = proposal.WorkingRuleSetId, ["workingRuleSetRevision"] = proposal.WorkingRuleSetRevision,
             ["proposalId"] = proposal.Id, ["proposalVersion"] = proposal.Version,
             ["designerRequest"] = proposal.DesignerRequest,
+            ["generationContext"] = proposal.GenerationContext is null ? null : JsonSerializer.SerializeToNode(proposal.GenerationContext, JsonOptions),
+            ["similarityWarnings"] = proposal.SimilarityWarnings is null ? null : JsonSerializer.SerializeToNode(proposal.SimilarityWarnings, JsonOptions),
             ["schemaGapAnalysis"] = new JsonObject
             {
                 ["reported"] = proposal.SchemaGaps is not null,

@@ -20,10 +20,20 @@ public sealed record ContentProposal(
     DateTimeOffset CreatedAt,
     string? ReplacesProposalId = null,
     IReadOnlyList<ContentSchemaGap>? SchemaGaps = null,
-    string? DesignerRequest = null);
+    string? DesignerRequest = null,
+    ContentGenerationContext? GenerationContext = null,
+    IReadOnlyList<ContentSimilarityWarning>? SimilarityWarnings = null);
 
 /// <summary>An advisory model observation that a designer request exceeds the active game-owned schema.</summary>
 public sealed record ContentSchemaGap(string RequestedConcept, string Reason, string? SuggestedSchemaChange = null);
+
+/// <summary>The bounded canonical and decision context supplied to one generation request.</summary>
+public sealed record ContentGenerationContext(
+    IReadOnlyList<string> CanonicalEntityIds,
+    IReadOnlyList<string> DesignerDecisionIds);
+
+/// <summary>An advisory deterministic similarity observation; it never rejects content by itself.</summary>
+public sealed record ContentSimilarityWarning(string CanonicalEntityId, string Reason);
 
 public enum ContentProposalDecisionKind { Approved, Rejected, RevisionRequested }
 

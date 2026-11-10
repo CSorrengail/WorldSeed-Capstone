@@ -11,30 +11,53 @@ public sealed record ContentProposalGenerationRequest(
     string EntityTypeId,
     JsonObject ActiveSchema,
     IReadOnlyList<WorkingRule> Rules,
-    string DesignerRequest);
+    string DesignerRequest,
+    IReadOnlyList<JsonObject>? CanonicalEntries = null,
+    IReadOnlyList<ContentGenerationDecisionContext>? DesignerDecisions = null);
 
-public sealed record ContentProposalGenerationResult(JsonObject Candidate, string RawModelOutput, IReadOnlyList<ContentSchemaGap>? SchemaGaps);
+public sealed record ContentGenerationDecisionContext(string DecisionId, ContentProposalDecisionKind Kind, string? Note);
+public sealed record ContentProposalGenerationResult(
+    JsonObject Candidate,
+    string RawModelOutput,
+    IReadOnlyList<ContentSchemaGap>? SchemaGaps,
+    ContentGenerationContext? GenerationContext = null,
+    IReadOnlyList<ContentSimilarityWarning>? SimilarityWarnings = null);
 public sealed class ContentProposalGenerationFormatException(string message) : Exception(message);
 
 /// <summary>Turns one model response into a reviewable entity candidate; it never persists or applies it.</summary>
 public sealed class ContentProposalGenerationService(ILanguageModelClient client)
 {
+    public const int MaximumCanonicalEntries = 6;
+    public const int MaximumDesignerDecisions = 6;
     private readonly ILanguageModelClient _client = client ?? throw new ArgumentNullException(nameof(client));
 
     public async Task<ContentProposalGenerationResult> GenerateAsync(ContentProposalGenerationRequest request, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(request.ProjectId) || string.IsNullOrWhiteSpace(request.EntityTypeId) || string.IsNullOrWhiteSpace(request.DesignerRequest)) throw new ArgumentException("Project, entity type, and designer request are required.");
         if (request.Rules.Count == 0) throw new ArgumentException("At least one selected Working Rule is required.", nameof(request));
+        var canonicalEntries = request.CanonicalEntries?.Take(MaximumCanonicalEntries + 1).ToArray() ?? [];
+        var designerDecisions = request.DesignerDecisions?.Take(MaximumDesignerDecisions + 1).ToArray() ?? [];
+        if (canonicalEntries.Length > MaximumCanonicalEntries) throw new ArgumentException($"Generation context supports at most {MaximumCanonicalEntries} canonical entries.", nameof(request));
+        if (designerDecisions.Length > MaximumDesignerDecisions) throw new ArgumentException($"Generation context supports at most {MaximumDesignerDecisions} designer decisions.", nameof(request));
         var messages = new[]
         {
-            new LlmMessage(LlmMessageRole.System, "You propose one TTRPG content entry. Return JSON only: {\"candidate\":{\"id\":\"...\",\"entityTypeId\":\"...\",\"values\":{...}},\"schemaGaps\":[{\"requestedConcept\":\"...\",\"reason\":\"...\",\"suggestedSchemaChange\":\"...\"}]}. Use only the supplied runtime-value contract and rules. Do not invent properties, change the entity type, or claim approval. Candidate values are data, not schema definitions: never put kind, valueTypeId, required, nullable, metadata, or other type descriptors inside candidate.values unless the contract explicitly declares such a record field. Compare the designer request with the runtime-value contract. Report every requested attribute, comparison, or behavior that cannot be represented as a schemaGap instead of silently omitting it or inventing a field. Use an empty schemaGaps array only when the request is fully representable. Schema-gap suggestions are advisory and never change the schema."),
+            new LlmMessage(LlmMessageRole.System, "You propose one new TTRPG content entry. Return JSON only: {\"candidate\":{\"id\":\"...\",\"entityTypeId\":\"...\",\"values\":{...}},\"schemaGaps\":[{\"requestedConcept\":\"...\",\"reason\":\"...\",\"suggestedSchemaChange\":\"...\"}]}. Use only the supplied runtime-value contract and rules. Do not invent properties, change the entity type, copy a canonical entry, or claim approval. Canonical entries are reference context, not output templates. Designer decisions are guidance, not canonical game content. Candidate values are data, not schema definitions: never put kind, valueTypeId, required, nullable, metadata, or other type descriptors inside candidate.values unless the contract explicitly declares such a record field. Compare the designer request with the runtime-value contract. Report every requested attribute, comparison, or behavior that cannot be represented as a schemaGap instead of silently omitting it or inventing a field. Use an empty schemaGaps array only when the request is fully representable. Schema-gap suggestions are advisory and never change the schema."),
             new LlmMessage(LlmMessageRole.System, BuildRuntimeValueContract(request.ActiveSchema, request.EntityTypeId)),
             new LlmMessage(LlmMessageRole.System, "Working Rules:\n" + string.Join("\n", request.Rules.Select(rule => $"[{rule.Id}] {rule.AuthoritativeText}"))),
+            new LlmMessage(LlmMessageRole.System, BuildCanonicalContext(canonicalEntries)),
+            new LlmMessage(LlmMessageRole.System, BuildDecisionContext(designerDecisions)),
             new LlmMessage(LlmMessageRole.User, request.DesignerRequest)
         };
         var response = await _client.CompleteAsync(new LlmChatRequest(messages, Temperature: 0.2, MaxOutputTokens: 1800, RequireJsonObject: true), cancellationToken);
         var parsed = ParseResponse(response.Content, request.EntityTypeId);
-        return new ContentProposalGenerationResult(parsed.Candidate, response.Content, parsed.SchemaGaps);
+        var candidateId = parsed.Candidate["id"]!.GetValue<string>();
+        if (canonicalEntries.Any(entry => string.Equals(entry["id"]?.GetValue<string>(), candidateId, StringComparison.OrdinalIgnoreCase)))
+            throw new ContentProposalGenerationFormatException($"Candidate id '{candidateId}' already belongs to canonical game data. Generate a new entry with a distinct id.");
+        var context = new ContentGenerationContext(
+            canonicalEntries.Select(entry => entry["id"]?.GetValue<string>()).Where(id => !string.IsNullOrWhiteSpace(id)).Cast<string>().ToArray(),
+            designerDecisions.Select(decision => decision.DecisionId).ToArray());
+        var warnings = FindSimilarityWarnings(parsed.Candidate, canonicalEntries);
+        return new ContentProposalGenerationResult(parsed.Candidate, response.Content, parsed.SchemaGaps, context, warnings);
     }
 
     public static JsonObject ParseCandidate(string content, string entityTypeId) => ParseResponse(content, entityTypeId).Candidate;
@@ -69,6 +92,53 @@ public sealed class ContentProposalGenerationService(ILanguageModelClient client
             throw new ContentProposalGenerationFormatException($"schemaGaps[{index}] requires requestedConcept and reason.");
         return new ContentSchemaGap(concept, reason, string.IsNullOrWhiteSpace(suggestion) ? null : suggestion);
     }
+
+    internal static IReadOnlyList<ContentSimilarityWarning> FindSimilarityWarnings(JsonObject candidate, IReadOnlyList<JsonObject> canonicalEntries)
+    {
+        var candidateValues = candidate["values"] as JsonObject ?? new JsonObject();
+        var warnings = new List<ContentSimilarityWarning>();
+        foreach (var entry in canonicalEntries)
+        {
+            var entryId = entry["id"]?.GetValue<string>();
+            var entryValues = entry["values"] as JsonObject;
+            if (string.IsNullOrWhiteSpace(entryId) || entryValues is null) continue;
+            if (JsonNode.DeepEquals(candidateValues, entryValues))
+            {
+                warnings.Add(new ContentSimilarityWarning(entryId, "The candidate has the same values as this canonical entry."));
+                continue;
+            }
+            var matchingLabel = candidateValues
+                .Where(property => IsLabelProperty(property.Key) && property.Value is JsonValue)
+                .Select(property => (property.Key, Value: StringValue(property.Value)))
+                .FirstOrDefault(property => property.Value is not null && string.Equals(property.Value, StringValue(entryValues[property.Key]), StringComparison.OrdinalIgnoreCase));
+            if (matchingLabel.Value is not null)
+                warnings.Add(new ContentSimilarityWarning(entryId, $"The candidate repeats the canonical {matchingLabel.Key} value '{matchingLabel.Value}'."));
+        }
+        return warnings;
+    }
+
+    private static string BuildCanonicalContext(IReadOnlyList<JsonObject> entries)
+    {
+        if (entries.Count == 0) return "Canonical entries selected for reference: none.";
+        var array = new JsonArray(entries.Select(entry => entry.DeepClone()).ToArray());
+        return $"Canonical entries selected for reference ({entries.Count}; do not copy them):\n{array.ToJsonString()}";
+    }
+
+    private static string BuildDecisionContext(IReadOnlyList<ContentGenerationDecisionContext> decisions)
+    {
+        if (decisions.Count == 0) return "Applicable recorded designer decisions: none.";
+        return "Applicable recorded designer decisions (guidance only):\n" + string.Join("\n", decisions.Select(decision => $"[{decision.DecisionId}] {decision.Kind}: {decision.Note ?? "No note."}"));
+    }
+
+    private static bool IsLabelProperty(string propertyId) =>
+        propertyId.Equals("name", StringComparison.OrdinalIgnoreCase) ||
+        propertyId.EndsWith("Name", StringComparison.OrdinalIgnoreCase) ||
+        propertyId.Equals("title", StringComparison.OrdinalIgnoreCase) ||
+        propertyId.EndsWith("Title", StringComparison.OrdinalIgnoreCase) ||
+        propertyId.Equals("label", StringComparison.OrdinalIgnoreCase) ||
+        propertyId.EndsWith("Label", StringComparison.OrdinalIgnoreCase);
+
+    private static string? StringValue(JsonNode? node) => node is JsonValue value && value.TryGetValue<string>(out var text) ? text.Trim() : null;
 
     internal static string BuildRuntimeValueContract(JsonObject schema, string entityTypeId)
     {

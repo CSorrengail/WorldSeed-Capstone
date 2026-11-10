@@ -32,7 +32,9 @@ public sealed class ContentProposalDocumentTests
             1,
             createdAt,
             SchemaGaps: [new ContentSchemaGap("reach", "No reach property exists.", "Add reach to the schema.")],
-            DesignerRequest: "Create an ember wolf with reach.");
+            DesignerRequest: "Create an ember wolf with reach.",
+            GenerationContext: new ContentGenerationContext(["seed-1"], ["decision-1"]),
+            SimilarityWarnings: [new ContentSimilarityWarning("seed-1", "Similar values.")]);
 
         var document = ContentProposalDocument.FromDomain(proposal);
 
@@ -48,6 +50,9 @@ public sealed class ContentProposalDocumentTests
         Assert.True(JsonNode.DeepEquals(proposal.Candidate, restored.Candidate));
         Assert.Equal("reach", Assert.Single(restored.SchemaGaps!).RequestedConcept);
         Assert.Equal(proposal.DesignerRequest, restored.DesignerRequest);
+        Assert.Equal("seed-1", Assert.Single(restored.GenerationContext!.CanonicalEntityIds));
+        Assert.Equal("decision-1", Assert.Single(restored.GenerationContext.DesignerDecisionIds));
+        Assert.Equal("seed-1", Assert.Single(restored.SimilarityWarnings!).CanonicalEntityId);
     }
 
     [Fact]
@@ -57,10 +62,14 @@ public sealed class ContentProposalDocumentTests
         var bson = legacy.ToBsonDocument();
         bson.Remove(nameof(ContentProposalDocument.SchemaGaps));
         bson.Remove(nameof(ContentProposalDocument.DesignerRequest));
+        bson.Remove(nameof(ContentProposalDocument.GenerationContext));
+        bson.Remove(nameof(ContentProposalDocument.SimilarityWarnings));
 
         var restored = BsonSerializer.Deserialize<ContentProposalDocument>(bson).ToDomain();
 
         Assert.Null(restored.SchemaGaps);
         Assert.Null(restored.DesignerRequest);
+        Assert.Null(restored.GenerationContext);
+        Assert.Null(restored.SimilarityWarnings);
     }
 }

@@ -50,6 +50,40 @@ public class ContentProposalGenerationServiceTests
         Assert.Throws<ContentProposalGenerationFormatException>(() => ContentProposalGenerationService.ParseResponse("""{"candidate":{"id":"wisp","entityTypeId":"creature","values":{}},"schemaGaps":[{"requestedConcept":"armor"}]}""", "creature"));
     }
 
+    [Fact]
+    public async Task Uses_bounded_canonical_and_decision_context_and_records_exact_ids()
+    {
+        var model = new CapturingModel("""{"candidate":{"id":"glass-fox","entityTypeId":"creature","values":{"name":"Glass Fox","role":"scout"}},"schemaGaps":[]}""");
+        var schema = JsonNode.Parse("""{"entityTypes":[{"metadata":{"id":"creature"},"properties":[{"metadata":{"id":"name"},"valueType":{"kind":"primitive","name":"string"}},{"metadata":{"id":"role"},"valueType":{"kind":"primitive","name":"string"}}]}]}""")!.AsObject();
+        var rule = new WorkingRule("rule-1", "Creature Rule", WorkingRuleKind.Rule, "Creatures have a role.", [], [], [], [], null, [], []);
+        var canonical = JsonNode.Parse("""{"id":"coal-stalker","entityTypeId":"creature","values":{"name":"Coal Stalker","role":"ambusher"}}""")!.AsObject();
+        var decision = new ContentGenerationDecisionContext("decision-1", ContentProposalDecisionKind.Rejected, "Avoid another fire creature.");
+
+        var result = await new ContentProposalGenerationService(model).GenerateAsync(new ContentProposalGenerationRequest("project", "creature", schema, [rule], "Suggest something new.", [canonical], [decision]));
+
+        var prompt = string.Join("\n", model.Request!.Messages.Select(message => message.Content));
+        Assert.Contains("coal-stalker", prompt);
+        Assert.Contains("Avoid another fire creature", prompt);
+        Assert.Equal(["coal-stalker"], result.GenerationContext!.CanonicalEntityIds);
+        Assert.Equal(["decision-1"], result.GenerationContext.DesignerDecisionIds);
+        Assert.Empty(result.SimilarityWarnings!);
+    }
+
+    [Fact]
+    public async Task Rejects_duplicate_id_and_flags_obvious_value_similarity()
+    {
+        var schema = JsonNode.Parse("""{"entityTypes":[{"metadata":{"id":"creature"},"properties":[]}]}""")!.AsObject();
+        var rule = new WorkingRule("rule-1", "Creature Rule", WorkingRuleKind.Rule, "Creatures exist.", [], [], [], [], null, [], []);
+        var canonical = JsonNode.Parse("""{"id":"coal-stalker","entityTypeId":"creature","values":{"name":"Coal Stalker","role":"ambusher"}}""")!.AsObject();
+        var duplicate = new ContentProposalGenerationService(new CapturingModel("""{"candidate":{"id":"COAL-STALKER","entityTypeId":"creature","values":{"name":"Other"}},"schemaGaps":[]}"""));
+        await Assert.ThrowsAsync<ContentProposalGenerationFormatException>(() => duplicate.GenerateAsync(new ContentProposalGenerationRequest("project", "creature", schema, [rule], "New creature.", [canonical])));
+
+        var similar = new ContentProposalGenerationService(new CapturingModel("""{"candidate":{"id":"new-id","entityTypeId":"creature","values":{"name":"Coal Stalker","role":"scout"}},"schemaGaps":[]}"""));
+        var result = await similar.GenerateAsync(new ContentProposalGenerationRequest("project", "creature", schema, [rule], "New creature.", [canonical]));
+
+        Assert.Contains("repeats the canonical name value", Assert.Single(result.SimilarityWarnings!).Reason);
+    }
+
     private sealed class CapturingModel(string content) : ILanguageModelClient
     {
         public LlmChatRequest? Request { get; private set; }

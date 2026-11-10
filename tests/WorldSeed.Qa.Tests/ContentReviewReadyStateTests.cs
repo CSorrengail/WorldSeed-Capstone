@@ -154,6 +154,45 @@ public sealed class ContentReviewReadyStateTests
         finally { window.Close(); }
     }
 
+    [AvaloniaFact]
+    public async Task Suggest_new_content_uses_bounded_canonical_and_decision_context()
+    {
+        var modelHandler = new ContextModelHandler();
+        using var model = new HttpClient(modelHandler);
+        using var api = new HttpClient(new ProposalApiHandler()) { BaseAddress = new Uri("http://qa.invalid/") };
+        var window = new MainWindow(model, api);
+        try
+        {
+            var now = DateTimeOffset.UtcNow;
+            var project = DesignProjectService.Create("context-project", "Context Project");
+            var rule = new WorkingRule("creature-definition", "Creature Definition", WorkingRuleKind.Definition, "Creatures have names and roles.", [], [], [], [], null, [], []);
+            var rules = new WorkingRuleSet("context-rules", project.Id, "0.1", "Context Rules", null, 1, now, now, [rule], [], [], [], []);
+            var schemaJson = JsonNode.Parse("""{"id":"context-schema","name":"Context Schema","version":"1","entityTypes":[{"metadata":{"id":"creature","name":"Creature"},"properties":[{"metadata":{"id":"name","name":"Name"},"valueType":{"kind":"primitive","name":"string"},"required":true,"nullable":false},{"metadata":{"id":"role","name":"Role"},"valueType":{"kind":"primitive","name":"string"},"required":true,"nullable":false}]}],"valueTypes":[]}""")!.AsObject();
+            var active = new ActiveGameSchema("active-context", project.Id, "0.1", "Context Schema", schemaJson.ToJsonString(), "proposal-context", rules.Id, rules.Revision, 1, now, now);
+            var gameDataRoot = JsonNode.Parse(GameDataService.CreateEmpty(active, now).DataJson)!.AsObject();
+            gameDataRoot["entityInstances"]!.AsArray().Add(JsonNode.Parse("""{"id":"coal-stalker","entityTypeId":"creature","values":{"name":"Coal Stalker","role":"ambusher"}}""")!.AsObject());
+            var gameData = GameDataService.CreateEmpty(active, now) with { DataJson = gameDataRoot.ToJsonString() };
+            var prior = ContentProposalLifecycleService.Create(project.Id, "creature", JsonNode.Parse("""{"id":"ember-wolf","entityTypeId":"creature","values":{"name":"Ember Wolf","role":"hunter"}}""")!.AsObject(), active.Id, active.Revision, rules.Id, rules.Revision, now, designerRequest: "Create an ember wolf.");
+            var decision = ContentProposalLifecycleService.Decide(prior, ContentProposalDecisionKind.Rejected, "Avoid another fire creature.", now);
+
+            window.RestoreContentReviewWorkspace(project, rules, active, gameData, proposals: [prior], decisions: [decision]);
+            window.FindControl<ComboBox>("ModelSelector")!.ItemsSource = new[] { "local-model" };
+            window.FindControl<ComboBox>("ModelSelector")!.SelectedIndex = 0;
+            window.FindControl<ComboBox>("ContentProposalEntityTypeList")!.SelectedIndex = 0;
+
+            Assert.True(await window.SuggestContentProposalAsync());
+
+            Assert.Contains("Propose one original Creature", window.FindControl<TextBox>("ContentProposalRequestText")!.Text);
+            Assert.Contains("coal-stalker", window.FindControl<TextBlock>("ContentGenerationContextText")!.Text);
+            Assert.Contains(decision.Id, window.FindControl<TextBlock>("ContentGenerationContextText")!.Text);
+            Assert.Contains("glass-fox", window.FindControl<TextBox>("ContentProposalEditor")!.Text);
+            Assert.Contains("coal-stalker", modelHandler.RequestBody);
+            Assert.Contains("Avoid another fire creature", modelHandler.RequestBody);
+            Assert.Equal(2, window.FindControl<ListBox>("ContentProposalList")!.Items.Count);
+        }
+        finally { window.Close(); }
+    }
+
     private sealed class ModelHandler : HttpMessageHandler
     {
         private int _requestCount;
@@ -184,6 +223,22 @@ public sealed class ContentReviewReadyStateTests
                 message = new { content = "{\"candidate\":{\"id\":\"coal-stalker\",\"entityTypeId\":\"creature\",\"values\":{\"role\":\"skirmisher\",\"reach\":2}},\"schemaGaps\":[]}" }
             });
             return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StringContent(body) });
+        }
+    }
+
+    private sealed class ContextModelHandler : HttpMessageHandler
+    {
+        public string? RequestBody { get; private set; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            RequestBody = await request.Content!.ReadAsStringAsync(cancellationToken);
+            var body = JsonSerializer.Serialize(new
+            {
+                model = "local-model",
+                message = new { content = "{\"candidate\":{\"id\":\"glass-fox\",\"entityTypeId\":\"creature\",\"values\":{\"name\":\"Glass Fox\",\"role\":\"scout\"}},\"schemaGaps\":[]}" }
+            });
+            return new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StringContent(body) };
         }
     }
 
