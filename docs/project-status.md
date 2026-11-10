@@ -15,6 +15,40 @@ preserved at `backup/main-before-test-doc-squash-20261107`.
 
 ## Current Development Task
 
+The owner authorized ongoing post-MVP work on 2026-11-10. The first complete
+post-MVP sequence is now independently verified: bounded context-backed content
+generation (`36f638d`), explicit promotion of approved proposals into canonical
+Game Data (`776fbba`), and deterministic human-readable publication (`a05f827`).
+The Publication workspace creates immutable Markdown snapshots and provenance
+manifests from the exact active-schema-bound Working Rule Set revision and valid
+canonical Game Data. Draft, rejected, and unapplied proposals are excluded.
+QA passed all 124 tests, focused service and headless UI checks, both Release
+builds, and an isolated live API/Mongo exercise proving two immutable snapshots,
+distinct fingerprints after an upstream data change, and project-delete cleanup.
+Evidence is retained at
+`artifacts/qa/20261110-publication-snapshots/report.md`.
+
+Advisor review selected rule-conforming content expansion before publication.
+Revision
+`36f638d` implements the first bounded increment: Content Review can suggest one
+new entry from current-schema canonical examples and applicable designer
+decisions, record the exact context IDs, refuse duplicate IDs, and display
+advisory similarity warnings without mutating canonical Game Data. Independent
+QA passed 117 tests, focused headless UI and persistence checks, both Release
+builds, and one isolated `gemma3:12b` observation that produced a distinct
+`stone-shambler`. Evidence is retained at
+`artifacts/qa/20261110-context-backed-generation/report.md`.
+
+Revision `776fbba` resolves that question. Approval is now an eligibility
+condition, while a separate **Apply Approved To Game Data** action performs
+current-schema revalidation and records a durable Pending/Applied application
+event. It never overwrites a duplicate ID, requires a second confirmation for
+visible advisory warnings, and recovers idempotently if canonical data was saved
+before event finalization. QA passed 121 tests and an isolated live API/Mongo
+exercise covering unapproved refusal, one-entry application, repeat idempotency,
+duplicate conflict, and project cleanup. Evidence is retained at
+`artifacts/qa/20261110-content-application/report.md`.
+
 The owner-authorized creature MVP implementation, isolated connected QA, and
 normal-launcher smoke workflow are complete. Tested revision `6887ab9` (current equivalent `c569cbc`) connected the
 actual Content Review controls and production generation path to local
@@ -89,6 +123,18 @@ remains available for any later owner-action stop.
   changes during this demonstration.
 
 ## Latest Verified Application Revision
+
+- **Tested revision:** `a05f827` - Publish canonical project snapshots as
+  Markdown.
+- **QA result:** PASS on the exact revision: 124 solution tests, two Publication
+  service tests, a focused headless Avalonia Publication check, clean API and App
+  Release builds, and an isolated live API/Mongo exercise.
+- **Behavior:** publication uses the exact active-schema-bound Working Rule Set
+  and mechanically valid canonical Game Data; it creates append-only Markdown
+  snapshots and machine-readable provenance manifests without an LLM. Later
+  canonical changes create a new fingerprint and snapshot without altering the
+  old one, and project deletion removes publication history.
+- **Evidence:** `artifacts/qa/20261110-publication-snapshots/report.md`.
 
 - **Tested revision:** `29719c4` - Re-evaluate proposal lineages after schema
   changes.
@@ -334,6 +380,10 @@ remains available for any later owner-action stop.
 ## Open Defects And Technical Limits
 
 - No confirmed product defect is currently open.
+- QA observed 47 residual `dotnet` processes that predated the latest bounded
+  test run. Current low-worker commands did not increase the count. Their command
+  lines could not be read without elevated Windows process inspection, so they
+  were not terminated while ownership remained uncertain.
 - On 2026-11-10 both supported Windows computer-control surfaces failed before
   listing windows with `failed to start Node runtime: The system cannot find the
   path specified. (os error 3)`, including after a runtime reset. This is an
@@ -410,13 +460,17 @@ of the schema re-evaluation correction.
 
 ## Remaining Authorized Work
 
-- No additional implementation task is authorized after completion of the
-  approved creature MVP.
-- The recorded next-stage capabilities are AI-assisted creation of new
-  rule-conforming game content beyond imported examples and publication of
-  canonical project content as organized human-readable source/rulebook text.
+- The post-MVP content loop can suggest a new entry from bounded project context,
+  preserve review decisions, explicitly promote an approved valid proposal into
+  canonical Game Data, and publish immutable human-readable snapshots.
+- Continue publication toward an organized, designer-reviewable source/rulebook
+  artifact without allowing editorial presentation to invent or change game
+  mechanics.
+- Preserve the optional future retrieval seam; semantic embeddings remain
+  unnecessary while the structured project context is sufficient.
 
 ## Next Action Required
 
-The owner may choose which recorded continuation capability to prioritize next.
-Until then, preserve the verified MVP and do not silently expand its scope.
+Define and implement the next bounded publication increment from the verified
+snapshot foundation, then delegate exact-revision QA. No owner decision is
+currently required.
