@@ -18,7 +18,11 @@ public sealed record ContentProposal(
     int WorkingRuleSetRevision,
     int Version,
     DateTimeOffset CreatedAt,
-    string? ReplacesProposalId = null);
+    string? ReplacesProposalId = null,
+    IReadOnlyList<ContentSchemaGap>? SchemaGaps = null);
+
+/// <summary>An advisory model observation that a designer request exceeds the active game-owned schema.</summary>
+public sealed record ContentSchemaGap(string RequestedConcept, string Reason, string? SuggestedSchemaChange = null);
 
 public enum ContentProposalDecisionKind { Approved, Rejected, RevisionRequested }
 

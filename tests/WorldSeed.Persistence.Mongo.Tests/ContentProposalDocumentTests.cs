@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using MongoDB.Bson;
+using MongoDB.Bson.Serialization;
 using WorldSeed.Content;
 using WorldSeed.Persistence.Mongo;
 
@@ -29,7 +30,8 @@ public sealed class ContentProposalDocumentTests
             "rules-1",
             7,
             1,
-            createdAt);
+            createdAt,
+            SchemaGaps: [new ContentSchemaGap("reach", "No reach property exists.", "Add reach to the schema.")]);
 
         var document = ContentProposalDocument.FromDomain(proposal);
 
@@ -43,5 +45,18 @@ public sealed class ContentProposalDocumentTests
         Assert.Equal(proposal.WorkingRuleSetRevision, restored.WorkingRuleSetRevision);
         Assert.Equal(proposal.CreatedAt, restored.CreatedAt);
         Assert.True(JsonNode.DeepEquals(proposal.Candidate, restored.Candidate));
+        Assert.Equal("reach", Assert.Single(restored.SchemaGaps!).RequestedConcept);
+    }
+
+    [Fact]
+    public void Legacy_document_without_schema_gaps_remains_loadable()
+    {
+        var legacy = new ContentProposalDocument("proposal-legacy", "project-1", "monster", BsonDocument.Parse("{ id: 'legacy', entityTypeId: 'monster', values: {} }"), "schema-1", 1, "rules-1", 1, 1, DateTimeOffset.UtcNow, null);
+        var bson = legacy.ToBsonDocument();
+        bson.Remove(nameof(ContentProposalDocument.SchemaGaps));
+
+        var restored = BsonSerializer.Deserialize<ContentProposalDocument>(bson).ToDomain();
+
+        Assert.Null(restored.SchemaGaps);
     }
 }

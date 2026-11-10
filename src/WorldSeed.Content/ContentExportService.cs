@@ -20,6 +20,18 @@ public static class ContentExportService
             ["content"] = proposal.Candidate.DeepClone(), ["gameSchemaId"] = gameSchema["id"]?.DeepClone(), ["gameSchemaVersion"] = gameSchema["version"]?.DeepClone(),
             ["workingRuleSetId"] = proposal.WorkingRuleSetId, ["workingRuleSetRevision"] = proposal.WorkingRuleSetRevision,
             ["proposalId"] = proposal.Id, ["proposalVersion"] = proposal.Version,
+            ["schemaGapAnalysis"] = new JsonObject
+            {
+                ["reported"] = proposal.SchemaGaps is not null,
+                ["gaps"] = proposal.SchemaGaps is null
+                    ? new JsonArray()
+                    : new JsonArray(proposal.SchemaGaps.Select(gap => (JsonNode)new JsonObject
+                    {
+                        ["requestedConcept"] = gap.RequestedConcept,
+                        ["reason"] = gap.Reason,
+                        ["suggestedSchemaChange"] = gap.SuggestedSchemaChange
+                    }).ToArray())
+            },
             ["designerDecision"] = new JsonObject { ["id"] = decision.Id, ["kind"] = decision.Kind.ToString(), ["createdAt"] = decision.CreatedAt }
         }.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
     }

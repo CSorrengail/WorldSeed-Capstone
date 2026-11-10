@@ -1458,6 +1458,8 @@ public partial class MainWindow : Window
             ContentProposalEditor.Text = "Generated Candidates Appear Here.";
             ContentMechanicalValidationText.Text = "Select A Proposal To Validate It Against The Active Schema.";
             ContentBalanceEvaluationText.Text = "Select A Proposal To Evaluate Its Game-Specific Balance Profile.";
+            ContentSchemaGapText.Text = "Select A Proposal To Review Whether The Active Schema Covers Its Request.";
+            OpenSchemaForContentGapButton.IsVisible = false;
             ContentProposalDecisionHistoryText.Text = "No proposal is selected.";
             ContentDecisionGuidanceText.Text = "Enter An Optional Decision Note. Revision Guidance Will Be Moved To Designer Request For Regeneration.";
             if (ready) ContentProposalStatusText.Text = "Choose a content type and describe the proposal you want the local model to create.";
@@ -1465,6 +1467,8 @@ public partial class MainWindow : Window
         }
 
         ContentProposalEditor.Text = PrettyJson(selected.Candidate.ToJsonString());
+        ContentSchemaGapText.Text = FormatContentSchemaGaps(selected.SchemaGaps);
+        OpenSchemaForContentGapButton.IsVisible = selected.SchemaGaps is { Count: > 0 };
         ContentProposalDecisionHistoryText.Text = FormatContentProposalHistory(selected);
         RefreshContentEvaluationView(selected);
         ContentDecisionGuidanceText.Text = revisionBase is not null
@@ -1539,7 +1543,7 @@ public partial class MainWindow : Window
         {
             var schema = ParseJsonObject(_activeGameSchema.SchemaJson, "The active schema is not valid JSON.");
             var result = await new ContentProposalGenerationService(capture).GenerateAsync(new ContentProposalGenerationRequest(_project.Id, selectedType.Id, schema, _workingRuleSet.Rules, requestText));
-            var proposal = ContentProposalLifecycleService.Create(_project.Id, selectedType.Id, result.Candidate, _activeGameSchema.Id, _activeGameSchema.Revision, _workingRuleSet.Id, _workingRuleSet.Revision, DateTimeOffset.UtcNow, replaces);
+            var proposal = ContentProposalLifecycleService.Create(_project.Id, selectedType.Id, result.Candidate, _activeGameSchema.Id, _activeGameSchema.Revision, _workingRuleSet.Id, _workingRuleSet.Revision, DateTimeOffset.UtcNow, replaces, result.SchemaGaps);
             await _contentProposals.SaveProposalAsync(proposal);
             _contentProposalItems.Insert(0, proposal);
             ContentProposalRequestText.Text = requestText;
@@ -1589,7 +1593,7 @@ public partial class MainWindow : Window
         try
         {
             var candidate = ParseContentCandidate(ContentProposalEditor.Text ?? string.Empty, selected.EntityTypeId);
-            var revision = ContentProposalLifecycleService.Create(_project.Id, selected.EntityTypeId, candidate, _activeGameSchema.Id, _activeGameSchema.Revision, _workingRuleSet.Id, _workingRuleSet.Revision, DateTimeOffset.UtcNow, selected);
+            var revision = ContentProposalLifecycleService.Create(_project.Id, selected.EntityTypeId, candidate, _activeGameSchema.Id, _activeGameSchema.Revision, _workingRuleSet.Id, _workingRuleSet.Revision, DateTimeOffset.UtcNow, selected, selected.SchemaGaps);
             await _contentProposals.SaveProposalAsync(revision);
             _contentProposalItems.Insert(0, revision);
             RefreshContentProposalView();
@@ -1713,8 +1717,20 @@ public partial class MainWindow : Window
             text.AppendLine().AppendLine("Advisory Balance Concerns To Consider:");
             foreach (var concern in evaluation.BalanceConcerns) text.AppendLine($"- {concern.Message} Observed {concern.ObservedValue}.");
         }
+        if (proposal.SchemaGaps is { Count: > 0 })
+        {
+            text.AppendLine().AppendLine("Previously Reported Schema Gaps:");
+            foreach (var gap in proposal.SchemaGaps) text.AppendLine($"- {gap.RequestedConcept}: {gap.Reason}");
+        }
         text.AppendLine().AppendLine($"Keep entityTypeId '{proposal.EntityTypeId}' and return one complete replacement candidate.");
         return text.ToString().Trim();
+    }
+
+    private static string FormatContentSchemaGaps(IReadOnlyList<ContentSchemaGap>? gaps)
+    {
+        if (gaps is null) return "Schema Coverage Was Not Reported For This Earlier Proposal. Review Its Request And Candidate Manually.";
+        if (gaps.Count == 0) return "The Model Reported That The Designer Request Fits The Active Schema. This Is Advisory; Mechanical Validation Still Checks The Candidate.";
+        return "The Active Schema Cannot Represent Every Requested Concept:\n" + string.Join("\n", gaps.Select(gap => $"- {gap.RequestedConcept}: {gap.Reason}" + (string.IsNullOrWhiteSpace(gap.SuggestedSchemaChange) ? string.Empty : $" Suggested Schema Change: {gap.SuggestedSchemaChange}"))) + "\nOpen The Schema Workspace To Review A Game-Specific Change Before Relying On The Omitted Concept.";
     }
 
     private static JsonObject ParseContentCandidate(string text, string entityTypeId)
@@ -2145,6 +2161,8 @@ public partial class MainWindow : Window
         ContentProposalList.ItemsSource = Array.Empty<ContentProposalListItem>();
         ContentProposalRequestText.Text = string.Empty;
         ContentProposalEditor.Text = "Generated candidates and their validation results appear here.";
+        ContentSchemaGapText.Text = "Select A Proposal To Review Whether The Active Schema Covers Its Request.";
+        OpenSchemaForContentGapButton.IsVisible = false;
         ContentProposalDecisionNoteText.Text = string.Empty;
         ContentProposalDecisionHistoryText.Text = "No decisions recorded.";
         ContentDecisionGuidanceText.Text = "Enter An Optional Decision Note. Revision Guidance Will Be Moved To Designer Request For Regeneration.";

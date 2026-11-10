@@ -4,7 +4,7 @@ namespace WorldSeed.Content;
 
 public static class ContentProposalLifecycleService
 {
-    public static ContentProposal Create(string projectId, string entityTypeId, JsonObject candidate, string activeSchemaId, int activeSchemaRevision, string workingRuleSetId, int workingRuleSetRevision, DateTimeOffset now, ContentProposal? replaces = null)
+    public static ContentProposal Create(string projectId, string entityTypeId, JsonObject candidate, string activeSchemaId, int activeSchemaRevision, string workingRuleSetId, int workingRuleSetRevision, DateTimeOffset now, ContentProposal? replaces = null, IReadOnlyList<ContentSchemaGap>? schemaGaps = null)
     {
         Require(projectId, "A project is required.");
         Require(entityTypeId, "An entity type is required.");
@@ -18,7 +18,7 @@ public static class ContentProposalLifecycleService
         return new ContentProposal(
             "content-proposal-" + Guid.NewGuid().ToString("N"), projectId, entityTypeId, (JsonObject)candidate.DeepClone(),
             activeSchemaId, activeSchemaRevision, workingRuleSetId, workingRuleSetRevision,
-            (replaces?.Version ?? 0) + 1, now, replaces?.Id);
+            (replaces?.Version ?? 0) + 1, now, replaces?.Id, schemaGaps?.ToArray());
     }
 
     public static ContentProposalDecision Decide(ContentProposal proposal, ContentProposalDecisionKind kind, string? note, DateTimeOffset now, ContentProposal? replacement = null)

@@ -60,7 +60,8 @@ internal sealed record ContentProposalDocument(
     int WorkingRuleSetRevision,
     int Version,
     DateTimeOffset CreatedAt,
-    string? ReplacesProposalId)
+    string? ReplacesProposalId,
+    ContentSchemaGap[]? SchemaGaps = null)
 {
     public static ContentProposalDocument FromDomain(ContentProposal proposal) => new(
         proposal.Id,
@@ -73,7 +74,8 @@ internal sealed record ContentProposalDocument(
         proposal.WorkingRuleSetRevision,
         proposal.Version,
         proposal.CreatedAt,
-        proposal.ReplacesProposalId);
+        proposal.ReplacesProposalId,
+        proposal.SchemaGaps?.ToArray());
 
     public ContentProposal ToDomain()
     {
@@ -92,6 +94,7 @@ internal sealed record ContentProposalDocument(
             WorkingRuleSetRevision,
             Version,
             CreatedAt,
-            ReplacesProposalId);
+            ReplacesProposalId,
+            SchemaGaps);
     }
 }

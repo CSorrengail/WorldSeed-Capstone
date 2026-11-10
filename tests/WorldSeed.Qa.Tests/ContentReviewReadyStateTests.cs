@@ -90,6 +90,8 @@ public sealed class ContentReviewReadyStateTests
             Assert.Contains("Saved proposal version 1", window.FindControl<TextBlock>("ContentProposalStatusText")!.Text);
             Assert.Contains("Allowed entry IDs: 'skirmisher'", window.FindControl<TextBox>("ContentMechanicalValidationText")!.Text);
             Assert.Contains("Open Game-Specific Balance Profile", window.FindControl<TextBox>("ContentBalanceEvaluationText")!.Text);
+            Assert.Contains("threat rating", window.FindControl<TextBlock>("ContentSchemaGapText")!.Text);
+            Assert.True(window.FindControl<Button>("OpenSchemaForContentGapButton")!.IsVisible);
 
             window.FindControl<TextBox>("ContentProposalDecisionNoteText")!.Text = "Use a valid creature role.";
             Assert.True(await window.RequestContentProposalRevisionAsync());
@@ -102,6 +104,8 @@ public sealed class ContentReviewReadyStateTests
 
             Assert.Contains("Saved requested revision as version 2", window.FindControl<TextBlock>("ContentProposalStatusText")!.Text);
             Assert.Contains("skirmisher", window.FindControl<TextBox>("ContentProposalEditor")!.Text);
+            Assert.Contains("fits the active schema", window.FindControl<TextBlock>("ContentSchemaGapText")!.Text, StringComparison.OrdinalIgnoreCase);
+            Assert.False(window.FindControl<Button>("OpenSchemaForContentGapButton")!.IsVisible);
             window.FindControl<ListBox>("ContentProposalList")!.SelectedIndex = 1;
             Assert.Contains("Use a valid creature role.", window.FindControl<TextBox>("ContentProposalDecisionHistoryText")!.Text);
             Assert.DoesNotContain("Replacement: None", window.FindControl<TextBox>("ContentProposalDecisionHistoryText")!.Text);
@@ -116,11 +120,15 @@ public sealed class ContentReviewReadyStateTests
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
-            var role = Interlocked.Increment(ref _requestCount) == 1 ? "wrong" : "skirmisher";
+            var first = Interlocked.Increment(ref _requestCount) == 1;
+            var role = first ? "wrong" : "skirmisher";
+            var schemaGaps = first
+                ? "[{\"requestedConcept\":\"threat rating\",\"reason\":\"The active schema has no threat-rating property.\",\"suggestedSchemaChange\":\"Add a game-specific threat-rating rule and property.\"}]"
+                : "[]";
             var body = JsonSerializer.Serialize(new
             {
                 model = "local-model",
-                message = new { content = $"{{\"candidate\":{{\"id\":\"coal-stalker\",\"entityTypeId\":\"creature\",\"values\":{{\"creature.role\":\"{role}\"}}}}}}" }
+                message = new { content = $"{{\"candidate\":{{\"id\":\"coal-stalker\",\"entityTypeId\":\"creature\",\"values\":{{\"creature.role\":\"{role}\"}}}},\"schemaGaps\":{schemaGaps}}}" }
             });
             return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StringContent(body) });
         }

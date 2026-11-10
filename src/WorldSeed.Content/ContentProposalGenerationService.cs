@@ -13,7 +13,7 @@ public sealed record ContentProposalGenerationRequest(
     IReadOnlyList<WorkingRule> Rules,
     string DesignerRequest);
 
-public sealed record ContentProposalGenerationResult(JsonObject Candidate, string RawModelOutput);
+public sealed record ContentProposalGenerationResult(JsonObject Candidate, string RawModelOutput, IReadOnlyList<ContentSchemaGap>? SchemaGaps);
 public sealed class ContentProposalGenerationFormatException(string message) : Exception(message);
 
 /// <summary>Turns one model response into a reviewable entity candidate; it never persists or applies it.</summary>
@@ -27,16 +27,19 @@ public sealed class ContentProposalGenerationService(ILanguageModelClient client
         if (request.Rules.Count == 0) throw new ArgumentException("At least one selected Working Rule is required.", nameof(request));
         var messages = new[]
         {
-            new LlmMessage(LlmMessageRole.System, "You propose one TTRPG content entry. Return JSON only: {\"candidate\":{\"id\":\"...\",\"entityTypeId\":\"...\",\"values\":{...}}}. Use only the supplied runtime-value contract and rules. Do not invent properties, change the entity type, or claim approval. Candidate values are data, not schema definitions: never put kind, valueTypeId, required, nullable, metadata, or other type descriptors inside candidate.values unless the contract explicitly declares such a record field."),
+            new LlmMessage(LlmMessageRole.System, "You propose one TTRPG content entry. Return JSON only: {\"candidate\":{\"id\":\"...\",\"entityTypeId\":\"...\",\"values\":{...}},\"schemaGaps\":[{\"requestedConcept\":\"...\",\"reason\":\"...\",\"suggestedSchemaChange\":\"...\"}]}. Use only the supplied runtime-value contract and rules. Do not invent properties, change the entity type, or claim approval. Candidate values are data, not schema definitions: never put kind, valueTypeId, required, nullable, metadata, or other type descriptors inside candidate.values unless the contract explicitly declares such a record field. Compare the designer request with the runtime-value contract. Report every requested attribute, comparison, or behavior that cannot be represented as a schemaGap instead of silently omitting it or inventing a field. Use an empty schemaGaps array only when the request is fully representable. Schema-gap suggestions are advisory and never change the schema."),
             new LlmMessage(LlmMessageRole.System, BuildRuntimeValueContract(request.ActiveSchema, request.EntityTypeId)),
             new LlmMessage(LlmMessageRole.System, "Working Rules:\n" + string.Join("\n", request.Rules.Select(rule => $"[{rule.Id}] {rule.AuthoritativeText}"))),
             new LlmMessage(LlmMessageRole.User, request.DesignerRequest)
         };
         var response = await _client.CompleteAsync(new LlmChatRequest(messages, Temperature: 0.2, MaxOutputTokens: 1800, RequireJsonObject: true), cancellationToken);
-        return new ContentProposalGenerationResult(ParseCandidate(response.Content, request.EntityTypeId), response.Content);
+        var parsed = ParseResponse(response.Content, request.EntityTypeId);
+        return new ContentProposalGenerationResult(parsed.Candidate, response.Content, parsed.SchemaGaps);
     }
 
-    public static JsonObject ParseCandidate(string content, string entityTypeId)
+    public static JsonObject ParseCandidate(string content, string entityTypeId) => ParseResponse(content, entityTypeId).Candidate;
+
+    public static ContentProposalGenerationResult ParseResponse(string content, string entityTypeId)
     {
         try
         {
@@ -44,9 +47,27 @@ public sealed class ContentProposalGenerationService(ILanguageModelClient client
             var candidate = root["candidate"] as JsonObject ?? throw new ContentProposalGenerationFormatException("The model response requires a candidate object.");
             if (string.IsNullOrWhiteSpace(candidate["id"]?.GetValue<string>()) || candidate["values"] is not JsonObject) throw new ContentProposalGenerationFormatException("A candidate requires an id and values object.");
             if (!string.Equals(candidate["entityTypeId"]?.GetValue<string>(), entityTypeId, StringComparison.Ordinal)) throw new ContentProposalGenerationFormatException("The candidate entityTypeId does not match the requested type.");
-            return (JsonObject)candidate.DeepClone();
+            IReadOnlyList<ContentSchemaGap>? gaps = null;
+            if (root.TryGetPropertyValue("schemaGaps", out var gapNode))
+            {
+                if (gapNode is not JsonArray gapArray) throw new ContentProposalGenerationFormatException("schemaGaps must be a JSON array.");
+                if (gapArray.Count > 12) throw new ContentProposalGenerationFormatException("The model reported too many schema gaps.");
+                gaps = gapArray.Select((node, index) => ParseSchemaGap(node, index)).ToArray();
+            }
+            return new ContentProposalGenerationResult((JsonObject)candidate.DeepClone(), content, gaps);
         }
         catch (JsonException) { throw new ContentProposalGenerationFormatException("The model did not return valid JSON."); }
+    }
+
+    private static ContentSchemaGap ParseSchemaGap(JsonNode? node, int index)
+    {
+        if (node is not JsonObject gap) throw new ContentProposalGenerationFormatException($"schemaGaps[{index}] must be a JSON object.");
+        var concept = gap["requestedConcept"]?.GetValue<string>()?.Trim();
+        var reason = gap["reason"]?.GetValue<string>()?.Trim();
+        var suggestion = gap["suggestedSchemaChange"]?.GetValue<string>()?.Trim();
+        if (string.IsNullOrWhiteSpace(concept) || string.IsNullOrWhiteSpace(reason))
+            throw new ContentProposalGenerationFormatException($"schemaGaps[{index}] requires requestedConcept and reason.");
+        return new ContentSchemaGap(concept, reason, string.IsNullOrWhiteSpace(suggestion) ? null : suggestion);
     }
 
     internal static string BuildRuntimeValueContract(JsonObject schema, string entityTypeId)
@@ -84,7 +105,8 @@ public sealed class ContentProposalGenerationService(ILanguageModelClient client
                 ["id"] = "replace-with-content-id",
                 ["entityTypeId"] = entityTypeId,
                 ["values"] = exampleValues
-            }
+            },
+            ["schemaGaps"] = new JsonArray()
         };
         return text.AppendLine("Example output shape (replace placeholder values while preserving their JSON types):")
             .Append(example.ToJsonString()).ToString();

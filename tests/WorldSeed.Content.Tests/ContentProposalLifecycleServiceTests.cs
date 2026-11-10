@@ -37,7 +37,7 @@ public class ContentProposalLifecycleServiceTests
     [Fact]
     public void Exports_only_the_matching_approved_version_with_required_provenance()
     {
-        var proposal = Create();
+        var proposal = ContentProposalLifecycleService.Create("project", "creature", Candidate("original"), "active", 1, "rules", 1, Now, schemaGaps: [new ContentSchemaGap("reach", "No reach property exists.", "Add an optional reach property.")]);
         var approved = ContentProposalLifecycleService.Decide(proposal, ContentProposalDecisionKind.Approved, null, Now);
         var schema = new ActiveGameSchema("active", "project", "0.1", "Test", """{"id":"test-schema","version":"1"}""", "schema", "rules", 1, 1, Now, Now);
 
@@ -47,6 +47,8 @@ public class ContentProposalLifecycleServiceTests
         Assert.Equal("test-schema", export["gameSchemaId"]!.GetValue<string>());
         Assert.Equal("rules", export["workingRuleSetId"]!.GetValue<string>());
         Assert.Equal(proposal.Version, export["proposalVersion"]!.GetValue<int>());
+        Assert.True(export["schemaGapAnalysis"]!["reported"]!.GetValue<bool>());
+        Assert.Equal("reach", export["schemaGapAnalysis"]!["gaps"]![0]!["requestedConcept"]!.GetValue<string>());
         Assert.Equal("Approved", export["designerDecision"]!["kind"]!.GetValue<string>());
     }
 
