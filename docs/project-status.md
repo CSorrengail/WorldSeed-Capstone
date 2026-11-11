@@ -41,6 +41,47 @@ live r1/r2/r3 Mongo/API history with stale-update refusal and cleanup, and silen
 notification checks. Evidence is retained at
 `artifacts/qa/20261110-publication-editions-final/report.md`.
 
+Revision `66abd7b` adds immutable structured publication units for individual
+rules, value types, content types, canonical entries, and relationships. Each
+unit retains a stable ID, parent where applicable, deterministic body, and exact
+canonical source references. New snapshots render Markdown and editions from
+these units instead of reconstructing structure from presentation headings;
+legacy snapshots without units retain the previous compatibility path. QA passed
+all 129 tests, six focused Publication tests, two headless Publication workspace
+tests, both Release builds, and an isolated API/Mongo round trip covering every
+unit kind, legacy documents, manifests, edition fallback, and cleanup. Evidence
+is retained at `artifacts/qa/20261110-publication-units/report.md`.
+
+Revision `b1c50fd` removes technical Rule ID lines from newly generated
+player-facing snapshot and edition Markdown while retaining the exact working-rule
+mapping in structured publication units and provenance manifests. QA passed all
+six Publication service tests and both headless Publication workspace tests in a
+usage-bounded run. Evidence is retained at
+`artifacts/qa/20261110-player-publication-text/report.md`.
+
+Revision `0e56e4d` establishes the safe core contract for section-scoped
+editorial proposals. Targets are derived from one immutable snapshot's structured
+publication units; a proposal must cite every unit in its selected section
+exactly once. Revisions preserve project, snapshot, section, series, and prior
+proposal linkage, while approve/reject/revision-request decisions remain
+append-only and separate from canonical mechanics. QA passed all eight focused
+Publication tests and found no contract defect. Evidence is retained at
+`artifacts/qa/20261110-editorial-contract/report.md`.
+
+Three subsequent verified iterations make that contract operational. Revision
+`5790db5` adds project-scoped Mongo/API persistence, indexes, validation, listing,
+and deletion cleanup for editorial proposals and decisions. Revision `fa64dbb`
+adds bounded local-model drafting for one immutable section: the model receives
+at most 24 exact source units and can return only one proposed-Markdown field;
+WorldSeed retains all provenance and revision authority. Revision `4a06e4a`,
+corrected at `6363e26`, adds Section Editorial Review to the Publication
+workspace with target selection, guidance, proposal history, and persisted
+approve/reject/revision decisions. QA found and verified fixes for model-selection
+button refresh and API rejection of forged blank-guidance revision decisions.
+Focused evidence is retained under `artifacts/qa/20261110-editorial-persistence`,
+`artifacts/qa/20261110-editorial-generation`, and
+`artifacts/qa/20261110-editorial-workspace-retest`.
+
 Advisor review selected rule-conforming content expansion before publication.
 Revision
 `36f638d` implements the first bounded increment: Content Review can suggest one
@@ -136,6 +177,58 @@ remains available for any later owner-action stop.
   changes during this demonstration.
 
 ## Latest Verified Application Revision
+
+- **Tested revision:** `6363e26` - Validate editorial review interactions,
+  following the Publication workspace implementation at `4a06e4a`.
+- **QA result:** PASS after two corrected medium defects: 10 Publication tests,
+  3 headless Publication workspace tests, and clean API/App Release builds.
+- **Behavior:** designers can generate one source-bound section draft with a
+  selected local model, inspect persisted history, and approve, reject, or
+  request revision. Model selection immediately updates availability, and the
+  API revalidates decision guidance before persistence.
+- **Evidence:** `artifacts/qa/20261110-editorial-workspace-retest/report.md`.
+
+- **Tested revision:** `fa64dbb` - Generate source-bound editorial proposals.
+- **QA result:** PASS: 10 focused Publication tests and independent prompt,
+  parsing, limit, provenance, and mutation-boundary inspection.
+- **Behavior:** a local model receives one immutable section and its exact units;
+  output is restricted to bounded proposed Markdown and remains non-canonical.
+- **Evidence:** `artifacts/qa/20261110-editorial-generation/report.md`.
+
+- **Tested revision:** `5790db5` - Persist publication editorial reviews.
+- **QA result:** PASS: 8 Publication tests, 4 Mongo serialization tests, a clean
+  API Release build, and static endpoint/store inspection.
+- **Behavior:** proposal and decision history is project-scoped, source-validated,
+  revision-specific, listed through the API, and removed with its project.
+- **Evidence:** `artifacts/qa/20261110-editorial-persistence/report.md`.
+
+- **Tested revision:** `0e56e4d` - Define section editorial proposal contract.
+- **QA result:** PASS: 8 focused Publication tests plus independent contract
+  inspection. UI and live persistence were intentionally outside this bounded
+  foundation increment.
+- **Behavior:** editorial work is limited to one immutable snapshot section with
+  exact source-unit coverage, append-only revision lineage, and explicit designer
+  decisions. It cannot mutate canonical rules, schema, or Game Data.
+- **Evidence:** `artifacts/qa/20261110-editorial-contract/report.md`.
+
+- **Tested revision:** `b1c50fd` - Hide rule IDs from publication text.
+- **QA result:** PASS: 6 focused Publication tests and 2 headless Publication UI
+  tests. The full suite and live services were intentionally excluded from this
+  small usage-bounded correction.
+- **Behavior:** new player-facing snapshot and edition Markdown omit technical
+  Rule ID lines; source-unit and manifest provenance still identify each working
+  rule. Existing immutable snapshots are not rewritten.
+- **Evidence:** `artifacts/qa/20261110-player-publication-text/report.md`.
+
+- **Tested revision:** `66abd7b` - Add stable publication source units.
+- **QA result:** PASS: 129 solution tests, 6 focused Publication tests, 2
+  headless Publication UI tests, clean App/API Release builds, and isolated live
+  Mongo/API persistence and legacy-compatibility verification.
+- **Behavior:** immutable snapshots now carry stable source-bound units for
+  rules, value types, content types, canonical entries, and relationships.
+  Markdown and editions use those units directly; existing snapshots without
+  units remain compatible.
+- **Evidence:** `artifacts/qa/20261110-publication-units/report.md`.
 
 - **Tested revision:** `ae4f7e6` - Guard autonomous usage and stop-only alerts,
   including Publication Editions from `7490b9c` and normalized section IDs from
@@ -409,8 +502,11 @@ remains available for any later owner-action stop.
 - The current environment could not retrieve authoritative Codex allowance
   percentages. Official guidance identifies Settings > Usage or an active CLI
   `/status` view; the bounded local `/status` attempt ended with `Access is
-  denied`. Under the owner-approved usage guard, no new autonomous iteration may
-  start until both applicable remaining percentages are provided reliably.
+  denied`, and project computer-control policy prohibits automating the Codex or
+  ChatGPT client. The owner reported 30% five-hour and 8% weekly before the
+  bounded `b1c50fd` correction. Under the owner-approved usage guard, no
+  subsequent autonomous iteration may start until both current percentages are
+  supplied reliably.
 - QA observed 47 residual `dotnet` processes that predated the latest bounded
   test run. Current low-worker commands did not increase the count. Their command
   lines could not be read without elevated Windows process inspection, so they
@@ -502,7 +598,9 @@ of the schema re-evaluation correction.
 
 ## Next Action Required
 
-Owner: report the current Codex five-hour and weekly remaining percentages from
-Settings > Usage (or explicitly authorize a later retry after the status surface
-is available). Development resumes only if every applicable allowance is above
-5%. No reset or promotional/purchased credit will be used automatically.
+Owner review after the requested three-iteration stop. The next authorized
+publication increment is to compose only approved section-editorial revisions
+into a new immutable edition revision, retaining deterministic fallback text for
+sections without approval and exact proposal/decision/source-unit provenance.
+After that, run an isolated local-model/API/Mongo end-to-end editorial workflow.
+No reset or promotional/purchased credit will be used automatically.
