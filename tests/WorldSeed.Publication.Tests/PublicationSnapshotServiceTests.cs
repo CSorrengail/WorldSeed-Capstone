@@ -1,7 +1,9 @@
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using WorldSeed.GameData;
 using WorldSeed.Publication;
 using WorldSeed.WorkingRules;
+using WorldSeed.LlmIntegration;
 
 namespace WorldSeed.Publication.Tests;
 
@@ -154,6 +156,42 @@ public sealed class PublicationSnapshotServiceTests
         Assert.Contains("designer guidance", Assert.Throws<ArgumentException>(() => PublicationEditorialProposalService.Decide(proposal, PublicationEditorialDecisionKind.RevisionRequested, " ", Now)).Message);
         var otherSnapshot = snapshot with { Id = "other-snapshot" };
         Assert.Contains("immutable snapshot", Assert.Throws<ArgumentException>(() => PublicationEditorialProposalService.Create(otherSnapshot, rulesTarget.Id, rulesTarget.SourceUnitIds, "Revision", Now, proposal)).Message);
+    }
+
+    [Fact]
+    public async Task Generates_one_source_bound_editorial_section_without_delegating_provenance()
+    {
+        var (rules, schema, data) = Fixture();
+        var snapshot = PublicationSnapshotService.Create("Test Game", rules, schema, data, Now);
+        var model = new CapturingEditorialModel("""{"proposedMarkdown":"## Rules\n\nCreatures have a role."}""");
+
+        var result = await new PublicationEditorialGenerationService(model).GenerateAsync(new(snapshot, PublicationEditorialProposalService.RulesTargetId));
+
+        Assert.Equal(snapshot.Id, result.Proposal.SnapshotId);
+        Assert.Equal(["rule:rule-1"], result.Proposal.SourceUnitIds);
+        Assert.Contains("Creatures have a role.", result.Proposal.ProposedMarkdown);
+        var prompt = string.Join("\n", model.Request!.Messages.Select(message => message.Content));
+        Assert.Contains("SOURCE UNIT rule:rule-1", prompt);
+        Assert.Contains("Do not add mechanics", prompt);
+        Assert.DoesNotContain("Rule ID:", result.Proposal.ProposedMarkdown);
+    }
+
+    [Fact]
+    public void Rejects_malformed_or_expansive_editorial_model_output()
+    {
+        Assert.Throws<PublicationEditorialGenerationFormatException>(() => PublicationEditorialGenerationService.Parse("not json"));
+        Assert.Throws<PublicationEditorialGenerationFormatException>(() => PublicationEditorialGenerationService.Parse("""{"proposedMarkdown":"text","extra":true}"""));
+        Assert.Throws<PublicationEditorialGenerationFormatException>(() => PublicationEditorialGenerationService.Parse(JsonSerializer.Serialize(new { proposedMarkdown = new string('x', PublicationEditorialGenerationService.MaximumMarkdownCharacters + 1) })));
+    }
+
+    private sealed class CapturingEditorialModel(string content) : ILanguageModelClient
+    {
+        public LlmChatRequest? Request { get; private set; }
+        public Task<LlmChatResponse> CompleteAsync(LlmChatRequest request, CancellationToken cancellationToken = default)
+        {
+            Request = request;
+            return Task.FromResult(new LlmChatResponse(content, "test", null));
+        }
     }
 
     private static (WorkingRuleSet Rules, ActiveGameSchema Schema, ProjectGameData Data) Fixture()
