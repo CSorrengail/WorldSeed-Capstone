@@ -119,6 +119,43 @@ public sealed class PublicationSnapshotServiceTests
         Assert.Contains("#### Glass Fox", edition.Markdown);
     }
 
+    [Fact]
+    public void Creates_bounded_editorial_revisions_with_exact_snapshot_sources()
+    {
+        var (rules, schema, data) = Fixture();
+        var snapshot = PublicationSnapshotService.Create("Test Game", rules, schema, data, Now);
+        var targets = PublicationEditorialProposalService.DescribeTargets(snapshot);
+        var contentTarget = targets.Single(target => target.Id == "content-type:creature");
+        Assert.Equal(["content-type:creature", "content-entry:creature:glass-fox"], contentTarget.SourceUnitIds);
+
+        var first = PublicationEditorialProposalService.Create(snapshot, contentTarget.Id, contentTarget.SourceUnitIds, "## Creatures\n\nThe Glass Fox is a scout.", Now);
+        var second = PublicationEditorialProposalService.Create(snapshot, contentTarget.Id, contentTarget.SourceUnitIds, "## Creatures\n\nThe Glass Fox fills the scout role.", Now.AddMinutes(1), first);
+        var decision = PublicationEditorialProposalService.Decide(first, PublicationEditorialDecisionKind.RevisionRequested, "Clarify the role.", Now.AddSeconds(30), second);
+
+        Assert.Equal(snapshot.Id, first.SnapshotId);
+        Assert.Equal(2, second.Revision);
+        Assert.Equal(first.Id, second.ReplacesProposalId);
+        Assert.Equal(second.Id, decision.ReplacementProposalId);
+        Assert.Equal("Clarify the role.", decision.Note);
+        Assert.Contains("Creatures have a role.", snapshot.Markdown);
+    }
+
+    [Fact]
+    public void Refuses_unmapped_cross_section_or_legacy_editorial_proposals()
+    {
+        var (rules, schema, data) = Fixture();
+        var snapshot = PublicationSnapshotService.Create("Test Game", rules, schema, data, Now);
+        var rulesTarget = PublicationEditorialProposalService.DescribeTargets(snapshot).Single(target => target.Id == PublicationEditorialProposalService.RulesTargetId);
+        Assert.Contains("every source unit", Assert.Throws<ArgumentException>(() => PublicationEditorialProposalService.Create(snapshot, rulesTarget.Id, ["content-type:creature"], "Changed prose", Now)).Message);
+        Assert.Contains("does not exist", Assert.Throws<ArgumentException>(() => PublicationEditorialProposalService.Create(snapshot, "unknown", [], "Changed prose", Now)).Message);
+        Assert.Contains("structured source units", Assert.Throws<InvalidOperationException>(() => PublicationEditorialProposalService.DescribeTargets(snapshot with { Units = null })).Message);
+
+        var proposal = PublicationEditorialProposalService.Create(snapshot, rulesTarget.Id, rulesTarget.SourceUnitIds, "Rule prose", Now);
+        Assert.Contains("designer guidance", Assert.Throws<ArgumentException>(() => PublicationEditorialProposalService.Decide(proposal, PublicationEditorialDecisionKind.RevisionRequested, " ", Now)).Message);
+        var otherSnapshot = snapshot with { Id = "other-snapshot" };
+        Assert.Contains("immutable snapshot", Assert.Throws<ArgumentException>(() => PublicationEditorialProposalService.Create(otherSnapshot, rulesTarget.Id, rulesTarget.SourceUnitIds, "Revision", Now, proposal)).Message);
+    }
+
     private static (WorkingRuleSet Rules, ActiveGameSchema Schema, ProjectGameData Data) Fixture()
     {
         var rule = new WorkingRule("rule-1", "Creature Rule", WorkingRuleKind.Rule, "Creatures have a role.", [], [], [], [], null, [], []);
