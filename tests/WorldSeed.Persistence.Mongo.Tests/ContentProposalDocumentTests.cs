@@ -3,6 +3,7 @@ using MongoDB.Bson;
 using MongoDB.Bson.Serialization;
 using WorldSeed.Content;
 using WorldSeed.Persistence.Mongo;
+using WorldSeed.Publication;
 
 namespace WorldSeed.Persistence.Mongo.Tests;
 
@@ -81,5 +82,26 @@ public sealed class ContentProposalDocumentTests
         Assert.Null(restored.DesignerRequest);
         Assert.Null(restored.GenerationContext);
         Assert.Null(restored.SimilarityWarnings);
+    }
+
+    [Fact]
+    public void Publication_editorial_artifacts_are_bson_safe()
+    {
+        var proposal = new PublicationEditorialProposal("proposal-r1", "series", "project", "snapshot", "rules", 1, ["rule:one"], "Readable prose.", DateTimeOffset.UtcNow, null);
+        var decision = new PublicationEditorialDecision("decision", "project", proposal.Id, proposal.Revision, PublicationEditorialDecisionKind.Approved, null, null, DateTimeOffset.UtcNow);
+
+        var restoredProposal = BsonSerializer.Deserialize<PublicationEditorialProposal>(proposal.ToBson());
+        var restoredDecision = BsonSerializer.Deserialize<PublicationEditorialDecision>(decision.ToBson());
+
+        Assert.Equal(proposal.Id, restoredProposal.Id);
+        Assert.Equal(proposal.SeriesId, restoredProposal.SeriesId);
+        Assert.Equal(proposal.ProjectId, restoredProposal.ProjectId);
+        Assert.Equal(proposal.SnapshotId, restoredProposal.SnapshotId);
+        Assert.Equal(proposal.TargetSectionId, restoredProposal.TargetSectionId);
+        Assert.Equal(proposal.Revision, restoredProposal.Revision);
+        Assert.Equal(proposal.SourceUnitIds, restoredProposal.SourceUnitIds);
+        Assert.Equal(proposal.ProposedMarkdown, restoredProposal.ProposedMarkdown);
+        Assert.Equal(proposal.CreatedAt, restoredProposal.CreatedAt);
+        Assert.Equal(decision, restoredDecision);
     }
 }

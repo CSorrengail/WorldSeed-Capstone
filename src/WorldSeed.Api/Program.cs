@@ -36,6 +36,8 @@ builder.Services.AddSingleton<MongoPublicationSnapshotStore>();
 builder.Services.AddSingleton<IPublicationSnapshotStore>(services => services.GetRequiredService<MongoPublicationSnapshotStore>());
 builder.Services.AddSingleton<MongoPublicationEditionStore>();
 builder.Services.AddSingleton<IPublicationEditionStore>(services => services.GetRequiredService<MongoPublicationEditionStore>());
+builder.Services.AddSingleton<MongoPublicationEditorialStore>();
+builder.Services.AddSingleton<IPublicationEditorialStore>(services => services.GetRequiredService<MongoPublicationEditorialStore>());
 builder.Services.AddSingleton<WorkingRuleSetValidator>();
 builder.Services.AddCors(options => options.AddDefaultPolicy(policy => policy.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()));
 
@@ -53,6 +55,7 @@ using (var scope = app.Services.CreateScope())
     await scope.ServiceProvider.GetRequiredService<MongoContentBalanceProfileStore>().EnsureIndexesAsync();
     await scope.ServiceProvider.GetRequiredService<MongoPublicationSnapshotStore>().EnsureIndexesAsync();
     await scope.ServiceProvider.GetRequiredService<MongoPublicationEditionStore>().EnsureIndexesAsync();
+    await scope.ServiceProvider.GetRequiredService<MongoPublicationEditorialStore>().EnsureIndexesAsync();
 }
 
 app.MapGet("/health", async (MongoDesignProjectStore store, CancellationToken cancellationToken) =>
@@ -74,8 +77,9 @@ projects.MapPut("/{projectId}", async (string projectId, DesignProject project, 
     await store.SaveAsync(project, cancellationToken);
     return Results.NoContent();
 });
-projects.MapDelete("/{projectId}", async (string projectId, IDesignProjectStore store, IWorkingRuleSetStore ruleSets, IProjectSchemaProposalStore schemaProposals, IProjectSchemaChangeRequestStore schemaChangeRequests, IActiveGameSchemaStore activeSchemas, IProjectGameDataStore gameData, IContentProposalStore contentProposals, IContentApplicationStore contentApplications, IContentBalanceProfileStore balanceProfiles, IPublicationSnapshotStore publications, IPublicationEditionStore publicationEditions, CancellationToken cancellationToken) =>
+projects.MapDelete("/{projectId}", async (string projectId, IDesignProjectStore store, IWorkingRuleSetStore ruleSets, IProjectSchemaProposalStore schemaProposals, IProjectSchemaChangeRequestStore schemaChangeRequests, IActiveGameSchemaStore activeSchemas, IProjectGameDataStore gameData, IContentProposalStore contentProposals, IContentApplicationStore contentApplications, IContentBalanceProfileStore balanceProfiles, IPublicationSnapshotStore publications, IPublicationEditionStore publicationEditions, IPublicationEditorialStore publicationEditorial, CancellationToken cancellationToken) =>
 {
+    await publicationEditorial.DeleteAsync(projectId, cancellationToken);
     await publicationEditions.DeleteAsync(projectId, cancellationToken);
     await publications.DeleteAsync(projectId, cancellationToken);
     await contentApplications.DeleteAsync(projectId, cancellationToken);
@@ -184,6 +188,27 @@ projects.MapPost("/{projectId}/publications/{snapshotId}/editions", async (strin
     }
     catch (ArgumentException exception) { return Results.BadRequest(exception.Message); }
     catch (InvalidOperationException exception) { return Results.Conflict(exception.Message); }
+});
+projects.MapGet("/{projectId}/publication-editorial", async (string projectId, IPublicationEditorialStore store, CancellationToken cancellationToken) =>
+    Results.Ok(new { proposals = await store.ListProposalsAsync(projectId, cancellationToken), decisions = await store.ListDecisionsAsync(projectId, cancellationToken) }));
+projects.MapPut("/{projectId}/publication-editorial/{proposalId}", async (string projectId, string proposalId, PublicationEditorialProposal proposal, IPublicationSnapshotStore publications, IPublicationEditorialStore store, CancellationToken cancellationToken) =>
+{
+    if (!string.Equals(projectId, proposal.ProjectId, StringComparison.Ordinal) || !string.Equals(proposalId, proposal.Id, StringComparison.Ordinal)) return Results.BadRequest("The URL identifiers must match the editorial proposal.");
+    var snapshot = await publications.LoadAsync(projectId, proposal.SnapshotId, cancellationToken);
+    if (snapshot is null) return Results.NotFound("The immutable publication snapshot does not exist.");
+    try { PublicationEditorialProposalService.Validate(snapshot, proposal); }
+    catch (ArgumentException exception) { return Results.BadRequest(exception.Message); }
+    catch (InvalidOperationException exception) { return Results.Conflict(exception.Message); }
+    await store.SaveProposalAsync(proposal, cancellationToken);
+    return Results.NoContent();
+});
+projects.MapPost("/{projectId}/publication-editorial/{proposalId}/decisions", async (string projectId, string proposalId, PublicationEditorialDecision decision, IPublicationEditorialStore store, CancellationToken cancellationToken) =>
+{
+    if (!string.Equals(projectId, decision.ProjectId, StringComparison.Ordinal) || !string.Equals(proposalId, decision.ProposalId, StringComparison.Ordinal)) return Results.BadRequest("The URL identifiers must match the editorial decision.");
+    var proposal = await store.LoadProposalAsync(projectId, proposalId, cancellationToken);
+    if (proposal is null || proposal.Revision != decision.ProposalRevision) return Results.NotFound("The exact editorial proposal revision does not exist.");
+    await store.SaveDecisionAsync(decision, cancellationToken);
+    return Results.NoContent();
 });
 projects.MapGet("/{projectId}/content-balance-profiles", async (string projectId, IContentBalanceProfileStore store, CancellationToken cancellationToken) => Results.Ok(await store.ListAsync(projectId, cancellationToken)));
 projects.MapPut("/{projectId}/content-balance-profiles/{profileId}", async (string projectId, string profileId, ProjectContentBalanceProfile profile, IDesignProjectStore projectsStore, IActiveGameSchemaStore activeSchemas, IContentBalanceProfileStore store, CancellationToken cancellationToken) =>

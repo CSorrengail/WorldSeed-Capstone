@@ -29,6 +29,16 @@ public sealed record PublicationEditorialDecision(
     string? ReplacementProposalId,
     DateTimeOffset CreatedAt);
 
+public interface IPublicationEditorialStore
+{
+    Task SaveProposalAsync(PublicationEditorialProposal proposal, CancellationToken cancellationToken = default);
+    Task<PublicationEditorialProposal?> LoadProposalAsync(string projectId, string proposalId, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<PublicationEditorialProposal>> ListProposalsAsync(string projectId, CancellationToken cancellationToken = default);
+    Task SaveDecisionAsync(PublicationEditorialDecision decision, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<PublicationEditorialDecision>> ListDecisionsAsync(string projectId, CancellationToken cancellationToken = default);
+    Task DeleteAsync(string projectId, CancellationToken cancellationToken = default);
+}
+
 public static class PublicationEditorialProposalService
 {
     public const string RulesTargetId = "rules";
@@ -98,6 +108,20 @@ public static class PublicationEditorialProposalService
         return new PublicationEditorialDecision(
             "publication-editorial-decision-" + Guid.NewGuid().ToString("N"), proposal.ProjectId, proposal.Id,
             proposal.Revision, kind, string.IsNullOrWhiteSpace(note) ? null : note.Trim(), replacement?.Id, now);
+    }
+
+    public static void Validate(PublicationSnapshot snapshot, PublicationEditorialProposal proposal)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        ArgumentNullException.ThrowIfNull(proposal);
+        if (!string.Equals(snapshot.ProjectId, proposal.ProjectId, StringComparison.Ordinal) ||
+            !string.Equals(snapshot.Id, proposal.SnapshotId, StringComparison.Ordinal))
+            throw new ArgumentException("The editorial proposal must belong to its immutable publication snapshot.", nameof(proposal));
+        var target = DescribeTargets(snapshot).SingleOrDefault(candidate => string.Equals(candidate.Id, proposal.TargetSectionId, StringComparison.Ordinal))
+            ?? throw new ArgumentException("The editorial target does not exist in this immutable publication snapshot.", nameof(proposal));
+        ValidateExactSources(proposal.SourceUnitIds, target.SourceUnitIds);
+        if (proposal.Revision < 1 || string.IsNullOrWhiteSpace(proposal.Id) || string.IsNullOrWhiteSpace(proposal.SeriesId) || string.IsNullOrWhiteSpace(proposal.ProposedMarkdown))
+            throw new ArgumentException("The editorial proposal is incomplete.", nameof(proposal));
     }
 
     private static IReadOnlyList<PublicationUnit> RequireUnits(PublicationSnapshot snapshot)
