@@ -85,6 +85,15 @@ function Test-WatchdogState {
         return [pscustomobject]@{ checked = $true; alert = $false; result = 'DuplicateSuppressed'; detection = $detection }
     }
 
+    if ($detection -eq 'SuspectedInactivity') {
+        $state.state = 'SuspectedInterruption'
+        $state.detection = $detection
+        $state.reason = $details
+        $state.lastAlertFingerprint = $fingerprint
+        Write-State -State $state
+        return [pscustomobject]@{ checked = $true; alert = $false; result = $detection; detail = $details }
+    }
+
     & $notificationScript -Category Interruption | Out-Null
     $state.state = 'Interrupted'
     $state.detection = $detection

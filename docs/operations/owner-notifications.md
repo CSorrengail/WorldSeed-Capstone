@@ -10,12 +10,12 @@ transcripts.
 - **Owner action:** a three-repetition alarm for an owner decision, human input,
   or a blocker. The project Stop hook starts it only when the main assistant's
   final message begins at character zero with one of the approved markers.
-- **Interruption:** a distinct three-repetition alarm when the independent
-  watchdog detects either a confirmed monitored-process termination or suspected
-  inactivity.
-- **MVP complete:** a distinct three-repetition completion notification. The
-  coordinator invokes this explicitly only after the approved MVP is completed
-  and verified.
+- **Interruption:** a distinct three-repetition alarm only when the independent
+  watchdog confirms that its explicitly monitored development process terminated.
+- **Suspected inactivity:** recorded silently. It does not prove development
+  stopped, so it must never sound an alarm.
+- **MVP complete:** retained as a manual test category, but autonomous development
+  does not invoke it because completion does not require owner intervention.
 
 The notification process writes an ignored local receipt. A receipt proves only
 that the playback process ran; it cannot prove the owner heard the sound.
@@ -52,8 +52,10 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Set-WorldSeedW
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Start-WorldSeedWatchdog.ps1 -Once
 ```
 
-The first is a **suspected** interruption; the second is a **confirmed observable
-process termination** for a deliberately nonexistent process ID.
+The first is a **suspected** interruption and must report `alert: false` without
+playing audio. The second is a **confirmed observable process termination** for a
+deliberately nonexistent process ID and plays audio because the monitored process
+is stopped.
 
 ## Start, Stop, And Disable
 
@@ -86,9 +88,12 @@ an approved owner-action marker.
 
 ## Limits
 
-Codex exposes no reliable event for subscription or usage-limit exhaustion, and
-this project cannot reliably identify the host process for a hosted agent
-session. With no supplied session PID, the watchdog can report only suspected
+The independent watchdog receives no authoritative Codex subscription usage
+percentages and cannot reliably identify the host process for a hosted agent
+session. With no supplied session PID, it records only silent suspected
 inactivity after the configured threshold. If a supplied process ID disappears
-while the state is Active, it records a confirmed observable termination. These
-signals are advisory; the watchdog never restarts Codex or bypasses limits.
+while the state is Active, it records a confirmed observable termination and
+alerts. The coordinator must separately inspect the supported Codex `/status`
+view or Settings > Usage before every new autonomous iteration. If those values
+cannot be retrieved, development stops rather than guessing. The watchdog never
+restarts Codex, redeems resets, purchases credits, or bypasses limits.

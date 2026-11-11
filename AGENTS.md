@@ -64,7 +64,8 @@ documentation commit.
 
 Use the project-scoped notification system documented in
 [`docs/operations/owner-notifications.md`](docs/operations/owner-notifications.md).
-Before a final response that needs the owner's attention, update project status
+Sound an alert only when the main development agent is stopping because owner
+attention is required. Before such a final response, update project status
 and invoke `scripts/Notify-Owner.ps1` directly as a fallback unless the tracked
 Codex Stop hook has been reviewed and trusted. The final response must begin at
 character zero with exactly one of these markers:
@@ -73,12 +74,24 @@ character zero with exactly one of these markers:
 - `ACTION REQUIRED: HUMAN INPUT`
 - `ACTION REQUIRED: BLOCKER`
 
-Do not use these markers for ordinary task completion, progress, QA reports, or
-non-blocking advisor findings. Keep the watchdog state current: set it to
+Do not sound any notification or use these markers for ordinary task completion,
+progress, QA reports, non-blocking advisor findings, successful milestones, or
+suspected inactivity while development may still be running. Keep the watchdog state current: set it to
 `AwaitingOwner` before a marked stop, `Completed` only after the full approved
 MVP is independently verified, and `IntentionalStop` for a planned shutdown.
-The watchdog is advisory and must never restart Codex, bypass account limits, or
-terminate a user-owned process.
+The watchdog may log suspected inactivity silently. It may sound only for a
+confirmed monitored-process termination, because that proves the development
+process stopped unexpectedly. It must never restart Codex, bypass account limits,
+or terminate a user-owned process.
+
+Before starting each new autonomous development iteration, retrieve the current
+Codex five-hour and weekly remaining-usage percentages from a supported source
+(the current Codex `/status` view or Settings > Usage). If either applicable
+allowance has 5% or less remaining, stop before beginning the iteration, record
+which allowance caused the stop, and wait for explicit owner authorization to
+resume. If both values cannot be retrieved reliably, stop rather than assuming
+usage is available. Never redeem a reset, purchase credits, or continue on
+promotional/purchased credits without explicit owner authorization.
 
 ## Project: WorldSeed — AI-Assisted Tabletop Role-Playing Game Design System
 
