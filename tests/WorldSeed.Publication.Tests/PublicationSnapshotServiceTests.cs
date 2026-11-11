@@ -154,6 +154,8 @@ public sealed class PublicationSnapshotServiceTests
 
         var proposal = PublicationEditorialProposalService.Create(snapshot, rulesTarget.Id, rulesTarget.SourceUnitIds, "Rule prose", Now);
         Assert.Contains("designer guidance", Assert.Throws<ArgumentException>(() => PublicationEditorialProposalService.Decide(proposal, PublicationEditorialDecisionKind.RevisionRequested, " ", Now)).Message);
+        var forged = new PublicationEditorialDecision("decision", proposal.ProjectId, proposal.Id, proposal.Revision, PublicationEditorialDecisionKind.RevisionRequested, " ", null, Now);
+        Assert.Contains("designer guidance", Assert.Throws<ArgumentException>(() => PublicationEditorialProposalService.ValidateDecision(proposal, forged)).Message);
         var otherSnapshot = snapshot with { Id = "other-snapshot" };
         Assert.Contains("immutable snapshot", Assert.Throws<ArgumentException>(() => PublicationEditorialProposalService.Create(otherSnapshot, rulesTarget.Id, rulesTarget.SourceUnitIds, "Revision", Now, proposal)).Message);
     }

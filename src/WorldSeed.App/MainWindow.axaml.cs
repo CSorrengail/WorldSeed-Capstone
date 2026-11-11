@@ -1988,7 +1988,11 @@ public partial class MainWindow : Window
         RefreshSelectedContentProposalView();
     }
     private void ContentProposalRequestText_TextChanged(object? sender, TextChangedEventArgs e) => RefreshContentProposalControls();
-    private void ModelSelector_SelectionChanged(object? sender, SelectionChangedEventArgs e) => RefreshContentProposalControls();
+    private void ModelSelector_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        RefreshContentProposalControls();
+        RefreshPublicationEditorialView();
+    }
 
     private void RefreshContentProposalControls()
     {

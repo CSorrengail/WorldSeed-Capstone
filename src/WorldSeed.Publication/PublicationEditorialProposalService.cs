@@ -124,6 +124,27 @@ public static class PublicationEditorialProposalService
             throw new ArgumentException("The editorial proposal is incomplete.", nameof(proposal));
     }
 
+    public static void ValidateDecision(PublicationEditorialProposal proposal, PublicationEditorialDecision decision, PublicationEditorialProposal? replacement = null)
+    {
+        ArgumentNullException.ThrowIfNull(proposal);
+        ArgumentNullException.ThrowIfNull(decision);
+        if (string.IsNullOrWhiteSpace(decision.Id) ||
+            !string.Equals(decision.ProjectId, proposal.ProjectId, StringComparison.Ordinal) ||
+            !string.Equals(decision.ProposalId, proposal.Id, StringComparison.Ordinal) ||
+            decision.ProposalRevision != proposal.Revision)
+            throw new ArgumentException("The editorial decision must identify the exact proposal revision.", nameof(decision));
+        if (decision.Kind == PublicationEditorialDecisionKind.RevisionRequested && string.IsNullOrWhiteSpace(decision.Note))
+            throw new ArgumentException("An editorial revision request needs designer guidance.", nameof(decision));
+        if (decision.ReplacementProposalId is null && replacement is not null ||
+            decision.ReplacementProposalId is not null && (replacement is null || !string.Equals(decision.ReplacementProposalId, replacement.Id, StringComparison.Ordinal)))
+            throw new ArgumentException("The editorial decision replacement does not match a persisted proposal.", nameof(decision));
+        if (replacement is not null &&
+            (!string.Equals(replacement.ProjectId, proposal.ProjectId, StringComparison.Ordinal) ||
+             !string.Equals(replacement.SeriesId, proposal.SeriesId, StringComparison.Ordinal) ||
+             !string.Equals(replacement.ReplacesProposalId, proposal.Id, StringComparison.Ordinal)))
+            throw new ArgumentException("The editorial replacement must be the next revision of the reviewed proposal series.", nameof(replacement));
+    }
+
     private static IReadOnlyList<PublicationUnit> RequireUnits(PublicationSnapshot snapshot)
     {
         ArgumentNullException.ThrowIfNull(snapshot);

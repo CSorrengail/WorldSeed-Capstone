@@ -108,7 +108,12 @@ public sealed class PublicationWorkspaceTests
             window.FindControl<ListBox>("PublicationSnapshotList")!.SelectedIndex = 0;
             window.FindControl<ListBox>("PublicationEditorialProposalList")!.SelectedIndex = 0;
 
+            var modelSelector = window.FindControl<ComboBox>("ModelSelector")!;
+            modelSelector.ItemsSource = new[] { "qa-model" };
+            modelSelector.SelectedIndex = 0;
+
             Assert.Contains("Creatures have names.", window.FindControl<TextBox>("PublicationEditorialText")!.Text);
+            Assert.True(window.FindControl<Button>("GeneratePublicationEditorialButton")!.IsEnabled);
             Assert.True(await window.DecidePublicationEditorialAsync(PublicationEditorialDecisionKind.Approved));
             Assert.Equal(PublicationEditorialDecisionKind.Approved, handler.Decision!.Kind);
             Assert.Contains("Approved", window.FindControl<TextBox>("PublicationEditorialDecisionText")!.Text);

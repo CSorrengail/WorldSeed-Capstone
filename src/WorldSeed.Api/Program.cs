@@ -207,6 +207,9 @@ projects.MapPost("/{projectId}/publication-editorial/{proposalId}/decisions", as
     if (!string.Equals(projectId, decision.ProjectId, StringComparison.Ordinal) || !string.Equals(proposalId, decision.ProposalId, StringComparison.Ordinal)) return Results.BadRequest("The URL identifiers must match the editorial decision.");
     var proposal = await store.LoadProposalAsync(projectId, proposalId, cancellationToken);
     if (proposal is null || proposal.Revision != decision.ProposalRevision) return Results.NotFound("The exact editorial proposal revision does not exist.");
+    var replacement = decision.ReplacementProposalId is null ? null : await store.LoadProposalAsync(projectId, decision.ReplacementProposalId, cancellationToken);
+    try { PublicationEditorialProposalService.ValidateDecision(proposal, decision, replacement); }
+    catch (ArgumentException exception) { return Results.BadRequest(exception.Message); }
     await store.SaveDecisionAsync(decision, cancellationToken);
     return Results.NoContent();
 });
