@@ -4,6 +4,10 @@ using WorldSeed.Publication;
 
 namespace WorldSeed.App;
 
+internal sealed record PublicationEditorialWorkspace(
+    IReadOnlyList<PublicationEditorialProposal> Proposals,
+    IReadOnlyList<PublicationEditorialDecision> Decisions);
+
 internal sealed class HttpPublicationClient(HttpClient http)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
@@ -37,6 +41,26 @@ internal sealed class HttpPublicationClient(HttpClient http)
         await EnsureSuccessAsync(response, cancellationToken);
         return await response.Content.ReadFromJsonAsync<PublicationEdition>(JsonOptions, cancellationToken)
             ?? throw new HttpRequestException("WorldSeed local service did not return the publication edition.");
+    }
+
+    public async Task<PublicationEditorialWorkspace> LoadEditorialAsync(string projectId, CancellationToken cancellationToken = default)
+    {
+        using var response = await _http.GetAsync($"api/projects/{Uri.EscapeDataString(projectId)}/publication-editorial", cancellationToken);
+        await EnsureSuccessAsync(response, cancellationToken);
+        return await response.Content.ReadFromJsonAsync<PublicationEditorialWorkspace>(JsonOptions, cancellationToken)
+            ?? new PublicationEditorialWorkspace([], []);
+    }
+
+    public async Task SaveEditorialProposalAsync(PublicationEditorialProposal proposal, CancellationToken cancellationToken = default)
+    {
+        using var response = await _http.PutAsJsonAsync($"api/projects/{Uri.EscapeDataString(proposal.ProjectId)}/publication-editorial/{Uri.EscapeDataString(proposal.Id)}", proposal, JsonOptions, cancellationToken);
+        await EnsureSuccessAsync(response, cancellationToken);
+    }
+
+    public async Task SaveEditorialDecisionAsync(PublicationEditorialDecision decision, CancellationToken cancellationToken = default)
+    {
+        using var response = await _http.PostAsJsonAsync($"api/projects/{Uri.EscapeDataString(decision.ProjectId)}/publication-editorial/{Uri.EscapeDataString(decision.ProposalId)}/decisions", decision, JsonOptions, cancellationToken);
+        await EnsureSuccessAsync(response, cancellationToken);
     }
 
     private static async Task EnsureSuccessAsync(HttpResponseMessage response, CancellationToken cancellationToken)

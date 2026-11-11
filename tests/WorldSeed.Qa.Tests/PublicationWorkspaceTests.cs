@@ -85,6 +85,37 @@ public sealed class PublicationWorkspaceTests
         finally { window.Close(); }
     }
 
+    [AvaloniaFact]
+    public async Task Reviews_and_records_a_section_editorial_decision()
+    {
+        var now = DateTimeOffset.Parse("2026-11-10T14:00:00Z");
+        var project = DesignProjectService.Create("editorial-project", "Editorial Project");
+        var rule = new WorkingRule("rule-1", "Creature Rule", WorkingRuleKind.Rule, "Creatures have names.", [], [], [], [], null, [], []);
+        var rules = new WorkingRuleSet("editorial-rules", project.Id, "0.1", "Rules", null, 1, now, now, [rule], [], [], [], []);
+        var schemaJson = """{"id":"editorial-schema","name":"Schema","version":"1","entityTypes":[],"valueTypes":[]}""";
+        var schema = new ActiveGameSchema("active-editorial", project.Id, "0.1", "Schema", schemaJson, "proposal", rules.Id, rules.Revision, 1, now, now);
+        var data = GameDataService.CreateEmpty(schema, now);
+        var snapshot = PublicationSnapshotService.Create(project.Name, rules, schema, data, now);
+        var target = PublicationEditorialProposalService.DescribeTargets(snapshot).Single();
+        var proposal = PublicationEditorialProposalService.Create(snapshot, target.Id, target.SourceUnitIds, "## Rules\n\nCreatures have names.", now);
+        var handler = new EditorialApiHandler();
+        using var model = new HttpClient(new RejectingHandler());
+        using var api = new HttpClient(handler) { BaseAddress = new Uri("http://qa.invalid/") };
+        var window = new MainWindow(model, api);
+        try
+        {
+            window.RestorePublicationWorkspace(project, [snapshot], editorialProposals: [proposal]);
+            window.FindControl<ListBox>("PublicationSnapshotList")!.SelectedIndex = 0;
+            window.FindControl<ListBox>("PublicationEditorialProposalList")!.SelectedIndex = 0;
+
+            Assert.Contains("Creatures have names.", window.FindControl<TextBox>("PublicationEditorialText")!.Text);
+            Assert.True(await window.DecidePublicationEditorialAsync(PublicationEditorialDecisionKind.Approved));
+            Assert.Equal(PublicationEditorialDecisionKind.Approved, handler.Decision!.Kind);
+            Assert.Contains("Approved", window.FindControl<TextBox>("PublicationEditorialDecisionText")!.Text);
+        }
+        finally { window.Close(); }
+    }
+
     private sealed class PublicationApiHandler(PublicationSnapshot snapshot) : HttpMessageHandler
     {
         private static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web);
@@ -114,5 +145,18 @@ public sealed class PublicationWorkspaceTests
     private sealed class RejectingHandler : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) => throw new InvalidOperationException("The model must not be called while creating a deterministic publication snapshot.");
+    }
+
+    private sealed class EditorialApiHandler : HttpMessageHandler
+    {
+        private static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web);
+        public PublicationEditorialDecision? Decision { get; private set; }
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Assert.Equal(HttpMethod.Post, request.Method);
+            Assert.Contains("/publication-editorial/", request.RequestUri!.AbsolutePath);
+            Decision = await request.Content!.ReadFromJsonAsync<PublicationEditorialDecision>(Options, cancellationToken);
+            return new HttpResponseMessage(System.Net.HttpStatusCode.NoContent);
+        }
     }
 }
