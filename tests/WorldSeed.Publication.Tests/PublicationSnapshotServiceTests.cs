@@ -50,6 +50,7 @@ public sealed class PublicationSnapshotServiceTests
         var snapshot = PublicationSnapshotService.Create("Test Game", rules, schema, data, Now);
         var draft = PublicationEditionService.CreateInitial(snapshot, Now);
         var descriptors = PublicationEditionService.DescribeSections(snapshot);
+        Assert.Equal(["rules", "categories-and-value-types", "game-content", "relationships", "entity-creatures"], descriptors.Select(section => section.Id));
         var entityIds = descriptors.Where(section => section.IsEntityType).Select(section => section.Id).ToArray();
         var topIds = descriptors.Where(section => !section.IsEntityType).Select(section => section.Id).Reverse().ToArray();
         var relationshipId = descriptors.Single(section => section.Title == "Relationships").Id;

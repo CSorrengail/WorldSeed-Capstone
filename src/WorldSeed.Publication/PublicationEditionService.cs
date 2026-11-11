@@ -188,7 +188,9 @@ public static class PublicationEditionService
 
     private static string UniqueSlug(string title, ISet<string> used)
     {
-        var baseId = string.Join('-', title.ToLowerInvariant().Select(character => char.IsLetterOrDigit(character) ? character : '-')).Trim('-');
+        var baseId = new string(title.ToLowerInvariant().Select(character => char.IsLetterOrDigit(character) ? character : '-').ToArray());
+        while (baseId.Contains("--", StringComparison.Ordinal)) baseId = baseId.Replace("--", "-", StringComparison.Ordinal);
+        baseId = baseId.Trim('-');
         if (string.IsNullOrWhiteSpace(baseId)) baseId = "section";
         var id = baseId;
         for (var suffix = 2; !used.Add(id); suffix++) id = $"{baseId}-{suffix}";
