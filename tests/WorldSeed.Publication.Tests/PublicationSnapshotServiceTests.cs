@@ -95,6 +95,34 @@ public sealed class PublicationSnapshotServiceTests
     }
 
     [Fact]
+    public void Composes_only_approved_editorial_sections_and_records_exact_provenance()
+    {
+        var (rules, schema, data) = Fixture();
+        var snapshot = PublicationSnapshotService.Create("Test Game", rules, schema, data, Now);
+        var draft = PublicationEditionService.CreateInitial(snapshot, Now);
+        var target = PublicationEditorialProposalService.DescribeTargets(snapshot).Single(value => value.Id == PublicationEditorialProposalService.RulesTargetId);
+        var proposal = PublicationEditorialProposalService.Create(snapshot, target.Id, target.SourceUnitIds, "## Rules\n\nFor every creature, record its role.", Now);
+        var approval = PublicationEditorialProposalService.Decide(proposal, PublicationEditorialDecisionKind.Approved, "Use this wording.", Now);
+        var selection = new PublicationEditionEditorialSelection(target.Id, proposal.Id, proposal.Revision, approval.Id, proposal.SourceUnitIds);
+        var request = new PublicationEditionRevisionRequest("Field Guide", null, draft.SectionOrder, draft.IncludedSectionIds, draft.EntitySectionOrder, true, draft.Id, draft.Revision, [selection]);
+
+        var ready = PublicationEditionService.CreateRevision(snapshot, request, draft, Now.AddMinutes(1), [proposal], [approval]);
+
+        Assert.Contains("For every creature, record its role.", ready.Markdown);
+        Assert.DoesNotContain("## Rules\n\n## Rules", ready.Markdown.Replace("\r\n", "\n"));
+        Assert.Equal(selection, Assert.Single(ready.EditorialSelections!));
+        var manifest = JsonNode.Parse(ready.ManifestJson)!.AsObject();
+        Assert.Equal(proposal.Id, manifest["editorialSelections"]![0]!["proposalId"]!.GetValue<string>());
+        Assert.Equal(approval.Id, manifest["editorialSelections"]![0]!["approvalDecisionId"]!.GetValue<string>());
+
+        var rejected = PublicationEditorialProposalService.Decide(proposal, PublicationEditorialDecisionKind.Rejected, null, Now);
+        var rejectedRequest = request with { EditorialSelections = [selection with { ApprovalDecisionId = rejected.Id }] };
+        Assert.Contains("only an approved", Assert.Throws<InvalidOperationException>(() => PublicationEditionService.CreateRevision(snapshot, rejectedRequest, draft, Now, [proposal], [rejected])).Message);
+        var omittedRequest = request with { IncludedSectionIds = request.IncludedSectionIds.Where(id => id != "rules").ToArray() };
+        Assert.Contains("unavailable", Assert.Throws<InvalidOperationException>(() => PublicationEditionService.CreateRevision(snapshot, omittedRequest, draft, Now, [proposal], [approval])).Message);
+    }
+
+    [Fact]
     public void Builds_editions_from_structured_units_without_parsing_snapshot_markdown()
     {
         var (rules, schema, data) = Fixture();

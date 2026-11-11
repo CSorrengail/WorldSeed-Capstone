@@ -169,7 +169,7 @@ projects.MapPost("/{projectId}/publications", async (string projectId, IDesignPr
 });
 projects.MapGet("/{projectId}/publication-editions", async (string projectId, IPublicationEditionStore editions, CancellationToken cancellationToken) =>
     Results.Ok(await editions.ListAsync(projectId, cancellationToken)));
-projects.MapPost("/{projectId}/publications/{snapshotId}/editions", async (string projectId, string snapshotId, PublicationEditionRevisionRequest request, IPublicationSnapshotStore publications, IPublicationEditionStore editions, CancellationToken cancellationToken) =>
+projects.MapPost("/{projectId}/publications/{snapshotId}/editions", async (string projectId, string snapshotId, PublicationEditionRevisionRequest request, IPublicationSnapshotStore publications, IPublicationEditionStore editions, IPublicationEditorialStore editorial, CancellationToken cancellationToken) =>
 {
     var snapshot = await publications.LoadAsync(projectId, snapshotId, cancellationToken);
     if (snapshot is null) return Results.NotFound("The immutable publication snapshot does not exist.");
@@ -182,7 +182,7 @@ projects.MapPost("/{projectId}/publications/{snapshotId}/editions", async (strin
     }
     try
     {
-        var edition = PublicationEditionService.CreateRevision(snapshot, request, prior, DateTimeOffset.UtcNow);
+        var edition = PublicationEditionService.CreateRevision(snapshot, request, prior, DateTimeOffset.UtcNow, await editorial.ListProposalsAsync(projectId, cancellationToken), await editorial.ListDecisionsAsync(projectId, cancellationToken));
         await editions.SaveAsync(edition, cancellationToken);
         return Results.Ok(edition);
     }

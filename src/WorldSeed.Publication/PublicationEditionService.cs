@@ -8,6 +8,13 @@ public enum PublicationEditionState { Draft, Ready }
 
 public sealed record PublicationEditionSection(string Id, string Title, bool IsEntityType);
 
+public sealed record PublicationEditionEditorialSelection(
+    string TargetSectionId,
+    string ProposalId,
+    int ProposalRevision,
+    string ApprovalDecisionId,
+    IReadOnlyList<string> SourceUnitIds);
+
 public sealed record PublicationEdition(
     string Id,
     string SeriesId,
@@ -22,7 +29,8 @@ public sealed record PublicationEdition(
     PublicationEditionState State,
     DateTimeOffset CreatedAt,
     string Markdown,
-    string ManifestJson);
+    string ManifestJson,
+    IReadOnlyList<PublicationEditionEditorialSelection>? EditorialSelections = null);
 
 public sealed record PublicationEditionRevisionRequest(
     string Title,
@@ -32,7 +40,8 @@ public sealed record PublicationEditionRevisionRequest(
     IReadOnlyList<string> EntitySectionOrder,
     bool MarkReady,
     string? BasedOnEditionId = null,
-    int? BasedOnRevision = null);
+    int? BasedOnRevision = null,
+    IReadOnlyList<PublicationEditionEditorialSelection>? EditorialSelections = null);
 
 public interface IPublicationEditionStore
 {
@@ -60,7 +69,7 @@ public static class PublicationEditionService
         return CreateRevision(snapshot, request, null, now);
     }
 
-    public static PublicationEdition CreateRevision(PublicationSnapshot snapshot, PublicationEditionRevisionRequest request, PublicationEdition? prior, DateTimeOffset now)
+    public static PublicationEdition CreateRevision(PublicationSnapshot snapshot, PublicationEditionRevisionRequest request, PublicationEdition? prior, DateTimeOffset now, IReadOnlyList<PublicationEditorialProposal>? editorialProposals = null, IReadOnlyList<PublicationEditorialDecision>? editorialDecisions = null)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         ArgumentNullException.ThrowIfNull(request);
@@ -76,14 +85,15 @@ public static class PublicationEditionService
         ValidatePermutation("top-level section", request.SectionOrder, source.TopLevel.Select(section => section.Id));
         ValidateSubset("included section", request.IncludedSectionIds, source.TopLevel.Select(section => section.Id));
         ValidatePermutation("entity section", request.EntitySectionOrder, source.Entities.Select(section => section.Id));
+        var editorial = ResolveEditorialSelections(snapshot, request, source, editorialProposals ?? [], editorialDecisions ?? []);
 
         var seriesId = prior?.SeriesId ?? "publication-edition-" + Guid.NewGuid().ToString("N");
         var revision = (prior?.Revision ?? 0) + 1;
         var id = $"{seriesId}-r{revision}";
         var state = request.MarkReady ? PublicationEditionState.Ready : PublicationEditionState.Draft;
-        var markdown = Render(snapshot, id, revision, request, source);
+        var markdown = Render(snapshot, id, revision, request, source, editorial);
         var manifest = BuildManifest(snapshot, id, seriesId, revision, state, request, now);
-        return new PublicationEdition(id, seriesId, snapshot.ProjectId, snapshot.Id, revision, request.Title.Trim(), Normalize(request.Subtitle), request.SectionOrder.ToArray(), request.IncludedSectionIds.ToArray(), request.EntitySectionOrder.ToArray(), state, now, markdown, manifest.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+        return new PublicationEdition(id, seriesId, snapshot.ProjectId, snapshot.Id, revision, request.Title.Trim(), Normalize(request.Subtitle), request.SectionOrder.ToArray(), request.IncludedSectionIds.ToArray(), request.EntitySectionOrder.ToArray(), state, now, markdown, manifest.ToJsonString(new JsonSerializerOptions { WriteIndented = true }), request.EditorialSelections?.ToArray() ?? []);
     }
 
     public static IReadOnlyList<PublicationEditionSection> DescribeSections(PublicationSnapshot snapshot)
@@ -92,7 +102,7 @@ public static class PublicationEditionService
         return source.TopLevel.Concat(source.Entities).Select(section => new PublicationEditionSection(section.Id, section.Title, section.IsEntityType)).ToArray();
     }
 
-    private static string Render(PublicationSnapshot snapshot, string editionId, int revision, PublicationEditionRevisionRequest request, ParsedSnapshot source)
+    private static string Render(PublicationSnapshot snapshot, string editionId, int revision, PublicationEditionRevisionRequest request, ParsedSnapshot source, IReadOnlyDictionary<string, PublicationEditorialProposal> editorial)
     {
         var top = source.TopLevel.ToDictionary(section => section.Id, StringComparer.Ordinal);
         var entities = source.Entities.ToDictionary(section => section.Id, StringComparer.Ordinal);
@@ -120,10 +130,15 @@ public static class PublicationEditionService
                 {
                     var entity = entities[entityId];
                     builder.AppendLine($"### {entity.Title}").AppendLine();
-                    if (!string.IsNullOrWhiteSpace(entity.Body)) builder.AppendLine(entity.Body.Trim()).AppendLine();
+                    var body = editorial.TryGetValue(entity.EditorialTargetId, out var proposal) ? NormalizeEditorialBody(proposal.ProposedMarkdown) : entity.Body;
+                    if (!string.IsNullOrWhiteSpace(body)) builder.AppendLine(body.Trim()).AppendLine();
                 }
             }
-            else if (!string.IsNullOrWhiteSpace(section.Body)) builder.AppendLine(section.Body.Trim()).AppendLine();
+            else
+            {
+                var body = editorial.TryGetValue(section.EditorialTargetId, out var proposal) ? NormalizeEditorialBody(proposal.ProposedMarkdown) : section.Body;
+                if (!string.IsNullOrWhiteSpace(body)) builder.AppendLine(body.Trim()).AppendLine();
+            }
         }
         return builder.ToString().TrimEnd() + Environment.NewLine;
     }
@@ -145,6 +160,14 @@ public static class PublicationEditionService
         ["sectionOrder"] = Strings(request.SectionOrder),
         ["includedSectionIds"] = Strings(request.IncludedSectionIds),
         ["entitySectionOrder"] = Strings(request.EntitySectionOrder),
+        ["editorialSelections"] = new JsonArray((request.EditorialSelections ?? []).Select(selection => (JsonNode?)new JsonObject
+        {
+            ["targetSectionId"] = selection.TargetSectionId,
+            ["proposalId"] = selection.ProposalId,
+            ["proposalRevision"] = selection.ProposalRevision,
+            ["approvalDecisionId"] = selection.ApprovalDecisionId,
+            ["sourceUnitIds"] = Strings(selection.SourceUnitIds)
+        }).ToArray()),
         ["sourceManifest"] = JsonNode.Parse(snapshot.ManifestJson)
     };
 
@@ -178,12 +201,12 @@ public static class PublicationEditionService
                     var entityStart = entityHeadings[entityIndex];
                     var entityEnd = entityIndex + 1 < entityHeadings.Length ? entityHeadings[entityIndex + 1] : end;
                     var entityTitle = lines[entityStart][4..].Trim();
-                    entities.Add(new SourceSection("entity-" + UniqueSlug(entityTitle, usedIds), entityTitle, string.Join('\n', lines[(entityStart + 1)..entityEnd]).Trim(), true));
+                    entities.Add(new SourceSection("entity-" + UniqueSlug(entityTitle, usedIds), entityTitle, string.Join('\n', lines[(entityStart + 1)..entityEnd]).Trim(), true, string.Empty));
                 }
                 var introEnd = entityHeadings.FirstOrDefault(end);
-                top.Add(new SourceSection(id, title, string.Join('\n', lines[(start + 1)..introEnd]).Trim(), false));
+                top.Add(new SourceSection(id, title, string.Join('\n', lines[(start + 1)..introEnd]).Trim(), false, id));
             }
-            else top.Add(new SourceSection(id, title, string.Join('\n', bodyLines).Trim(), false));
+            else top.Add(new SourceSection(id, title, string.Join('\n', bodyLines).Trim(), false, id));
         }
         return new ParsedSnapshot(top, entities);
     }
@@ -192,10 +215,10 @@ public static class PublicationEditionService
     {
         var top = new List<SourceSection>
         {
-            new("rules", "Rules", RenderUnits(units.Where(unit => unit.Kind == PublicationUnitKind.Rule), "###"), false),
-            new("categories-and-value-types", "Categories And Value Types", RenderUnits(units.Where(unit => unit.Kind == PublicationUnitKind.ValueType), "###"), false),
-            new(GameContentSectionId, "Game Content", string.Empty, false),
-            new("relationships", "Relationships", RenderRelationships(units.Where(unit => unit.Kind == PublicationUnitKind.Relationship)), false)
+            new("rules", "Rules", RenderUnits(units.Where(unit => unit.Kind == PublicationUnitKind.Rule), "###"), false, "rules"),
+            new("categories-and-value-types", "Categories And Value Types", RenderUnits(units.Where(unit => unit.Kind == PublicationUnitKind.ValueType), "###"), false, "categories-and-value-types"),
+            new(GameContentSectionId, "Game Content", string.Empty, false, GameContentSectionId),
+            new("relationships", "Relationships", RenderRelationships(units.Where(unit => unit.Kind == PublicationUnitKind.Relationship)), false, "relationships")
         };
         var usedIds = top.Select(section => section.Id).ToHashSet(StringComparer.Ordinal);
         var entities = units.Where(unit => unit.Kind == PublicationUnitKind.ContentType).Select(contentType =>
@@ -203,7 +226,7 @@ public static class PublicationEditionService
             var entries = units.Where(unit => unit.Kind == PublicationUnitKind.ContentEntry && unit.ParentId == contentType.Id);
             var body = RenderUnits(entries, "####");
             if (string.IsNullOrWhiteSpace(body)) body = "_No canonical entries._";
-            return new SourceSection("entity-" + UniqueSlug(contentType.Title, usedIds), contentType.Title, body, true);
+            return new SourceSection("entity-" + UniqueSlug(contentType.Title, usedIds), contentType.Title, body, true, contentType.Id);
         }).ToArray();
         return new ParsedSnapshot(top, entities);
     }
@@ -220,6 +243,43 @@ public static class PublicationEditionService
     {
         var bodies = units.Select(unit => unit.MarkdownBody.Trim()).Where(body => body.Length > 0).ToArray();
         return bodies.Length == 0 ? "_No canonical relationships._" : string.Join(Environment.NewLine, bodies);
+    }
+
+    private static IReadOnlyDictionary<string, PublicationEditorialProposal> ResolveEditorialSelections(PublicationSnapshot snapshot, PublicationEditionRevisionRequest request, ParsedSnapshot source, IReadOnlyList<PublicationEditorialProposal> proposals, IReadOnlyList<PublicationEditorialDecision> decisions)
+    {
+        var selections = request.EditorialSelections ?? [];
+        if (selections.Count == 0) return new Dictionary<string, PublicationEditorialProposal>();
+        if (snapshot.Units is not { Count: > 0 }) throw new InvalidOperationException("Editorial sections require a structured publication snapshot.");
+        var includedSections = request.IncludedSectionIds.ToHashSet(StringComparer.Ordinal);
+        var availableTargets = source.TopLevel.Where(section => includedSections.Contains(section.Id) && section.Id != GameContentSectionId).Select(section => section.EditorialTargetId).ToHashSet(StringComparer.Ordinal);
+        if (includedSections.Contains(GameContentSectionId)) availableTargets.UnionWith(source.Entities.Select(section => section.EditorialTargetId));
+        var result = new Dictionary<string, PublicationEditorialProposal>(StringComparer.Ordinal);
+        foreach (var selection in selections)
+        {
+            if (!availableTargets.Contains(selection.TargetSectionId) || !result.TryAdd(selection.TargetSectionId, null!))
+                throw new InvalidOperationException("An editorial edition selection targets an unavailable or duplicate section.");
+            var proposal = proposals.SingleOrDefault(value => value.Id == selection.ProposalId && value.Revision == selection.ProposalRevision)
+                ?? throw new InvalidOperationException("The selected editorial proposal revision does not exist.");
+            var decision = decisions.SingleOrDefault(value => value.Id == selection.ApprovalDecisionId)
+                ?? throw new InvalidOperationException("The selected editorial approval decision does not exist.");
+            PublicationEditorialProposalService.Validate(snapshot, proposal);
+            PublicationEditorialProposalService.ValidateDecision(proposal, decision);
+            if (decision.Kind != PublicationEditorialDecisionKind.Approved ||
+                !string.Equals(proposal.TargetSectionId, selection.TargetSectionId, StringComparison.Ordinal) ||
+                !proposal.SourceUnitIds.SequenceEqual(selection.SourceUnitIds, StringComparer.Ordinal))
+                throw new InvalidOperationException("An edition can use only an approved editorial proposal with its exact target and source units.");
+            result[selection.TargetSectionId] = proposal;
+        }
+        return result;
+    }
+
+    private static string NormalizeEditorialBody(string markdown)
+    {
+        var lines = markdown.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n').ToList();
+        while (lines.Count > 0 && string.IsNullOrWhiteSpace(lines[0])) lines.RemoveAt(0);
+        if (lines.Count > 0 && lines[0].TrimStart().StartsWith('#')) lines.RemoveAt(0);
+        while (lines.Count > 0 && string.IsNullOrWhiteSpace(lines[0])) lines.RemoveAt(0);
+        return string.Join(Environment.NewLine, lines).Trim();
     }
 
     private static string UniqueSlug(string title, ISet<string> used)
@@ -249,6 +309,6 @@ public static class PublicationEditionService
 
     private static string? Normalize(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     private static string Escape(string text) => text.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("`", "\\`", StringComparison.Ordinal).Replace("|", "\\|", StringComparison.Ordinal);
-    private sealed record SourceSection(string Id, string Title, string Body, bool IsEntityType);
+    private sealed record SourceSection(string Id, string Title, string Body, bool IsEntityType, string EditorialTargetId);
     private sealed record ParsedSnapshot(IReadOnlyList<SourceSection> TopLevel, IReadOnlyList<SourceSection> Entities);
 }

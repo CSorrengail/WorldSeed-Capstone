@@ -1513,7 +1513,7 @@ public partial class MainWindow : Window
         PublicationMarkdownText.Text = edition?.Markdown ?? selected?.Markdown ?? "No Publication Snapshot Or Edition Is Selected.";
         PublicationManifestText.Text = edition?.ManifestJson ?? selected?.ManifestJson ?? "No Manifest Is Selected.";
         if (edition is not null)
-            PublicationStatusText.Text = $"Edition Revision {edition.Revision} Is {edition.State}. It References Immutable Snapshot {edition.SnapshotId}.";
+            PublicationStatusText.Text = $"Edition Revision {edition.Revision} Is {edition.State}. It References Immutable Snapshot {edition.SnapshotId} And Uses {edition.EditorialSelections?.Count ?? 0} Approved Editorial Section(s).";
         else if (selected is not null)
             PublicationStatusText.Text = $"Snapshot {selected.Id}: Working Rule Set Revision {selected.WorkingRuleSetRevision}, Schema Revision {selected.ActiveGameSchemaRevision}, {selected.IncludedEntityIds.Count} Canonical Entry/Entries.";
     }
@@ -1708,7 +1708,8 @@ public partial class MainWindow : Window
                 sections.Where(section => !section.IsEntityType).Select(section => section.Id).ToArray(),
                 sections.Where(section => !section.IsEntityType).Select(section => section.Id).ToArray(),
                 sections.Where(section => section.IsEntityType).Select(section => section.Id).ToArray(),
-                false);
+                false,
+                EditorialSelections: ApprovedEditorialSelections(snapshot, sections.Where(section => !section.IsEntityType).Select(section => section.Id)));
             var edition = await _publications.SaveEditionAsync(_project.Id, snapshot.Id, request);
             _publicationEditions.Insert(0, edition);
             RefreshPublicationEditionList();
@@ -1748,7 +1749,8 @@ public partial class MainWindow : Window
                 _publicationEntityPlan.Select(section => section.Id).ToArray(),
                 markReady,
                 edition.Id,
-                edition.Revision);
+                edition.Revision,
+                ApprovedEditorialSelections(snapshot, _publicationSectionPlan.Where(section => section.Included).Select(section => section.Id)));
             var saved = await _publications.SaveEditionAsync(_project.Id, snapshot.Id, request);
             _publicationEditions.Insert(0, saved);
             RefreshPublicationEditionList();
@@ -1773,6 +1775,27 @@ public partial class MainWindow : Window
         _publicationSectionPlan[index].Included = !_publicationSectionPlan[index].Included;
         RefreshPublicationPlanLists();
         PublicationSectionPlanList.SelectedIndex = index;
+    }
+
+    private IReadOnlyList<PublicationEditionEditorialSelection> ApprovedEditorialSelections(PublicationSnapshot snapshot, IEnumerable<string> includedSectionIds)
+    {
+        var included = includedSectionIds.ToHashSet(StringComparer.Ordinal);
+        var availableTargets = PublicationEditorialProposalService.DescribeTargets(snapshot)
+            .Where(target => target.Id.StartsWith("content-type:", StringComparison.Ordinal) ? included.Contains("game-content") : included.Contains(target.Id))
+            .Select(target => target.Id)
+            .ToHashSet(StringComparer.Ordinal);
+        return _publicationEditorialProposals
+            .Where(proposal => proposal.SnapshotId == snapshot.Id && availableTargets.Contains(proposal.TargetSectionId))
+            .Select(proposal => new
+            {
+                Proposal = proposal,
+                Decision = _publicationEditorialDecisions.Where(decision => decision.ProposalId == proposal.Id && decision.ProposalRevision == proposal.Revision).OrderBy(decision => decision.CreatedAt).LastOrDefault()
+            })
+            .Where(item => item.Decision?.Kind == PublicationEditorialDecisionKind.Approved)
+            .GroupBy(item => item.Proposal.TargetSectionId, StringComparer.Ordinal)
+            .Select(group => group.OrderByDescending(item => item.Proposal.Revision).ThenByDescending(item => item.Proposal.CreatedAt).First())
+            .Select(item => new PublicationEditionEditorialSelection(item.Proposal.TargetSectionId, item.Proposal.Id, item.Proposal.Revision, item.Decision!.Id, item.Proposal.SourceUnitIds.ToArray()))
+            .ToArray();
     }
 
     private void MovePublicationSectionUp_Click(object? sender, RoutedEventArgs e) => MovePublicationPlanItem(_publicationSectionPlan, PublicationSectionPlanList, -1);
