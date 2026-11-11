@@ -123,7 +123,7 @@ public static class PublicationSnapshotService
     {
         var units = new List<PublicationUnit>();
         foreach (var rule in ruleSet.Rules.OrderBy(rule => rule.Name, StringComparer.Ordinal).ThenBy(rule => rule.Id, StringComparer.Ordinal))
-            units.Add(new PublicationUnit($"rule:{rule.Id}", PublicationUnitKind.Rule, rule.Name, null, [new("working-rule", rule.Id)], $"{rule.AuthoritativeText.Trim()}\n\nRule ID: `{Escape(rule.Id)}`"));
+            units.Add(new PublicationUnit($"rule:{rule.Id}", PublicationUnitKind.Rule, rule.Name, null, [new("working-rule", rule.Id)], rule.AuthoritativeText.Trim()));
 
         foreach (var definition in (schema["valueTypes"] as JsonArray)?.OfType<JsonObject>().OrderBy(DisplayName, StringComparer.Ordinal).ToArray() ?? [])
         {

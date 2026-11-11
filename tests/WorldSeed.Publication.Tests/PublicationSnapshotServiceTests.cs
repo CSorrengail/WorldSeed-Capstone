@@ -19,6 +19,7 @@ public sealed class PublicationSnapshotServiceTests
         Assert.Contains("# Test Game", snapshot.Markdown);
         Assert.Contains("## Rules", snapshot.Markdown);
         Assert.Contains("### Creature Rule", snapshot.Markdown);
+        Assert.DoesNotContain("Rule ID:", snapshot.Markdown, StringComparison.Ordinal);
         Assert.Contains("## Categories And Value Types", snapshot.Markdown);
         Assert.Contains("Scout", snapshot.Markdown);
         Assert.Contains("## Game Content", snapshot.Markdown);
@@ -101,6 +102,7 @@ public sealed class PublicationSnapshotServiceTests
 
         Assert.Contains("## Rules", edition.Markdown);
         Assert.Contains("Creatures have a role.", edition.Markdown);
+        Assert.DoesNotContain("Rule ID:", edition.Markdown, StringComparison.Ordinal);
         Assert.Contains("#### Glass Fox", edition.Markdown);
         Assert.Contains("**Role:** scout", edition.Markdown);
     }
