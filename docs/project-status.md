@@ -28,6 +28,19 @@ distinct fingerprints after an upstream data change, and project-delete cleanup.
 Evidence is retained at
 `artifacts/qa/20261110-publication-snapshots/report.md`.
 
+Revision `7490b9c`, followed by section-ID correction `585f4d0`, adds a
+designer-reviewed Publication Edition layer bound to one immutable snapshot.
+Designers can revise title/subtitle, top-level section visibility/order, and
+game-owned content-type order without editing mechanics. Draft and Ready
+revisions are append-only; only Ready Markdown is export-eligible, and every
+edition manifest retains snapshot, rule, schema, fingerprint, revision, and
+state provenance. Revision `ae4f7e6` also makes suspected watchdog inactivity
+silent and records the owner-approved Codex usage gate. QA passed all 127 tests,
+focused Publication and headless UI checks, both Release builds, an isolated
+live r1/r2/r3 Mongo/API history with stale-update refusal and cleanup, and silent
+notification checks. Evidence is retained at
+`artifacts/qa/20261110-publication-editions-final/report.md`.
+
 Advisor review selected rule-conforming content expansion before publication.
 Revision
 `36f638d` implements the first bounded increment: Content Review can suggest one
@@ -123,6 +136,19 @@ remains available for any later owner-action stop.
   changes during this demonstration.
 
 ## Latest Verified Application Revision
+
+- **Tested revision:** `ae4f7e6` - Guard autonomous usage and stop-only alerts,
+  including Publication Editions from `7490b9c` and normalized section IDs from
+  `585f4d0`.
+- **QA result:** PASS: 127 solution tests, 4 Publication tests, 2 headless
+  Publication UI tests, clean App/API Release builds, and isolated live Mongo/API
+  edition history and deletion cleanup.
+- **Behavior:** edition r1/r2/r3 history is immutable and snapshot-bound; stale
+  revision writes return conflict; Ready state gates Markdown export; suspected
+  inactivity and ordinary completion queue no audio. New autonomous iterations
+  require reliable five-hour and weekly usage values above 5% and never redeem
+  resets or spend promotional/purchased credits without explicit authorization.
+- **Evidence:** `artifacts/qa/20261110-publication-editions-final/report.md`.
 
 - **Tested revision:** `a05f827` - Publish canonical project snapshots as
   Markdown.
@@ -380,6 +406,11 @@ remains available for any later owner-action stop.
 ## Open Defects And Technical Limits
 
 - No confirmed product defect is currently open.
+- The current environment could not retrieve authoritative Codex allowance
+  percentages. Official guidance identifies Settings > Usage or an active CLI
+  `/status` view; the bounded local `/status` attempt ended with `Access is
+  denied`. Under the owner-approved usage guard, no new autonomous iteration may
+  start until both applicable remaining percentages are provided reliably.
 - QA observed 47 residual `dotnet` processes that predated the latest bounded
   test run. Current low-worker commands did not increase the count. Their command
   lines could not be read without elevated Windows process inspection, so they
@@ -471,6 +502,7 @@ of the schema re-evaluation correction.
 
 ## Next Action Required
 
-Define and implement the next bounded publication increment from the verified
-snapshot foundation, then delegate exact-revision QA. No owner decision is
-currently required.
+Owner: report the current Codex five-hour and weekly remaining percentages from
+Settings > Usage (or explicitly authorize a later retry after the status surface
+is available). Development resumes only if every applicable allowance is above
+5%. No reset or promotional/purchased credit will be used automatically.
