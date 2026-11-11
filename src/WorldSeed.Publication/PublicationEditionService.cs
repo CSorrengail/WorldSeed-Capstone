@@ -152,6 +152,8 @@ public static class PublicationEditionService
 
     private static ParsedSnapshot Parse(PublicationSnapshot snapshot)
     {
+        if (snapshot.Units is { Count: > 0 }) return ParseUnits(snapshot.Units);
+
         var lines = snapshot.Markdown.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
         var headings = Enumerable.Range(0, lines.Length).Where(index => lines[index].StartsWith("## ", StringComparison.Ordinal)).ToArray();
         if (headings.Length == 0) throw new InvalidOperationException("The publication snapshot does not contain edition-ready sections.");
@@ -184,6 +186,40 @@ public static class PublicationEditionService
             else top.Add(new SourceSection(id, title, string.Join('\n', bodyLines).Trim(), false));
         }
         return new ParsedSnapshot(top, entities);
+    }
+
+    private static ParsedSnapshot ParseUnits(IReadOnlyList<PublicationUnit> units)
+    {
+        var top = new List<SourceSection>
+        {
+            new("rules", "Rules", RenderUnits(units.Where(unit => unit.Kind == PublicationUnitKind.Rule), "###"), false),
+            new("categories-and-value-types", "Categories And Value Types", RenderUnits(units.Where(unit => unit.Kind == PublicationUnitKind.ValueType), "###"), false),
+            new(GameContentSectionId, "Game Content", string.Empty, false),
+            new("relationships", "Relationships", RenderRelationships(units.Where(unit => unit.Kind == PublicationUnitKind.Relationship)), false)
+        };
+        var usedIds = top.Select(section => section.Id).ToHashSet(StringComparer.Ordinal);
+        var entities = units.Where(unit => unit.Kind == PublicationUnitKind.ContentType).Select(contentType =>
+        {
+            var entries = units.Where(unit => unit.Kind == PublicationUnitKind.ContentEntry && unit.ParentId == contentType.Id);
+            var body = RenderUnits(entries, "####");
+            if (string.IsNullOrWhiteSpace(body)) body = "_No canonical entries._";
+            return new SourceSection("entity-" + UniqueSlug(contentType.Title, usedIds), contentType.Title, body, true);
+        }).ToArray();
+        return new ParsedSnapshot(top, entities);
+    }
+
+    private static string RenderUnits(IEnumerable<PublicationUnit> units, string heading)
+    {
+        var builder = new StringBuilder();
+        foreach (var unit in units)
+            builder.AppendLine($"{heading} {Escape(unit.Title)}").AppendLine().AppendLine(unit.MarkdownBody.Trim()).AppendLine();
+        return builder.ToString().Trim();
+    }
+
+    private static string RenderRelationships(IEnumerable<PublicationUnit> units)
+    {
+        var bodies = units.Select(unit => unit.MarkdownBody.Trim()).Where(body => body.Length > 0).ToArray();
+        return bodies.Length == 0 ? "_No canonical relationships._" : string.Join(Environment.NewLine, bodies);
     }
 
     private static string UniqueSlug(string title, ISet<string> used)

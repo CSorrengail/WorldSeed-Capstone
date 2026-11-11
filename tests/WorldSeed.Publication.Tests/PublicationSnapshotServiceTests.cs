@@ -26,11 +26,16 @@ public sealed class PublicationSnapshotServiceTests
         Assert.Contains("**Role:** scout", snapshot.Markdown);
         Assert.DoesNotContain("proposal", snapshot.Markdown, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(["glass-fox"], snapshot.IncludedEntityIds);
+        Assert.NotNull(snapshot.Units);
+        Assert.Equal(["rule:rule-1", "value-type:roleType", "content-type:creature", "content-entry:creature:glass-fox"], snapshot.Units!.Select(unit => unit.Id));
+        Assert.Equal("content-type:creature", snapshot.Units.Single(unit => unit.Id == "content-entry:creature:glass-fox").ParentId);
+        Assert.Contains(snapshot.Units.Single(unit => unit.Id == "rule:rule-1").Sources, source => source == new PublicationUnitSource("working-rule", "rule-1"));
         Assert.Equal(64, snapshot.GameDataFingerprint.Length);
         var manifest = JsonNode.Parse(snapshot.ManifestJson)!.AsObject();
         Assert.Equal(rules.Revision, manifest["workingRuleSetRevision"]!.GetValue<int>());
         Assert.Equal(schema.Revision, manifest["activeGameSchemaRevision"]!.GetValue<int>());
         Assert.Equal("glass-fox", manifest["includedEntityIds"]![0]!.GetValue<string>());
+        Assert.Equal("rule:rule-1", manifest["publicationUnits"]![0]!["id"]!.GetValue<string>());
     }
 
     [Fact]
@@ -84,6 +89,32 @@ public sealed class PublicationSnapshotServiceTests
         Assert.Contains("every available", Assert.Throws<InvalidOperationException>(() => PublicationEditionService.CreateRevision(snapshot, invalid, draft, Now)).Message);
         var stale = invalid with { SectionOrder = draft.SectionOrder, IncludedSectionIds = draft.IncludedSectionIds, EntitySectionOrder = draft.EntitySectionOrder, BasedOnRevision = 0 };
         Assert.Contains("changed", Assert.Throws<InvalidOperationException>(() => PublicationEditionService.CreateRevision(snapshot, stale, draft, Now)).Message);
+    }
+
+    [Fact]
+    public void Builds_editions_from_structured_units_without_parsing_snapshot_markdown()
+    {
+        var (rules, schema, data) = Fixture();
+        var snapshot = PublicationSnapshotService.Create("Test Game", rules, schema, data, Now) with { Markdown = "# Presentation text without parseable sections" };
+
+        var edition = PublicationEditionService.CreateInitial(snapshot, Now);
+
+        Assert.Contains("## Rules", edition.Markdown);
+        Assert.Contains("Creatures have a role.", edition.Markdown);
+        Assert.Contains("#### Glass Fox", edition.Markdown);
+        Assert.Contains("**Role:** scout", edition.Markdown);
+    }
+
+    [Fact]
+    public void Existing_snapshots_without_structured_units_remain_edition_compatible()
+    {
+        var (rules, schema, data) = Fixture();
+        var snapshot = PublicationSnapshotService.Create("Test Game", rules, schema, data, Now) with { Units = null };
+
+        var edition = PublicationEditionService.CreateInitial(snapshot, Now);
+
+        Assert.Contains("Creatures have a role.", edition.Markdown);
+        Assert.Contains("#### Glass Fox", edition.Markdown);
     }
 
     private static (WorkingRuleSet Rules, ActiveGameSchema Schema, ProjectGameData Data) Fixture()

@@ -8,6 +8,18 @@ using WorldSeed.WorkingRules;
 
 namespace WorldSeed.Publication;
 
+public enum PublicationUnitKind { Rule, ValueType, ContentType, ContentEntry, Relationship }
+
+public sealed record PublicationUnitSource(string SourceType, string SourceId);
+
+public sealed record PublicationUnit(
+    string Id,
+    PublicationUnitKind Kind,
+    string Title,
+    string? ParentId,
+    IReadOnlyList<PublicationUnitSource> Sources,
+    string MarkdownBody);
+
 public sealed record PublicationSnapshot(
     string Id,
     string ProjectId,
@@ -21,7 +33,8 @@ public sealed record PublicationSnapshot(
     IReadOnlyList<string> IncludedEntityIds,
     DateTimeOffset CreatedAt,
     string Markdown,
-    string ManifestJson);
+    string ManifestJson,
+    IReadOnlyList<PublicationUnit>? Units = null);
 
 public interface IPublicationSnapshotStore
 {
@@ -56,12 +69,13 @@ public static class PublicationSnapshotService
         var includedIds = entries.Select(entry => entry["id"]?.GetValue<string>()).Where(id => !string.IsNullOrWhiteSpace(id)).Cast<string>().ToArray();
         var fingerprint = Fingerprint(gameData.DataJson);
         var snapshotId = "publication-" + Guid.NewGuid().ToString("N");
-        var manifest = BuildManifest(snapshotId, projectName.Trim(), ruleSet, activeSchema, gameData, fingerprint, includedIds, now);
-        var markdown = RenderMarkdown(projectName.Trim(), ruleSet, activeSchema, schema, data, entries, fingerprint, now);
-        return new PublicationSnapshot(snapshotId, activeSchema.ProjectId, projectName.Trim(), ruleSet.Id, ruleSet.Revision, activeSchema.Id, activeSchema.Revision, gameData.Id, fingerprint, includedIds, now, markdown, manifest.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+        var units = BuildUnits(ruleSet, schema, entries, data);
+        var manifest = BuildManifest(snapshotId, projectName.Trim(), ruleSet, activeSchema, gameData, fingerprint, includedIds, units, now);
+        var markdown = RenderMarkdown(projectName.Trim(), ruleSet, activeSchema, units, fingerprint, now);
+        return new PublicationSnapshot(snapshotId, activeSchema.ProjectId, projectName.Trim(), ruleSet.Id, ruleSet.Revision, activeSchema.Id, activeSchema.Revision, gameData.Id, fingerprint, includedIds, now, markdown, manifest.ToJsonString(new JsonSerializerOptions { WriteIndented = true }), units);
     }
 
-    private static string RenderMarkdown(string projectName, WorkingRuleSet ruleSet, ActiveGameSchema activeSchema, JsonObject schema, JsonObject data, IReadOnlyList<JsonObject> entries, string fingerprint, DateTimeOffset now)
+    private static string RenderMarkdown(string projectName, WorkingRuleSet ruleSet, ActiveGameSchema activeSchema, IReadOnlyList<PublicationUnit> units, string fingerprint, DateTimeOffset now)
     {
         var builder = new StringBuilder()
             .AppendLine($"# {Escape(projectName)}")
@@ -78,72 +92,83 @@ public static class PublicationSnapshotService
             .AppendLine("## Rules")
             .AppendLine();
 
-        foreach (var rule in ruleSet.Rules.OrderBy(rule => rule.Name, StringComparer.Ordinal).ThenBy(rule => rule.Id, StringComparer.Ordinal))
-        {
-            builder.AppendLine($"### {Escape(rule.Name)}").AppendLine().AppendLine(rule.AuthoritativeText.Trim()).AppendLine().AppendLine($"Rule ID: `{Escape(rule.Id)}`").AppendLine();
-        }
-        if (ruleSet.Rules.Count == 0) builder.AppendLine("_No rules are present in this selected snapshot._").AppendLine();
+        var rules = units.Where(unit => unit.Kind == PublicationUnitKind.Rule).ToArray();
+        foreach (var rule in rules) RenderUnit(builder, "###", rule);
+        if (rules.Length == 0) builder.AppendLine("_No rules are present in this selected snapshot._").AppendLine();
 
-        RenderValueTypes(builder, schema);
-        RenderEntities(builder, schema, entries);
-        RenderRelationships(builder, data);
+        builder.AppendLine("## Categories And Value Types").AppendLine();
+        var valueTypes = units.Where(unit => unit.Kind == PublicationUnitKind.ValueType).ToArray();
+        foreach (var valueType in valueTypes) RenderUnit(builder, "###", valueType);
+        if (valueTypes.Length == 0) builder.AppendLine("_No named categories or value types are defined._").AppendLine();
+
+        builder.AppendLine("## Game Content").AppendLine();
+        var contentTypes = units.Where(unit => unit.Kind == PublicationUnitKind.ContentType).ToArray();
+        foreach (var contentType in contentTypes)
+        {
+            builder.AppendLine($"### {Escape(contentType.Title)}").AppendLine();
+            var contentEntries = units.Where(unit => unit.Kind == PublicationUnitKind.ContentEntry && unit.ParentId == contentType.Id).ToArray();
+            foreach (var contentEntry in contentEntries) RenderUnit(builder, "####", contentEntry);
+            if (contentEntries.Length == 0) builder.AppendLine("_No canonical entries._").AppendLine();
+        }
+        if (contentTypes.Length == 0) builder.AppendLine("_No content types are defined._").AppendLine();
+
+        builder.AppendLine("## Relationships").AppendLine();
+        var relationships = units.Where(unit => unit.Kind == PublicationUnitKind.Relationship).ToArray();
+        foreach (var relationship in relationships) builder.AppendLine(relationship.MarkdownBody.Trim()).AppendLine();
+        if (relationships.Length == 0) builder.AppendLine("_No canonical relationships._").AppendLine();
         return builder.ToString().TrimEnd() + Environment.NewLine;
     }
 
-    private static void RenderValueTypes(StringBuilder builder, JsonObject schema)
+    private static IReadOnlyList<PublicationUnit> BuildUnits(WorkingRuleSet ruleSet, JsonObject schema, IReadOnlyList<JsonObject> entries, JsonObject data)
     {
-        builder.AppendLine("## Categories And Value Types").AppendLine();
-        var definitions = (schema["valueTypes"] as JsonArray)?.OfType<JsonObject>()
-            .OrderBy(definition => DisplayName(definition), StringComparer.Ordinal).ToArray() ?? [];
-        if (definitions.Length == 0) { builder.AppendLine("_No named categories or value types are defined._").AppendLine(); return; }
-        foreach (var definition in definitions)
-        {
-            builder.AppendLine($"### {Escape(DisplayName(definition))}").AppendLine();
-            var kind = definition["kind"]?.GetValue<string>() ?? "unspecified";
-            builder.AppendLine($"Type: {Escape(kind)}").AppendLine();
-            var entries = (definition["entries"] as JsonArray)?.OfType<JsonObject>().ToArray() ?? [];
-            foreach (var entry in entries.OrderBy(DisplayName, StringComparer.Ordinal)) builder.AppendLine($"- {Escape(DisplayName(entry))} (`{Escape(DefinitionId(entry) ?? "unknown")}`)");
-            if (entries.Length > 0) builder.AppendLine();
-        }
-    }
+        var units = new List<PublicationUnit>();
+        foreach (var rule in ruleSet.Rules.OrderBy(rule => rule.Name, StringComparer.Ordinal).ThenBy(rule => rule.Id, StringComparer.Ordinal))
+            units.Add(new PublicationUnit($"rule:{rule.Id}", PublicationUnitKind.Rule, rule.Name, null, [new("working-rule", rule.Id)], $"{rule.AuthoritativeText.Trim()}\n\nRule ID: `{Escape(rule.Id)}`"));
 
-    private static void RenderEntities(StringBuilder builder, JsonObject schema, IReadOnlyList<JsonObject> entries)
-    {
-        builder.AppendLine("## Game Content").AppendLine();
+        foreach (var definition in (schema["valueTypes"] as JsonArray)?.OfType<JsonObject>().OrderBy(DisplayName, StringComparer.Ordinal).ToArray() ?? [])
+        {
+            var definitionId = DefinitionId(definition) ?? throw new InvalidOperationException("A publication value type requires an identifier.");
+            var kind = definition["kind"]?.GetValue<string>() ?? "unspecified";
+            var body = new StringBuilder().AppendLine($"Type: {Escape(kind)}");
+            var categoryEntries = (definition["entries"] as JsonArray)?.OfType<JsonObject>().ToArray() ?? [];
+            foreach (var entry in categoryEntries.OrderBy(DisplayName, StringComparer.Ordinal)) body.AppendLine($"- {Escape(DisplayName(entry))} (`{Escape(DefinitionId(entry) ?? "unknown")}`)");
+            units.Add(new PublicationUnit($"value-type:{definitionId}", PublicationUnitKind.ValueType, DisplayName(definition), null, [new("schema-value-type", definitionId)], body.ToString().TrimEnd()));
+        }
+
         var entityTypes = (schema["entityTypes"] as JsonArray)?.OfType<JsonObject>()
             .Where(entity => DefinitionId(entity) is not null)
             .OrderBy(entity => DisplayName(entity), StringComparer.Ordinal).ToArray() ?? [];
-        if (entityTypes.Length == 0) { builder.AppendLine("_No content types are defined._").AppendLine(); return; }
         foreach (var entityType in entityTypes)
         {
             var entityTypeId = DefinitionId(entityType)!;
+            var contentTypeUnitId = $"content-type:{entityTypeId}";
+            units.Add(new PublicationUnit(contentTypeUnitId, PublicationUnitKind.ContentType, DisplayName(entityType), null, [new("schema-entity-type", entityTypeId)], string.Empty));
             var typeEntries = entries.Where(entry => string.Equals(entry["entityTypeId"]?.GetValue<string>(), entityTypeId, StringComparison.Ordinal)).ToArray();
-            builder.AppendLine($"### {Escape(DisplayName(entityType))}").AppendLine();
-            if (typeEntries.Length == 0) { builder.AppendLine("_No canonical entries._").AppendLine(); continue; }
             var propertyNames = EffectiveProperties(schema, entityType).ToDictionary(property => DefinitionId(property)!, DisplayName, StringComparer.Ordinal);
             foreach (var entry in typeEntries)
             {
                 var entryId = entry["id"]?.GetValue<string>() ?? "unknown";
                 var values = entry["values"] as JsonObject ?? new JsonObject();
                 var heading = values.FirstOrDefault(property => IsLabelProperty(property.Key) && property.Value is JsonValue).Value is { } labelNode && StringValue(labelNode) is { Length: > 0 } label ? label : entryId;
-                builder.AppendLine($"#### {Escape(heading)}").AppendLine().AppendLine($"Entry ID: `{Escape(entryId)}`").AppendLine();
+                var body = new StringBuilder().AppendLine($"Entry ID: `{Escape(entryId)}`").AppendLine();
                 foreach (var property in values.OrderBy(property => propertyNames.GetValueOrDefault(property.Key, property.Key), StringComparer.Ordinal))
-                    builder.AppendLine($"- **{Escape(propertyNames.GetValueOrDefault(property.Key, property.Key))}:** {RenderValue(property.Value)}");
-                builder.AppendLine();
+                    body.AppendLine($"- **{Escape(propertyNames.GetValueOrDefault(property.Key, property.Key))}:** {RenderValue(property.Value)}");
+                units.Add(new PublicationUnit($"content-entry:{entityTypeId}:{entryId}", PublicationUnitKind.ContentEntry, heading, contentTypeUnitId, [new("game-data-entry", entryId), new("schema-entity-type", entityTypeId)], body.ToString().TrimEnd()));
             }
         }
-    }
 
-    private static void RenderRelationships(StringBuilder builder, JsonObject data)
-    {
-        builder.AppendLine("## Relationships").AppendLine();
         var relationships = (data["relationshipInstances"] as JsonArray)?.OfType<JsonObject>().OrderBy(item => item["id"]?.GetValue<string>(), StringComparer.Ordinal).ToArray() ?? [];
-        if (relationships.Length == 0) { builder.AppendLine("_No canonical relationships._").AppendLine(); return; }
-        foreach (var relationship in relationships) builder.AppendLine($"- `{Escape(relationship["id"]?.GetValue<string>() ?? "unknown")}`: {RenderValue(relationship)}");
-        builder.AppendLine();
+        foreach (var relationship in relationships)
+        {
+            var relationshipId = relationship["id"]?.GetValue<string>() ?? "unknown";
+            units.Add(new PublicationUnit($"relationship:{relationshipId}", PublicationUnitKind.Relationship, relationshipId, null, [new("game-data-relationship", relationshipId)], $"- `{Escape(relationshipId)}`: {RenderValue(relationship)}"));
+        }
+        return units;
     }
 
-    private static JsonObject BuildManifest(string snapshotId, string projectName, WorkingRuleSet ruleSet, ActiveGameSchema activeSchema, ProjectGameData gameData, string fingerprint, IReadOnlyList<string> includedIds, DateTimeOffset now) => new()
+    private static void RenderUnit(StringBuilder builder, string heading, PublicationUnit unit) => builder.AppendLine($"{heading} {Escape(unit.Title)}").AppendLine().AppendLine(unit.MarkdownBody.Trim()).AppendLine();
+
+    private static JsonObject BuildManifest(string snapshotId, string projectName, WorkingRuleSet ruleSet, ActiveGameSchema activeSchema, ProjectGameData gameData, string fingerprint, IReadOnlyList<string> includedIds, IReadOnlyList<PublicationUnit> units, DateTimeOffset now) => new()
     {
         ["formatVersion"] = "0.1",
         ["snapshotId"] = snapshotId,
@@ -156,7 +181,14 @@ public static class PublicationSnapshotService
         ["activeGameSchemaRevision"] = activeSchema.Revision,
         ["gameDataId"] = gameData.Id,
         ["gameDataFingerprint"] = fingerprint,
-        ["includedEntityIds"] = new JsonArray(includedIds.Select(id => (JsonNode?)JsonValue.Create(id)).ToArray())
+        ["includedEntityIds"] = new JsonArray(includedIds.Select(id => (JsonNode?)JsonValue.Create(id)).ToArray()),
+        ["publicationUnits"] = new JsonArray(units.Select(unit => (JsonNode?)new JsonObject
+        {
+            ["id"] = unit.Id,
+            ["kind"] = unit.Kind.ToString(),
+            ["parentId"] = unit.ParentId,
+            ["sources"] = new JsonArray(unit.Sources.Select(source => (JsonNode?)new JsonObject { ["sourceType"] = source.SourceType, ["sourceId"] = source.SourceId }).ToArray())
+        }).ToArray())
     };
 
     private static IEnumerable<JsonObject> EffectiveProperties(JsonObject schema, JsonObject entity)
