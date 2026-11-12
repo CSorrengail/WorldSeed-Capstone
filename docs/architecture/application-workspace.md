@@ -16,9 +16,11 @@ Project
 ├── Sources
 ├── Rules
 ├── Schema
-├── Game Data and Content        (future)
-├── Validation and Balance       (future)
-└── History and Settings         (future)
+├── Game Data
+├── Content Review
+├── Validation and Balance
+├── Publication
+└── Settings
 ```
 
 These are navigation areas, not locked sequential steps. A designer may return to Sources after working on Schema, refine rules after adding content, or inspect provenance from any downstream artifact.
@@ -58,11 +60,25 @@ Schema consumes a particular revision of the project working rule set and produc
 
 The area must show the proposed game structure, the working rules that support each definition, validator results, and unresolved modeling choices. It must not automatically overwrite a schema or transform schema hints into authoritative definitions.
 
-### Future areas
+### Game Data
 
-Game Data and Content will create instances that conform to an exact game-schema revision. Validation and Balance will run deterministic checks or game-specific analyzers where structured support exists. History and Settings will eventually expose formal revisions, decisions, model configuration, and exports.
+Game Data contains canonical instances that conform to one exact active-schema revision. Direct entry editing remains available, while approved generated proposals require an explicit application action before becoming canonical. Validation refuses malformed types, missing required properties, invalid references, and game-specific structured constraints.
 
-These areas may appear as disabled or informative navigation entries in the MVP, but their absence must not force a redesign of project navigation later.
+### Content Review
+
+Content Review generates one bounded proposal for a game-owned content type. It uses the active schema, relevant working rules, canonical examples, and applicable designer decisions. Proposals preserve schema gaps, revisions, decisions, and provenance. Approval makes a proposal eligible for application; it does not itself mutate Game Data.
+
+### Validation and Balance
+
+Mechanical validation is deterministic and schema-specific. Balance evaluation is advisory and exists only when the project defines a matching game-specific profile with explicit signals and reference values. WorldSeed does not apply a universal challenge rating or scoring formula.
+
+### Publication
+
+Publication creates immutable, provenance-bearing snapshots from the exact Working Rule Set, active schema, and valid canonical Game Data. Designers can arrange a presentation-only edition, request section-scoped local-model prose, compare it with exact source material, and approve or reject it. Ready Markdown is player-facing; manifests and structured units retain technical traceability.
+
+### Settings and future history views
+
+Settings exposes model and inactivity configuration. Revision and decision history currently appears in the workspace where it is used. A consolidated history view, richer navigation, localization, semantic retrieval, and additional export formats remain optional future work.
 
 ## Cross-cutting behavior
 
@@ -82,6 +98,6 @@ The model proposes interpretations, normalized rules, and schema hints. Determin
 
 The MVP exposes one current working proposal per project. Records still have stable identifiers, timestamps, and an internal revision number. This permits later immutable revisions and change-ledger integration without presenting source-control workflows now.
 
-## MVP navigation transition
+## Navigation direction
 
-The source-drafting screen is the Sources area. The Rules area is now the first project-level workspace extension: it builds, saves, reloads, and inspects one validated Working Rule Set. Schema follows once a persisted Working Rule Set can be translated. The UI uses project-level navigation from this transition onward rather than growing the source screen into a long page of unrelated panels.
+The current tabbed workspace implements the project-level areas incrementally. Its functional boundaries are stable, but visual hierarchy and navigation remain eligible for a later usability pass. New capabilities should extend these project-owned artifacts rather than creating disconnected session files or a one-way wizard.

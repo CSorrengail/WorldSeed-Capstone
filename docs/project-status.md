@@ -82,6 +82,28 @@ Focused evidence is retained under `artifacts/qa/20261110-editorial-persistence`
 `artifacts/qa/20261110-editorial-generation`, and
 `artifacts/qa/20261110-editorial-workspace-retest`.
 
+Revision `9f47210` closes the publication loop for approved prose. A new edition
+revision can compose only the latest explicitly approved editorial proposal for
+each visible section; sections without approved prose retain deterministic
+snapshot text. Rejected, missing, mismatched, duplicate, omitted-section, and
+legacy-unitless selections are refused. Edition records and manifests preserve
+the exact editorial proposal revision, approval decision, source units, snapshot,
+rules, schema, and Game Data provenance. QA passed 11 Publication tests, 3
+headless Publication workspace tests, and clean API/App Release builds. Evidence
+is retained at `artifacts/qa/20261111-editorial-composition/report.md`.
+
+Revision `998779a` separates player-facing Ready Markdown from technical
+publication records. Reader exports omit internal IDs, provenance headers, and
+schema type labels while manifests and structured units retain exact technical
+traceability. Revision `ebf71be` then makes the editorial safety boundary
+visible: the selected section's immutable source material appears separately
+from proposed reader prose, proposal selection synchronizes its source section,
+and missing legacy source references fail visibly instead of crashing. QA passed
+11 Publication tests, 3 headless Publication workspace tests, and a clean App
+Release build for the latest revision. Evidence is retained at
+`artifacts/qa/20261111-reader-publication/report.md` and
+`artifacts/qa/20261111-editorial-source-review/report.md`.
+
 Advisor review selected rule-conforming content expansion before publication.
 Revision
 `36f638d` implements the first bounded increment: Content Review can suggest one
@@ -177,6 +199,24 @@ remains available for any later owner-action stop.
   changes during this demonstration.
 
 ## Latest Verified Application Revision
+
+- **Tested revision:** `ebf71be` - Show exact sources during editorial review,
+  following reader-facing export cleanup at `998779a`.
+- **QA result:** PASS: 11 focused Publication tests, 3 headless Publication UI
+  tests, and a clean App Release build.
+- **Behavior:** designers compare immutable section sources with separately
+  labeled proposed reader prose; proposal selection follows its source section,
+  and missing legacy source units show an explicit unavailable state.
+- **Evidence:** `artifacts/qa/20261111-editorial-source-review/report.md` and
+  `artifacts/qa/20261111-reader-publication/report.md`.
+
+- **Tested revision:** `9f47210` - Compose approved editorial sections.
+- **QA result:** PASS: 11 focused Publication tests, 3 headless Publication UI
+  tests, and clean API/App Release builds.
+- **Behavior:** approved section prose is incorporated into a new immutable
+  edition revision; every unapproved section uses deterministic fallback text,
+  and exact editorial/source/canonical provenance remains exportable.
+- **Evidence:** `artifacts/qa/20261111-editorial-composition/report.md`.
 
 - **Tested revision:** `6363e26` - Validate editorial review interactions,
   following the Publication workspace implementation at `4a06e4a`.
@@ -499,14 +539,11 @@ remains available for any later owner-action stop.
 ## Open Defects And Technical Limits
 
 - No confirmed product defect is currently open.
-- The current environment could not retrieve authoritative Codex allowance
-  percentages. Official guidance identifies Settings > Usage or an active CLI
-  `/status` view; the bounded local `/status` attempt ended with `Access is
-  denied`, and project computer-control policy prohibits automating the Codex or
-  ChatGPT client. The owner reported 30% five-hour and 8% weekly before the
-  bounded `b1c50fd` correction. Under the owner-approved usage guard, no
-  subsequent autonomous iteration may start until both current percentages are
-  supplied reliably.
+- The environment still cannot retrieve authoritative Codex allowance
+  percentages automatically. The owner explicitly reported that both the
+  five-hour and weekly allowances reset on 2026-11-11 and authorized continued
+  work. A later autonomous session still requires a supported reading or a new
+  explicit owner report before starting another iteration.
 - QA observed 47 residual `dotnet` processes that predated the latest bounded
   test run. Current low-worker commands did not increase the count. Their command
   lines could not be read without elevated Windows process inspection, so they
@@ -598,9 +635,8 @@ of the schema re-evaluation correction.
 
 ## Next Action Required
 
-Owner review after the requested three-iteration stop. The next authorized
-publication increment is to compose only approved section-editorial revisions
-into a new immutable edition revision, retaining deterministic fallback text for
-sections without approval and exact proposal/decision/source-unit provenance.
-After that, run an isolated local-model/API/Mongo end-to-end editorial workflow.
-No reset or promotional/purchased credit will be used automatically.
+Complete one normal-launcher visual/usability review of the Publication tab,
+including exact-source comparison, approved prose composition, player-facing
+Ready Markdown, and manifest separation. The automated and isolated connected
+paths are verified; this remaining check requires an interactive desktop review
+and should produce usability findings rather than re-prove service behavior.
