@@ -2188,7 +2188,8 @@ public partial class MainWindow : Window
                 var saved = await GenerateContentProposalCoreAsync(
                     forcedInstruction: instruction,
                     persistedDesignerRequest: $"{goal}\n\nSequential Expansion Item {item.Index} Of {requestedCount}.",
-                    usePendingRevision: false);
+                    usePendingRevision: false,
+                    expectedExpansionGeneration: generation);
                 if (generation != _contentExpansionGeneration) return completed.Count;
                 if (saved && SelectedContentProposal is { } proposal)
                 {
@@ -2230,7 +2231,7 @@ public partial class MainWindow : Window
         ContentExpansionQueueList.ItemsSource = _contentExpansionQueue.ToArray();
     }
 
-    private async Task<bool> GenerateContentProposalCoreAsync(ContentProposal? forcedBase = null, string? forcedInstruction = null, string? persistedDesignerRequest = null, bool usePendingRevision = true)
+    private async Task<bool> GenerateContentProposalCoreAsync(ContentProposal? forcedBase = null, string? forcedInstruction = null, string? persistedDesignerRequest = null, bool usePendingRevision = true, int? expectedExpansionGeneration = null)
     {
         var typeIndex = ContentProposalEntityTypeList.SelectedIndex;
         if (_project is null || _activeGameSchema is null || _workingRuleSet is null || _gameDataEntityTypes.Count == 0)
@@ -2283,6 +2284,7 @@ public partial class MainWindow : Window
         }
         catch (ContentProposalGenerationFormatException ex)
         {
+            if (expectedExpansionGeneration is int expected && expected != _contentExpansionGeneration) return false;
             AppLog.Error("Generate content proposal", ex);
             ContentProposalStatusText.Text = "The local model returned a candidate WorldSeed could not safely use. Nothing was saved.";
             ContentProposalEditor.Text = $"Format Detail: {ex.Message}\n\nRaw Model Output (For Diagnosis):\n{Preview(capture.Last?.Content)}";
@@ -2290,6 +2292,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
+            if (expectedExpansionGeneration is int expected && expected != _contentExpansionGeneration) return false;
             AppLog.Error("Generate content proposal", ex);
             ContentProposalStatusText.Text = "Could not generate a proposal. Nothing was added to game data.";
             ContentProposalEditor.Text = $"{ex.GetType().Name}: {ex.Message}\n\nDiagnostic Log: {AppLog.CurrentPath}";

@@ -307,6 +307,8 @@ public sealed class ContentReviewReadyStateTests
             Assert.Empty(window.FindControl<ListBox>("ContentExpansionQueueList")!.Items.Cast<object>());
             Assert.Empty(window.FindControl<ListBox>("ContentProposalList")!.Items.Cast<object>());
             Assert.Equal("No Expansion Queue Is Running.", window.FindControl<TextBlock>("ContentExpansionStatusText")!.Text);
+            Assert.DoesNotContain("Could not generate", window.FindControl<TextBlock>("ContentProposalStatusText")!.Text, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("InvalidOperationException", window.FindControl<TextBox>("ContentProposalEditor")!.Text, StringComparison.OrdinalIgnoreCase);
         }
         finally { window.Close(); }
     }
