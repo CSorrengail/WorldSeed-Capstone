@@ -229,6 +229,10 @@ public sealed class ContentReviewReadyStateTests
             Assert.All(window.FindControl<ListBox>("ContentExpansionQueueList")!.Items.Cast<object>(), item => Assert.Contains("Ready For Review", item.ToString()));
             Assert.Contains("3 Of 3 Separate Proposals", window.FindControl<TextBlock>("ContentExpansionStatusText")!.Text);
             Assert.False(window.FindControl<Button>("ApplyApprovedContentButton")!.IsEnabled);
+            window.FindControl<ListBox>("ContentExpansionQueueList")!.SelectedIndex = 0;
+            Assert.Contains("queue-one", window.FindControl<TextBox>("ContentProposalEditor")!.Text);
+            window.FindControl<ListBox>("ContentExpansionQueueList")!.SelectedIndex = 1;
+            Assert.Contains("queue-two", window.FindControl<TextBox>("ContentProposalEditor")!.Text);
         }
         finally { window.Close(); }
     }

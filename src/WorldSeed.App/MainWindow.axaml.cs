@@ -111,6 +111,7 @@ public partial class MainWindow : Window
         _contentProposals = new HttpContentProposalClient(_apiHttp);
         _publications = new HttpPublicationClient(_apiHttp);
         InitializeComponent();
+        ContentExpansionQueueList.SelectionChanged += ContentExpansionQueueList_SelectionChanged;
         _settings = _settingsStore.Load();
         _inactivityTimer.Tick += InactivityTimer_Tick;
         _inactivityTimer.Start();
@@ -2229,6 +2230,12 @@ public partial class MainWindow : Window
     {
         ContentExpansionQueueList.ItemsSource = null;
         ContentExpansionQueueList.ItemsSource = _contentExpansionQueue.ToArray();
+    }
+
+    private void ContentExpansionQueueList_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (ContentExpansionQueueList.SelectedItem is ContentExpansionQueueItem { ProposalId: { } proposalId })
+            SelectContentProposal(proposalId);
     }
 
     private async Task<bool> GenerateContentProposalCoreAsync(ContentProposal? forcedBase = null, string? forcedInstruction = null, string? persistedDesignerRequest = null, bool usePendingRevision = true, int? expectedExpansionGeneration = null)
