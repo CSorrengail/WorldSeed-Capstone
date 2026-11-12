@@ -51,6 +51,7 @@ public partial class MainWindow : Window
     private readonly List<ContentProposalDecision> _contentProposalDecisions = [];
     private readonly List<ContentApplication> _contentApplications = [];
     private readonly List<ProjectContentBalanceProfile> _contentBalanceProfiles = [];
+    private readonly List<ContentExpansionQueueItem> _contentExpansionQueue = [];
     private readonly List<PublicationSnapshot> _publicationSnapshots = [];
     private readonly List<PublicationEdition> _publicationEditions = [];
     private readonly List<PublicationEditorialProposal> _publicationEditorialProposals = [];
@@ -67,6 +68,8 @@ public partial class MainWindow : Window
     private ProjectGameData? _projectGameData;
     private string? _pendingSchemaQuestion;
     private string? _pendingContentApplicationProposalId;
+    private bool _contentExpansionRunning;
+    private bool _stopContentExpansionRequested;
     private bool _processingSchemaQueue;
     private bool _buildingGameStructures;
     private bool _applyingSchemaChange;
@@ -1945,9 +1948,12 @@ public partial class MainWindow : Window
         ContentReviewSchemaText.Text = !ready
             ? "Activate a schema that contains a content type and load a Working Rule Set before creating a proposal."
             : $"{_activeGameSchema!.Name}, schema revision {_activeGameSchema.Revision}; Working Rule Set revision {_workingRuleSet!.Revision}.";
-        GenerateContentProposalButton.IsEnabled = ready;
-        SuggestContentProposalButton.IsEnabled = ready;
-        StartNewContentProposalButton.IsEnabled = ready;
+        GenerateContentProposalButton.IsEnabled = ready && !_contentExpansionRunning;
+        SuggestContentProposalButton.IsEnabled = ready && !_contentExpansionRunning;
+        StartNewContentProposalButton.IsEnabled = ready && !_contentExpansionRunning;
+        StartContentExpansionButton.IsEnabled = ready && !_contentExpansionRunning;
+        StopContentExpansionButton.IsEnabled = _contentExpansionRunning;
+        ContentExpansionCountList.IsEnabled = !_contentExpansionRunning;
         SaveContentBalanceProfileButton.IsEnabled = ready && ContentProposalEntityTypeList.SelectedIndex >= 0;
 
         var selected = SelectedContentProposal;
@@ -2059,9 +2065,12 @@ public partial class MainWindow : Window
     private void RefreshContentProposalControls()
     {
         var ready = _project is not null && _activeGameSchema is not null && _workingRuleSet is { Rules.Count: > 0 } && _gameDataEntityTypes.Count > 0;
-        GenerateContentProposalButton.IsEnabled = ready;
-        SuggestContentProposalButton.IsEnabled = ready;
-        StartNewContentProposalButton.IsEnabled = ready;
+        GenerateContentProposalButton.IsEnabled = ready && !_contentExpansionRunning;
+        SuggestContentProposalButton.IsEnabled = ready && !_contentExpansionRunning;
+        StartNewContentProposalButton.IsEnabled = ready && !_contentExpansionRunning;
+        StartContentExpansionButton.IsEnabled = ready && !_contentExpansionRunning;
+        StopContentExpansionButton.IsEnabled = _contentExpansionRunning;
+        ContentExpansionCountList.IsEnabled = !_contentExpansionRunning;
         SaveContentBalanceProfileButton.IsEnabled = ready && ContentProposalEntityTypeList.SelectedIndex >= 0;
     }
 
@@ -2077,6 +2086,17 @@ public partial class MainWindow : Window
     private async void GenerateContentProposal_Click(object? sender, RoutedEventArgs e) => await GenerateContentProposalAsync();
 
     private async void SuggestContentProposal_Click(object? sender, RoutedEventArgs e) => await SuggestContentProposalAsync();
+
+    private async void StartContentExpansion_Click(object? sender, RoutedEventArgs e) => await GenerateContentExpansionAsync();
+
+    private void StopContentExpansion_Click(object? sender, RoutedEventArgs e) => RequestContentExpansionStop();
+
+    internal void RequestContentExpansionStop()
+    {
+        if (!_contentExpansionRunning) return;
+        _stopContentExpansionRequested = true;
+        ContentExpansionStatusText.Text = "The Queue Will Stop After The Current Model Request Finishes.";
+    }
 
     internal Task<bool> GenerateContentProposalAsync() => GenerateContentProposalCoreAsync();
 
@@ -2095,6 +2115,101 @@ public partial class MainWindow : Window
         return GenerateContentProposalCoreAsync(forcedInstruction: request, persistedDesignerRequest: request, usePendingRevision: false);
     }
 
+    internal async Task<int> GenerateContentExpansionAsync()
+    {
+        if (_contentExpansionRunning) return 0;
+        var typeIndex = ContentProposalEntityTypeList.SelectedIndex;
+        if (_project is null || _activeGameSchema is null || _workingRuleSet is null || _gameDataEntityTypes.Count == 0)
+        {
+            ContentExpansionStatusText.Text = "Load A Project, Active Schema Content Type, And Working Rule Set First.";
+            return 0;
+        }
+        if (ModelSelector.SelectedItem is not string)
+        {
+            ContentExpansionStatusText.Text = "Select A Local Model First.";
+            return 0;
+        }
+        if (typeIndex < 0 || typeIndex >= _gameDataEntityTypes.Count)
+        {
+            ContentExpansionStatusText.Text = "Select A Content Type First.";
+            return 0;
+        }
+        var goal = ContentProposalRequestText.Text?.Trim();
+        if (string.IsNullOrWhiteSpace(goal))
+        {
+            ContentExpansionStatusText.Text = "Describe The Content Set You Want To Expand.";
+            return 0;
+        }
+        var requestedCount = ContentExpansionCountList.SelectedIndex + 2;
+        if (requestedCount is < 2 or > 5) requestedCount = 3;
+        var selectedType = _gameDataEntityTypes[typeIndex];
+        _contentExpansionQueue.Clear();
+        for (var index = 1; index <= requestedCount; index++)
+            _contentExpansionQueue.Add(new ContentExpansionQueueItem(index));
+        _contentExpansionRunning = true;
+        _stopContentExpansionRequested = false;
+        RefreshContentExpansionQueue();
+        RefreshContentProposalControls();
+
+        var completed = new List<ContentProposal>();
+        try
+        {
+            foreach (var item in _contentExpansionQueue)
+            {
+                if (_stopContentExpansionRequested)
+                {
+                    item.Status = "Stopped";
+                    continue;
+                }
+                item.Status = "Generating";
+                ContentExpansionStatusText.Text = $"Generating {item.Index} Of {requestedCount} {selectedType.Name} Proposals. Nothing Will Be Approved Or Applied Automatically.";
+                RefreshContentExpansionQueue();
+                var previousIds = completed
+                    .Select(proposal => proposal.Candidate["id"]?.GetValue<string>())
+                    .Where(id => !string.IsNullOrWhiteSpace(id))
+                    .Cast<string>()
+                    .ToArray();
+                var instruction = BuildContentExpansionInstruction(goal, selectedType.Name, item.Index, requestedCount, previousIds);
+                var saved = await GenerateContentProposalCoreAsync(
+                    forcedInstruction: instruction,
+                    persistedDesignerRequest: $"{goal}\n\nSequential Expansion Item {item.Index} Of {requestedCount}.",
+                    usePendingRevision: false);
+                if (saved && SelectedContentProposal is { } proposal)
+                {
+                    completed.Add(proposal);
+                    item.Status = $"Ready For Review: {proposal.Candidate["id"]?.GetValue<string>() ?? proposal.Id}";
+                    item.ProposalId = proposal.Id;
+                }
+                else item.Status = "Failed — Review The Proposal Error";
+                RefreshContentExpansionQueue();
+            }
+        }
+        finally
+        {
+            _contentExpansionRunning = false;
+            StopContentExpansionButton.IsEnabled = false;
+            RefreshContentProposalControls();
+        }
+        var stopped = _stopContentExpansionRequested;
+        _stopContentExpansionRequested = false;
+        ContentExpansionStatusText.Text = stopped
+            ? $"Expansion Stopped. {completed.Count} Of {requestedCount} Separate Proposals Are Ready For Review."
+            : $"Expansion Finished. {completed.Count} Of {requestedCount} Separate Proposals Are Ready For Individual Review.";
+        return completed.Count;
+    }
+
+    private static string BuildContentExpansionInstruction(string goal, string contentTypeName, int index, int total, IReadOnlyList<string> previousIds)
+    {
+        var exclusions = previousIds.Count == 0 ? "No Earlier Queue Results Exist." : $"Do Not Reuse These Earlier Queue IDs: {string.Join(", ", previousIds)}.";
+        return $"Create item {index} of {total} for this bounded {contentTypeName} expansion. Overall designer goal: {goal}\n{exclusions}\nReturn one distinct entry only. Follow the active schema and Working Rules. This proposal will be validated, reviewed, approved or rejected, and applied independently.";
+    }
+
+    private void RefreshContentExpansionQueue()
+    {
+        ContentExpansionQueueList.ItemsSource = null;
+        ContentExpansionQueueList.ItemsSource = _contentExpansionQueue.ToArray();
+    }
+
     private async Task<bool> GenerateContentProposalCoreAsync(ContentProposal? forcedBase = null, string? forcedInstruction = null, string? persistedDesignerRequest = null, bool usePendingRevision = true)
     {
         var typeIndex = ContentProposalEntityTypeList.SelectedIndex;
@@ -2105,6 +2220,9 @@ public partial class MainWindow : Window
         }
         if (ModelSelector.SelectedItem is not string model) { ContentProposalStatusText.Text = "Select a local model first."; return false; }
         if (typeIndex < 0 || typeIndex >= _gameDataEntityTypes.Count) { ContentProposalStatusText.Text = "Select a content type first."; return false; }
+        var project = _project;
+        var activeSchema = _activeGameSchema;
+        var workingRuleSet = _workingRuleSet;
         var requestText = forcedInstruction?.Trim() ?? ContentProposalRequestText.Text?.Trim();
         if (string.IsNullOrWhiteSpace(requestText)) { ContentProposalStatusText.Text = "Describe the content you want to propose."; return false; }
         var selectedType = _gameDataEntityTypes[typeIndex];
@@ -2121,11 +2239,17 @@ public partial class MainWindow : Window
         var capture = new CapturingClient(new OllamaChatClient(_http, OllamaDefaults.CreateProfile("local", "Local", model)));
         try
         {
-            var schema = ParseJsonObject(_activeGameSchema.SchemaJson, "The active schema is not valid JSON.");
+            var schema = ParseJsonObject(activeSchema.SchemaJson, "The active schema is not valid JSON.");
             var canonicalContext = CanonicalContentContext(selectedType.Id);
             var decisionContext = DesignerDecisionContext(selectedType.Id);
-            var result = await new ContentProposalGenerationService(capture).GenerateAsync(new ContentProposalGenerationRequest(_project.Id, selectedType.Id, schema, _workingRuleSet.Rules, requestText, canonicalContext, decisionContext));
-            var proposal = ContentProposalLifecycleService.Create(_project.Id, selectedType.Id, result.Candidate, _activeGameSchema.Id, _activeGameSchema.Revision, _workingRuleSet.Id, _workingRuleSet.Revision, DateTimeOffset.UtcNow, replaces, result.SchemaGaps, designerRequest, result.GenerationContext, result.SimilarityWarnings);
+            var result = await new ContentProposalGenerationService(capture).GenerateAsync(new ContentProposalGenerationRequest(project.Id, selectedType.Id, schema, workingRuleSet.Rules, requestText, canonicalContext, decisionContext));
+            if (!string.Equals(_project?.Id, project.Id, StringComparison.Ordinal)
+                || !string.Equals(_activeGameSchema?.Id, activeSchema.Id, StringComparison.Ordinal)
+                || _activeGameSchema?.Revision != activeSchema.Revision
+                || !string.Equals(_workingRuleSet?.Id, workingRuleSet.Id, StringComparison.Ordinal)
+                || _workingRuleSet?.Revision != workingRuleSet.Revision)
+                throw new InvalidOperationException("The project, active schema, or Working Rule Set changed while the local model was generating. Nothing was saved; start the proposal again in the current workspace.");
+            var proposal = ContentProposalLifecycleService.Create(project.Id, selectedType.Id, result.Candidate, activeSchema.Id, activeSchema.Revision, workingRuleSet.Id, workingRuleSet.Revision, DateTimeOffset.UtcNow, replaces, result.SchemaGaps, designerRequest, result.GenerationContext, result.SimilarityWarnings);
             await _contentProposals.SaveProposalAsync(proposal);
             _contentProposalItems.Insert(0, proposal);
             ContentProposalRequestText.Text = designerRequest;
@@ -2133,8 +2257,8 @@ public partial class MainWindow : Window
             SelectContentProposal(proposal.Id);
             ContentProposalStatusText.Text = replaces is null
                 ? $"Saved proposal version {proposal.Version}. Review its candidate and decision history before approving it."
-                : $"Saved replacement version {proposal.Version} against schema revision {_activeGameSchema.Revision}. Review it before approving or rejecting it.";
-            AppLog.Info($"Saved content proposal '{proposal.Id}' for project '{_project.Id}'.");
+                : $"Saved replacement version {proposal.Version} against schema revision {activeSchema.Revision}. Review it before approving or rejecting it.";
+            AppLog.Info($"Saved content proposal '{proposal.Id}' for project '{project.Id}'.");
             return true;
         }
         catch (ContentProposalGenerationFormatException ex)
@@ -2935,6 +3059,9 @@ public partial class MainWindow : Window
         _contentApplications.Clear();
         _pendingContentApplicationProposalId = null;
         _contentBalanceProfiles.Clear();
+        _contentExpansionQueue.Clear();
+        _contentExpansionRunning = false;
+        _stopContentExpansionRequested = false;
         _publicationSnapshots.Clear();
         _publicationEditions.Clear();
         _publicationEditorialProposals.Clear();
@@ -2954,6 +3081,9 @@ public partial class MainWindow : Window
         ContentDecisionGuidanceText.Text = "Enter An Optional Decision Note. Revision Guidance Will Be Moved To Designer Request For Regeneration.";
         ContentBalanceProfileEditor.Text = string.Empty;
         ContentBalanceProfileStatusText.Text = "Select A Content Type To Inspect Its Balance Profile.";
+        ContentExpansionQueueList.ItemsSource = Array.Empty<ContentExpansionQueueItem>();
+        ContentExpansionStatusText.Text = "No Expansion Queue Is Running.";
+        ContentExpansionCountList.SelectedIndex = 1;
         ContentReviewSchemaText.Text = "Load an active schema and Working Rule Set before creating a proposal.";
         ContentProposalStatusText.Text = "No proposal is selected.";
         GenerateContentProposalButton.Content = "Generate Proposal";
@@ -3099,6 +3229,13 @@ public partial class MainWindow : Window
     private sealed record ContentProposalListItem(ContentProposal Proposal, string State)
     {
         public override string ToString() => $"{Proposal.Candidate["id"]?.GetValue<string>() ?? Proposal.EntityTypeId} - {Proposal.EntityTypeId} v{Proposal.Version} - {State}";
+    }
+    private sealed class ContentExpansionQueueItem(int index)
+    {
+        public int Index { get; } = index;
+        public string Status { get; set; } = "Waiting";
+        public string? ProposalId { get; set; }
+        public override string ToString() => $"{Index}. {Status}";
     }
     private sealed record PublicationSnapshotListItem(PublicationSnapshot Snapshot)
     {

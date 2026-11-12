@@ -195,6 +195,81 @@ public sealed class ContentReviewReadyStateTests
     }
 
     [AvaloniaFact]
+    public async Task Expansion_queue_generates_separate_proposals_sequentially()
+    {
+        var modelHandler = new ExpansionModelHandler();
+        using var model = new HttpClient(modelHandler);
+        using var api = new HttpClient(new ProposalApiHandler()) { BaseAddress = new Uri("http://qa.invalid/") };
+        var window = new MainWindow(model, api);
+        try
+        {
+            var now = DateTimeOffset.UtcNow;
+            var project = DesignProjectService.Create("expansion-project", "Expansion Project");
+            var rule = new WorkingRule("creature-definition", "Creature Definition", WorkingRuleKind.Definition, "Creatures have names.", [], [], [], [], null, [], []);
+            var rules = new WorkingRuleSet("expansion-rules", project.Id, "0.1", "Expansion Rules", null, 1, now, now, [rule], [], [], [], []);
+            var schemaJson = JsonNode.Parse("""{"id":"expansion-schema","name":"Expansion Schema","version":"1","entityTypes":[{"metadata":{"id":"creature","name":"Creature"},"properties":[{"metadata":{"id":"name","name":"Name"},"valueType":{"kind":"primitive","name":"string"},"required":true,"nullable":false}]}],"valueTypes":[]}""")!.AsObject();
+            var active = new ActiveGameSchema("active-expansion", project.Id, "0.1", "Expansion Schema", schemaJson.ToJsonString(), "proposal-expansion", rules.Id, rules.Revision, 1, now, now);
+
+            window.RestoreContentReviewWorkspace(project, rules, active, GameDataService.CreateEmpty(active, now));
+            window.FindControl<ComboBox>("ModelSelector")!.ItemsSource = new[] { "local-model" };
+            window.FindControl<ComboBox>("ModelSelector")!.SelectedIndex = 0;
+            window.FindControl<ComboBox>("ContentProposalEntityTypeList")!.SelectedIndex = 0;
+            window.FindControl<TextBox>("ContentProposalRequestText")!.Text = "Create a varied forest encounter set.";
+            window.FindControl<ComboBox>("ContentExpansionCountList")!.SelectedIndex = 1;
+
+            Assert.Equal(3, await window.GenerateContentExpansionAsync());
+
+            Assert.Equal(3, modelHandler.RequestBodies.Count);
+            Assert.DoesNotContain("queue-one", modelHandler.RequestBodies[0]);
+            Assert.Contains("queue-one", modelHandler.RequestBodies[1]);
+            Assert.Contains("queue-one", modelHandler.RequestBodies[2]);
+            Assert.Contains("queue-two", modelHandler.RequestBodies[2]);
+            Assert.Equal(3, window.FindControl<ListBox>("ContentProposalList")!.Items.Count);
+            Assert.Equal(3, window.FindControl<ListBox>("ContentExpansionQueueList")!.Items.Count);
+            Assert.All(window.FindControl<ListBox>("ContentExpansionQueueList")!.Items.Cast<object>(), item => Assert.Contains("Ready For Review", item.ToString()));
+            Assert.Contains("3 Of 3 Separate Proposals", window.FindControl<TextBlock>("ContentExpansionStatusText")!.Text);
+            Assert.False(window.FindControl<Button>("ApplyApprovedContentButton")!.IsEnabled);
+        }
+        finally { window.Close(); }
+    }
+
+    [AvaloniaFact]
+    public async Task Expansion_queue_stops_before_starting_another_model_request()
+    {
+        var modelHandler = new BlockingExpansionModelHandler();
+        using var model = new HttpClient(modelHandler);
+        using var api = new HttpClient(new ProposalApiHandler()) { BaseAddress = new Uri("http://qa.invalid/") };
+        var window = new MainWindow(model, api);
+        try
+        {
+            var now = DateTimeOffset.UtcNow;
+            var project = DesignProjectService.Create("stopped-expansion-project", "Stopped Expansion Project");
+            var rule = new WorkingRule("creature-definition", "Creature Definition", WorkingRuleKind.Definition, "Creatures have names.", [], [], [], [], null, [], []);
+            var rules = new WorkingRuleSet("stopped-expansion-rules", project.Id, "0.1", "Expansion Rules", null, 1, now, now, [rule], [], [], [], []);
+            var schemaJson = JsonNode.Parse("""{"id":"stopped-expansion-schema","name":"Expansion Schema","version":"1","entityTypes":[{"metadata":{"id":"creature","name":"Creature"},"properties":[{"metadata":{"id":"name","name":"Name"},"valueType":{"kind":"primitive","name":"string"},"required":true,"nullable":false}]}],"valueTypes":[]}""")!.AsObject();
+            var active = new ActiveGameSchema("active-stopped-expansion", project.Id, "0.1", "Expansion Schema", schemaJson.ToJsonString(), "proposal-expansion", rules.Id, rules.Revision, 1, now, now);
+            window.RestoreContentReviewWorkspace(project, rules, active, GameDataService.CreateEmpty(active, now));
+            window.FindControl<ComboBox>("ModelSelector")!.ItemsSource = new[] { "local-model" };
+            window.FindControl<ComboBox>("ModelSelector")!.SelectedIndex = 0;
+            window.FindControl<ComboBox>("ContentProposalEntityTypeList")!.SelectedIndex = 0;
+            window.FindControl<TextBox>("ContentProposalRequestText")!.Text = "Create a forest encounter set.";
+            window.FindControl<ComboBox>("ContentExpansionCountList")!.SelectedIndex = 1;
+
+            var expansion = window.GenerateContentExpansionAsync();
+            await modelHandler.RequestStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            window.RequestContentExpansionStop();
+            modelHandler.AllowResponse.TrySetResult();
+
+            Assert.Equal(1, await expansion);
+            Assert.Equal(1, modelHandler.RequestCount);
+            Assert.Contains("Expansion Stopped", window.FindControl<TextBlock>("ContentExpansionStatusText")!.Text);
+            Assert.Equal(3, window.FindControl<ListBox>("ContentExpansionQueueList")!.Items.Count);
+            Assert.Equal(2, window.FindControl<ListBox>("ContentExpansionQueueList")!.Items.Cast<object>().Count(item => item.ToString()!.Contains("Stopped")));
+        }
+        finally { window.Close(); }
+    }
+
+    [AvaloniaFact]
     public async Task Approved_proposal_requires_warning_confirmation_then_becomes_canonical()
     {
         var now = DateTimeOffset.UtcNow;
@@ -286,6 +361,45 @@ public sealed class ContentReviewReadyStateTests
             {
                 model = "local-model",
                 message = new { content = "{\"candidate\":{\"id\":\"glass-fox\",\"entityTypeId\":\"creature\",\"values\":{\"name\":\"Glass Fox\",\"role\":\"scout\"}},\"schemaGaps\":[]}" }
+            });
+            return new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StringContent(body) };
+        }
+    }
+
+    private sealed class ExpansionModelHandler : HttpMessageHandler
+    {
+        private int _requestCount;
+        public List<string> RequestBodies { get; } = [];
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            RequestBodies.Add(await request.Content!.ReadAsStringAsync(cancellationToken));
+            var index = Interlocked.Increment(ref _requestCount);
+            var id = index switch { 1 => "queue-one", 2 => "queue-two", _ => "queue-three" };
+            var body = JsonSerializer.Serialize(new
+            {
+                model = "local-model",
+                message = new { content = $"{{\"candidate\":{{\"id\":\"{id}\",\"entityTypeId\":\"creature\",\"values\":{{\"name\":\"Queue Creature {index}\"}}}},\"schemaGaps\":[]}}" }
+            });
+            return new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StringContent(body) };
+        }
+    }
+
+    private sealed class BlockingExpansionModelHandler : HttpMessageHandler
+    {
+        public TaskCompletionSource RequestStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource AllowResponse { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public int RequestCount { get; private set; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            RequestCount++;
+            RequestStarted.TrySetResult();
+            await AllowResponse.Task.WaitAsync(cancellationToken);
+            var body = JsonSerializer.Serialize(new
+            {
+                model = "local-model",
+                message = new { content = "{\"candidate\":{\"id\":\"queue-one\",\"entityTypeId\":\"creature\",\"values\":{\"name\":\"Queue Creature\"}},\"schemaGaps\":[]}" }
             });
             return new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StringContent(body) };
         }

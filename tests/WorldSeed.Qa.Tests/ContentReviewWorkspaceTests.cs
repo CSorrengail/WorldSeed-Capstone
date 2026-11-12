@@ -20,6 +20,9 @@ public sealed class ContentReviewWorkspaceTests
             Assert.Contains("Select A Proposal", window.FindControl<TextBox>("ContentMechanicalValidationText")!.Text!);
             Assert.Contains("Select A Proposal", window.FindControl<TextBox>("ContentBalanceEvaluationText")!.Text!);
             Assert.NotNull(window.FindControl<TextBox>("ContentBalanceProfileEditor"));
+            Assert.NotNull(window.FindControl<ComboBox>("ContentExpansionCountList"));
+            Assert.NotNull(window.FindControl<ListBox>("ContentExpansionQueueList"));
+            Assert.False(window.FindControl<Button>("StartContentExpansionButton")!.IsEnabled);
             Assert.NotNull(window.FindControl<ListBox>("ContentProposalList"));
             Assert.False(window.FindControl<Button>("GenerateContentProposalButton")!.IsEnabled);
             Assert.False(window.FindControl<Button>("SaveContentBalanceProfileButton")!.IsEnabled);
