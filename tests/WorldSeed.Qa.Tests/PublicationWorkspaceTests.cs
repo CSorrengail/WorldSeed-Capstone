@@ -123,6 +123,31 @@ public sealed class PublicationWorkspaceTests
         finally { window.Close(); }
     }
 
+    [AvaloniaFact]
+    public void Explains_that_legacy_snapshots_need_a_current_replacement_for_editorial_review()
+    {
+        var now = DateTimeOffset.Parse("2026-11-10T14:00:00Z");
+        var project = DesignProjectService.Create("legacy-publication-project", "Legacy Publication Project");
+        var rule = new WorkingRule("rule-1", "Creature Rule", WorkingRuleKind.Rule, "Creatures have names.", [], [], [], [], null, [], []);
+        var rules = new WorkingRuleSet("legacy-publication-rules", project.Id, "0.1", "Rules", null, 1, now, now, [rule], [], [], [], []);
+        var schemaJson = """{"id":"legacy-publication-schema","name":"Schema","version":"1","entityTypes":[],"valueTypes":[]}""";
+        var schema = new ActiveGameSchema("active-legacy-publication", project.Id, "0.1", "Schema", schemaJson, "proposal", rules.Id, rules.Revision, 1, now, now);
+        var snapshot = PublicationSnapshotService.Create(project.Name, rules, schema, GameDataService.CreateEmpty(schema, now), now) with { Units = null };
+        using var model = new HttpClient(new RejectingHandler());
+        using var api = new HttpClient(new RejectingHandler()) { BaseAddress = new Uri("http://qa.invalid/") };
+        var window = new MainWindow(model, api);
+        try
+        {
+            window.RestorePublicationWorkspace(project, [snapshot]);
+            window.FindControl<ListBox>("PublicationSnapshotList")!.SelectedIndex = 0;
+
+            Assert.Contains("Older Snapshot", window.FindControl<TextBlock>("PublicationEditorialStatusText")!.Text);
+            Assert.Contains("Create A Current Snapshot", window.FindControl<TextBlock>("PublicationEditorialStatusText")!.Text);
+            Assert.False(window.FindControl<Button>("GeneratePublicationEditorialButton")!.IsEnabled);
+        }
+        finally { window.Close(); }
+    }
+
     private sealed class PublicationApiHandler(PublicationSnapshot snapshot) : HttpMessageHandler
     {
         private static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web);

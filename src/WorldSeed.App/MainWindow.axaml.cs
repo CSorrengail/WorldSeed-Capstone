@@ -1541,6 +1541,13 @@ public partial class MainWindow : Window
         PublicationEditorialProposalList.ItemsSource = proposals;
         if (PublicationEditorialProposalList.SelectedIndex >= proposals.Length) PublicationEditorialProposalList.SelectedIndex = -1;
         GeneratePublicationEditorialButton.IsEnabled = snapshot is not null && targets.Length > 0 && ModelSelector.SelectedItem is string;
+        PublicationEditorialStatusText.Text = snapshot switch
+        {
+            null => "Select A Snapshot To Begin Section Editing.",
+            { Units.Count: > 0 } when targets.Length > 0 => "Select A Section To Compare Its Exact Sources With Proposed Reader Text.",
+            { Units.Count: > 0 } => "This Snapshot Has No Editable Publication Sections.",
+            _ => "This Older Snapshot Does Not Contain Editable Sections. Create A Current Snapshot To Use Section Editorial Review."
+        };
         RefreshPublicationEditorialSourceView();
         RefreshSelectedPublicationEditorialView();
     }
