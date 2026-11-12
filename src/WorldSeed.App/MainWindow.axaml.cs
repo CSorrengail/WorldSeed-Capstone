@@ -394,6 +394,36 @@ public partial class MainWindow : Window
         catch (Exception ex) { AppLog.Error("Import source notes", ex); StatusText.Text = ex.Message; }
     }
 
+    private async void AddDesignIdea_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (_project is null) { StatusText.Text = "Create or select a project before adding a design idea."; return; }
+        var dialog = new DesignIdeaWindow();
+        if (await dialog.ShowDialog<bool>(this) is not true) return;
+        await PreserveDesignIdeaAsync(dialog.IdeaTitle!, dialog.IdeaText!);
+    }
+
+    internal async Task<bool> PreserveDesignIdeaAsync(string title, string originalText)
+    {
+        if (_project is null) { StatusText.Text = "Create or select a project before adding a design idea."; return false; }
+        try
+        {
+            var note = DesignIdeaSourceService.Create($"source-{Guid.NewGuid():N}", title, originalText, DateTimeOffset.UtcNow);
+            _project = DesignProjectService.AddSources(_project, [note]);
+            await ProjectStore().SaveAsync(_project);
+            RefreshNotes();
+            SourceNotesList.SelectedIndex = _project.SourceNotes.ToList().FindIndex(source => source.Id == note.Id);
+            ShowSelectedSource();
+            StatusText.Text = $"Design idea '{title.Trim()}' was preserved as original source. Start the selected source when ready.";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("Preserve design idea", ex);
+            StatusText.Text = "WorldSeed could not preserve the design idea. See the diagnostic log.";
+            return false;
+        }
+    }
+
     private async void RemoveSelectedNote_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
         var note = SelectedNote; if (note is null) return;

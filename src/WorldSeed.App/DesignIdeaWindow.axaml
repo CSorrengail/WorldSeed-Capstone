@@ -1,0 +1,10 @@
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:Class="WorldSeed.App.DesignIdeaWindow" Title="Add Design Idea" Width="600" Height="480" MinWidth="480" MinHeight="380" WindowStartupLocation="CenterOwner">
+  <Grid RowDefinitions="Auto,Auto,Auto,*,Auto,Auto" Margin="24" RowSpacing="10">
+    <TextBlock Text="Add Design Idea" FontSize="24"/>
+    <TextBlock Grid.Row="1" Text="Preserve An Incomplete Mechanic, System, Or Concept As Project Source. It Will Use The Same Clarification And Rule-Drafting Workflow As Imported Notes." TextWrapping="Wrap" Opacity="0.75"/>
+    <TextBox Grid.Row="2" Name="TitleInput" PlaceholderText="Short Idea Title"/>
+    <TextBox Grid.Row="3" Name="IdeaInput" PlaceholderText="Describe The Idea, Goals, Unknowns, And Any Rules You Already Know" AcceptsReturn="True" TextWrapping="Wrap" ScrollViewer.HorizontalScrollBarVisibility="Disabled"/>
+    <TextBlock Grid.Row="4" Name="ValidationText" Text="The Original Text Will Be Preserved Exactly As Entered." TextWrapping="Wrap"/>
+    <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10"><Button Content="Cancel" Click="Cancel_Click"/><Button Content="Preserve Idea" Click="Preserve_Click"/></StackPanel>
+  </Grid>
+</Window>
