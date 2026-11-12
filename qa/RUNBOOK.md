@@ -47,4 +47,11 @@ For parent-requested desktop checks, read the Computer Use skill and use python 
 
 Live LLM testing is a separate assignment. The existing WorldSeed.EndToEnd tool uses three small fictional scenarios (procedural, ambiguous, narrative), without saving user data. Expected actions/citations test protocol behavior, not semantic correctness. Preserve raw outputs and report meaning changes, variability and timeouts separately. Another model's agreement is never the oracle.
 
+Build live-test tools first with bounded MSBuild settings, then execute the built
+DLL directly. Do not use `dotnet run` for connected QA: interrupted SDK 10
+`dotnet run` builds can leave orphaned MSBuild worker nodes on Windows. Example:
+
+    dotnet build tools/WorldSeed.EndToEnd/WorldSeed.EndToEnd.csproj -c Release --no-restore -m:1 -nr:false -p:UseSharedCompilation=false
+    dotnet tools/WorldSeed.EndToEnd/bin/Release/net8.0/WorldSeed.EndToEnd.dll gemma3:12b --suite
+
 Return the English report directly to the parent and stop after the assigned scope.

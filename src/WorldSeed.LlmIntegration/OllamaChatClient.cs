@@ -59,7 +59,12 @@ public sealed class OllamaChatClient : ILanguageModelClient
         using (response)
         {
         var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
-        if (!response.IsSuccessStatusCode) throw new LlmClientException("Ollama rejected the request.", (int)response.StatusCode);
+        if (!response.IsSuccessStatusCode)
+        {
+            var detail = OllamaErrorDetail(responseBody);
+            var suffix = detail is null ? string.Empty : $" Detail: {detail}";
+            throw new LlmClientException($"Ollama rejected the request with HTTP {(int)response.StatusCode}.{suffix}", (int)response.StatusCode);
+        }
 
         JsonNode? root;
         try { root = JsonNode.Parse(responseBody); }
@@ -80,4 +85,15 @@ public sealed class OllamaChatClient : ILanguageModelClient
     private static string RoleName(LlmMessageRole role) => role switch { LlmMessageRole.System => "system", LlmMessageRole.User => "user", LlmMessageRole.Assistant => "assistant", _ => throw new ArgumentOutOfRangeException(nameof(role)) };
     private static string? StringValue(JsonNode? node) => node is JsonValue value && value.TryGetValue<string>(out var text) ? text : null;
     private static int? IntValue(JsonNode? node) => node is JsonValue value && value.TryGetValue<int>(out var number) ? number : null;
+    private static string? OllamaErrorDetail(string responseBody)
+    {
+        try
+        {
+            var detail = StringValue(JsonNode.Parse(responseBody)?["error"]);
+            if (string.IsNullOrWhiteSpace(detail)) return null;
+            var normalized = string.Join(" ", detail.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+            return normalized.Length <= 400 ? normalized : normalized[..400] + "...";
+        }
+        catch (JsonException) { return null; }
+    }
 }

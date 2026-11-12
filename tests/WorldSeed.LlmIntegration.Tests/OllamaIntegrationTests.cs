@@ -58,6 +58,33 @@ public class OllamaIntegrationTests
     }
 
     [Fact]
+    public async Task Reports_bounded_structured_local_runtime_errors()
+    {
+        var handler = new RecordingHandler("""{"error":"model runner unexpectedly stopped; inspect the local Ollama log"}""", HttpStatusCode.InternalServerError);
+        using var httpClient = new HttpClient(handler);
+        var client = new OllamaChatClient(httpClient, OllamaDefaults.CreateProfile("local", "My local model", "gemma3:12b"));
+
+        var exception = await Assert.ThrowsAsync<LlmClientException>(() => client.CompleteAsync(new LlmChatRequest([new(LlmMessageRole.User, "An idea")])));
+
+        Assert.Equal(500, exception.StatusCode);
+        Assert.Contains("HTTP 500", exception.Message);
+        Assert.Contains("model runner unexpectedly stopped", exception.Message);
+    }
+
+    [Fact]
+    public async Task Does_not_echo_unstructured_local_error_pages()
+    {
+        var handler = new RecordingHandler("local proxy detail that is not Ollama JSON", HttpStatusCode.BadGateway);
+        using var httpClient = new HttpClient(handler);
+        var client = new OllamaChatClient(httpClient, OllamaDefaults.CreateProfile("local", "My local model", "gemma3:12b"));
+
+        var exception = await Assert.ThrowsAsync<LlmClientException>(() => client.CompleteAsync(new LlmChatRequest([new(LlmMessageRole.User, "An idea")])));
+
+        Assert.Equal(502, exception.StatusCode);
+        Assert.DoesNotContain("proxy detail", exception.Message);
+    }
+
+    [Fact]
     public async Task Lists_installed_models_without_mutating_the_local_library()
     {
         var handler = new RecordingHandler("""{"models":[{"name":"qwen3:8b","size":5200000000,"modified_at":"2026-08-12T10:00:00Z"},{"name":"llama3.2:3b","size":2000000000}]}""");
