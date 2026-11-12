@@ -64,6 +64,7 @@ public partial class MainWindow : Window
     private DesignProject? _project;
     private WorkingRuleSet? _workingRuleSet;
     private ProjectSchemaProposal? _schemaProposal;
+    private SchemaTransitionReview? _schemaTransitionReview;
     private ActiveGameSchema? _activeGameSchema;
     private ProjectGameData? _projectGameData;
     private string? _pendingSchemaQuestion;
@@ -558,6 +559,7 @@ public partial class MainWindow : Window
             await WorkingRuleStore().SaveAsync(result.RuleSet);
             _workingRuleSet = result.RuleSet;
             _schemaProposal = null;
+            _schemaTransitionReview = null;
             _schemaQueueRuleIds.Clear();
             _pendingSchemaQuestion = null;
             ClearPendingStructureWork();
@@ -622,6 +624,7 @@ public partial class MainWindow : Window
         try
         {
             _schemaProposal = await SchemaProposalStore().LoadAsync(projectId);
+            _schemaTransitionReview = null;
             _schemaClarifications.Clear();
             if (_schemaProposal?.Clarifications is not null) _schemaClarifications.AddRange(_schemaProposal.Clarifications);
             RefreshSchemaView();
@@ -630,6 +633,7 @@ public partial class MainWindow : Window
         {
             AppLog.Error("Load schema proposal", ex);
             _schemaProposal = null;
+            _schemaTransitionReview = null;
             RefreshSchemaView();
             SchemaStatusText.Text = "Could not load the saved schema proposal. See the diagnostic log.";
         }
@@ -670,7 +674,9 @@ public partial class MainWindow : Window
         }
     }
 
-    private async void ActivateSchema_Click(object? sender, RoutedEventArgs e)
+    private async void ActivateSchema_Click(object? sender, RoutedEventArgs e) => await ActivateSchemaAsync();
+
+    internal async Task ActivateSchemaAsync()
     {
         if (_project is null || _schemaProposal is null)
         {
@@ -682,8 +688,21 @@ public partial class MainWindow : Window
         ActivateSchemaFromEmptyGameDataButton.IsEnabled = false;
         try
         {
+            if (_activeGameSchema is not null && !TransitionReviewMatchesProposal())
+            {
+                _schemaTransitionReview = await _gameDataWorkspace.ReviewTransitionAsync(_project.Id);
+                SchemaStatusText.Text = FormatSchemaTransitionReview(_schemaTransitionReview);
+                RefreshSchemaActivationControls();
+                return;
+            }
+            if (_activeGameSchema is not null && _schemaTransitionReview is { CanActivate: false })
+            {
+                SchemaStatusText.Text = FormatSchemaTransitionReview(_schemaTransitionReview);
+                return;
+            }
             _activeGameSchema = await _gameDataWorkspace.ActivateAsync(_project.Id);
             _projectGameData = await _gameDataWorkspace.LoadGameDataAsync(_project.Id);
+            _schemaTransitionReview = null;
             RefreshGameDataView();
             RefreshSchemaView();
             var detail = _projectGameData is null ? "No game-data document was returned." : "An empty game-data document is ready for entries.";
@@ -1173,6 +1192,7 @@ public partial class MainWindow : Window
                 _schemaProposal?.CreatedAt ?? now,
                 now,
                 _schemaClarifications.ToArray());
+            _schemaTransitionReview = null;
             await SchemaProposalStore().SaveAsync(_schemaProposal);
             _pendingSchemaQuestion = null;
             SchemaQuestionPanel.IsVisible = false;
@@ -1266,11 +1286,40 @@ public partial class MainWindow : Window
         var proposalDiffersFromActive = _schemaProposal is not null && !ActiveSchemaMatchesSavedProposal();
         ActivateSchemaButton.IsVisible = proposalDiffersFromActive;
         ActivateSchemaButton.IsEnabled = proposalDiffersFromActive && !_processingSchemaQueue && !_buildingGameStructures;
-        ActivateSchemaButton.Content = _activeGameSchema is null ? "Activate Schema" : "Activate Updated Proposal";
+        ActivateSchemaButton.Content = _activeGameSchema is null
+            ? "Activate Schema"
+            : TransitionReviewMatchesProposal() && _schemaTransitionReview!.CanActivate
+                ? "Activate Compatible Update"
+                : "Review Updated Proposal";
         ActivateSchemaFromReadyGameDataButton.IsVisible = proposalDiffersFromActive;
         ActivateSchemaFromReadyGameDataButton.IsEnabled = proposalDiffersFromActive && !_processingSchemaQueue && !_buildingGameStructures;
         ActivateSchemaFromEmptyGameDataButton.IsVisible = proposalDiffersFromActive;
         ActivateSchemaFromEmptyGameDataButton.IsEnabled = proposalDiffersFromActive && !_processingSchemaQueue && !_buildingGameStructures;
+    }
+
+    private bool TransitionReviewMatchesProposal() =>
+        _schemaProposal is not null && _schemaTransitionReview is not null &&
+        string.Equals(_schemaTransitionReview.ProposalId, _schemaProposal.Id, StringComparison.Ordinal) &&
+        _schemaTransitionReview.ProposalUpdatedAt == _schemaProposal.UpdatedAt;
+
+    private static string FormatSchemaTransitionReview(SchemaTransitionReview review)
+    {
+        var builder = new StringBuilder()
+            .Append("Schema Transition Review: ").Append(review.Kind).AppendLine()
+            .AppendLine(review.Summary);
+        if (review.Changes.Count > 0)
+        {
+            builder.AppendLine("Changes:");
+            foreach (var change in review.Changes) builder.Append("- ").AppendLine(change);
+        }
+        if (review.Issues.Count > 0)
+        {
+            builder.AppendLine("Affected Game Data:");
+            foreach (var issue in review.Issues) builder.Append("- ").Append(issue.Path).Append(": ").AppendLine(issue.Message);
+        }
+        if (review.CanActivate) builder.Append("Review complete. Select Activate Compatible Update to confirm revision ").Append(review.TargetRevision).Append('.');
+        else builder.Append("Activation is unavailable. Existing data and the active schema were not changed.");
+        return builder.ToString().Trim();
     }
 
     private bool ActiveSchemaMatchesSavedProposal()
@@ -3175,6 +3224,7 @@ public partial class MainWindow : Window
         QuestionHeading.Text = "";
         _workingRuleSet = null;
         _schemaProposal = null;
+        _schemaTransitionReview = null;
         _activeGameSchema = null;
         _projectGameData = null;
         _pendingSchemaQuestion = null;

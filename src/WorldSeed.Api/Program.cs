@@ -307,20 +307,19 @@ projects.MapPost("/{projectId}/active-schema", async (string projectId, IDesignP
 
     var current = await activeSchemas.LoadAsync(projectId, cancellationToken);
     var existingData = await gameData.LoadAsync(projectId, cancellationToken);
-    ActiveGameSchema active;
+    SchemaTransitionResult transition;
     try
     {
-        active = GameDataService.Activate(proposal, current, GameDataService.HasAuthoredContent(existingData), DateTimeOffset.UtcNow);
+        transition = GameDataService.ApplyReviewedTransition(proposal, current, existingData, DateTimeOffset.UtcNow);
     }
     catch (GameDataFormatException exception)
     {
         return Results.BadRequest(exception.Message);
     }
 
-    await activeSchemas.SaveAsync(active, cancellationToken);
-    if (existingData is null || existingData.ActiveGameSchemaRevision != active.Revision || !string.Equals(existingData.ActiveGameSchemaId, active.Id, StringComparison.Ordinal))
-        await gameData.SaveAsync(GameDataService.CreateEmpty(active, DateTimeOffset.UtcNow), cancellationToken);
-    return Results.Ok(active);
+    await activeSchemas.SaveAsync(transition.ActiveSchema, cancellationToken);
+    await gameData.SaveAsync(transition.GameData, cancellationToken);
+    return Results.Ok(transition.ActiveSchema);
 });
 
 projects.MapGet("/{projectId}/game-data", async (string projectId, IProjectGameDataStore store, CancellationToken cancellationToken) =>

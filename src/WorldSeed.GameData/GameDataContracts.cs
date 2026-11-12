@@ -69,6 +69,8 @@ public sealed record SchemaTransitionReview(
     IReadOnlyList<string> Changes,
     IReadOnlyList<SchemaValidationIssue> Issues);
 
+public sealed record SchemaTransitionResult(ActiveGameSchema ActiveSchema, ProjectGameData GameData);
+
 public static class GameDataService
 {
     private const string FormatVersion = "0.1";
@@ -204,6 +206,26 @@ public static class GameDataService
             DataJson = data.ToJsonString(PrettyJson),
             UpdatedAt = now
         };
+    }
+
+    public static SchemaTransitionResult ApplyReviewedTransition(
+        ProjectSchemaProposal proposal,
+        ActiveGameSchema? current,
+        ProjectGameData? gameData,
+        DateTimeOffset now)
+    {
+        var review = ReviewTransition(proposal, current, gameData, now);
+        if (!review.CanActivate)
+            throw new GameDataFormatException(review.Summary + (review.Issues.Count == 0 ? string.Empty : " " + string.Join(" ", review.Issues.Select(issue => $"{issue.Path}: {issue.Message}"))));
+
+        var active = current is null
+            ? Activate(proposal, null, false, now)
+            : CreateSnapshot(proposal, current, now);
+        var rebound = gameData is null
+            ? CreateEmpty(active, now)
+            : RebindGameData(active, gameData, now);
+        EnsureValid(active, rebound);
+        return new SchemaTransitionResult(active, rebound);
     }
 
     private static ActiveGameSchema CreateSnapshot(ProjectSchemaProposal proposal, ActiveGameSchema current, DateTimeOffset now)

@@ -91,6 +91,64 @@ public class GameDataServiceTests
     }
 
     [Fact]
+    public void Applies_a_reviewed_compatible_transition_without_transforming_entries()
+    {
+        var active = GameDataService.Activate(CreateProposal(), null, false, Now);
+        var data = GameDataService.CreateEmpty(active, Now);
+        var root = JsonNode.Parse(data.DataJson)!.AsObject();
+        root["entityInstances"]!.AsArray().Add(new JsonObject
+        {
+            ["id"] = "weapon-1",
+            ["entityTypeId"] = "weapon",
+            ["values"] = new JsonObject { ["name"] = "Sword" }
+        });
+        data = data with { DataJson = root.ToJsonString() };
+        var proposed = JsonNode.Parse(CreateProposal().SchemaJson)!.AsObject();
+        proposed["entityTypes"]![0]!["properties"]!.AsArray().Add(new JsonObject
+        {
+            ["metadata"] = new JsonObject { ["id"] = "reach", ["name"] = "Reach" },
+            ["valueType"] = new JsonObject { ["kind"] = "primitive", ["name"] = "integer" },
+            ["required"] = false,
+            ["nullable"] = false
+        });
+
+        var result = GameDataService.ApplyReviewedTransition(CreateProposal() with { SchemaJson = proposed.ToJsonString() }, active, data, Now.AddMinutes(1));
+
+        Assert.Equal(2, result.ActiveSchema.Revision);
+        Assert.Equal(2, result.GameData.ActiveGameSchemaRevision);
+        Assert.Single(JsonNode.Parse(result.GameData.DataJson)!["entityInstances"]!.AsArray());
+        Assert.True(GameDataService.Validate(result.ActiveSchema, result.GameData).IsValid);
+    }
+
+    [Fact]
+    public void Refuses_to_apply_a_transition_that_requires_data_work()
+    {
+        var active = GameDataService.Activate(CreateProposal(), null, false, Now);
+        var data = GameDataService.CreateEmpty(active, Now);
+        var root = JsonNode.Parse(data.DataJson)!.AsObject();
+        root["entityInstances"]!.AsArray().Add(new JsonObject
+        {
+            ["id"] = "weapon-1",
+            ["entityTypeId"] = "weapon",
+            ["values"] = new JsonObject { ["name"] = "Sword" }
+        });
+        data = data with { DataJson = root.ToJsonString() };
+        var proposed = JsonNode.Parse(CreateProposal().SchemaJson)!.AsObject();
+        proposed["entityTypes"]![0]!["properties"]!.AsArray().Add(new JsonObject
+        {
+            ["metadata"] = new JsonObject { ["id"] = "reach", ["name"] = "Reach" },
+            ["valueType"] = new JsonObject { ["kind"] = "primitive", ["name"] = "integer" },
+            ["required"] = true,
+            ["nullable"] = false
+        });
+
+        var exception = Assert.Throws<GameDataFormatException>(() =>
+            GameDataService.ApplyReviewedTransition(CreateProposal() with { SchemaJson = proposed.ToJsonString() }, active, data, Now.AddMinutes(1)));
+
+        Assert.Contains("does not conform", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void Identifies_data_bound_to_a_different_active_schema_revision()
     {
         var active = GameDataService.Activate(CreateProposal(), null, false, Now);

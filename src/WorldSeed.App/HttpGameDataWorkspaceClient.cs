@@ -26,6 +26,14 @@ internal sealed class HttpGameDataWorkspaceClient(HttpClient http)
             ?? throw new HttpRequestException("WorldSeed local service did not return the activated schema.");
     }
 
+    public async Task<SchemaTransitionReview> ReviewTransitionAsync(string projectId, CancellationToken cancellationToken = default)
+    {
+        using var response = await _http.GetAsync($"api/projects/{Uri.EscapeDataString(projectId)}/schema-transition", cancellationToken);
+        await EnsureSuccessAsync(response, cancellationToken);
+        return (await response.Content.ReadFromJsonAsync<SchemaTransitionReview>(JsonOptions, cancellationToken))
+            ?? throw new HttpRequestException("WorldSeed local service did not return a schema-transition review.");
+    }
+
     public async Task<ProjectGameData?> LoadGameDataAsync(string projectId, CancellationToken cancellationToken = default)
     {
         using var response = await _http.GetAsync($"api/projects/{Uri.EscapeDataString(projectId)}/game-data", cancellationToken);
