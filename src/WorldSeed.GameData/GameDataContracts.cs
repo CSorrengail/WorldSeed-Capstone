@@ -71,6 +71,27 @@ public sealed record SchemaTransitionReview(
 
 public sealed record SchemaTransitionResult(ActiveGameSchema ActiveSchema, ProjectGameData GameData);
 
+public sealed record SchemaTransitionRecord(
+    string Id,
+    string ProjectId,
+    string FormatVersion,
+    string ProposalId,
+    int FromRevision,
+    int ToRevision,
+    SchemaTransitionKind Kind,
+    string? PreviousSchemaJson,
+    string? PreviousGameDataJson,
+    string ResultSchemaJson,
+    string ResultGameDataJson,
+    DateTimeOffset CreatedAt);
+
+public interface ISchemaTransitionStore
+{
+    Task SaveAsync(SchemaTransitionRecord transition, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<SchemaTransitionRecord>> ListAsync(string projectId, CancellationToken cancellationToken = default);
+    Task DeleteAsync(string projectId, CancellationToken cancellationToken = default);
+}
+
 public static class GameDataService
 {
     private const string FormatVersion = "0.1";
@@ -226,6 +247,23 @@ public static class GameDataService
             : RebindGameData(active, gameData, now);
         EnsureValid(active, rebound);
         return new SchemaTransitionResult(active, rebound);
+    }
+
+    public static SchemaTransitionRecord CreateTransitionRecord(
+        ProjectSchemaProposal proposal,
+        ActiveGameSchema? previousSchema,
+        ProjectGameData? previousData,
+        SchemaTransitionReview review,
+        SchemaTransitionResult result,
+        DateTimeOffset now)
+    {
+        if (!review.CanActivate || result.ActiveSchema.Revision != review.TargetRevision)
+            throw new GameDataFormatException("Only the exact reviewed schema transition can be recorded.");
+        return new SchemaTransitionRecord(
+            $"schema-transition-{proposal.ProjectId}-r{result.ActiveSchema.Revision}", proposal.ProjectId, FormatVersion,
+            proposal.Id, previousSchema?.Revision ?? 0, result.ActiveSchema.Revision, review.Kind,
+            previousSchema?.SchemaJson, previousData?.DataJson, result.ActiveSchema.SchemaJson,
+            result.GameData.DataJson, now);
     }
 
     private static ActiveGameSchema CreateSnapshot(ProjectSchemaProposal proposal, ActiveGameSchema current, DateTimeOffset now)

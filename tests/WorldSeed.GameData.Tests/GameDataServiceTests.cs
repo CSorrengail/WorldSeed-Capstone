@@ -149,6 +149,26 @@ public class GameDataServiceTests
     }
 
     [Fact]
+    public void Records_exact_before_and_after_snapshots_for_a_reviewed_transition()
+    {
+        var proposal = CreateProposal();
+        var active = GameDataService.Activate(proposal, null, false, Now);
+        var data = GameDataService.CreateEmpty(active, Now);
+        var changed = proposal with { SchemaJson = Schema("Weapon Catalog"), UpdatedAt = Now.AddMinutes(1) };
+        var review = GameDataService.ReviewTransition(changed, active, data, Now.AddMinutes(2));
+        var result = GameDataService.ApplyReviewedTransition(changed, active, data, Now.AddMinutes(2));
+
+        var record = GameDataService.CreateTransitionRecord(changed, active, data, review, result, Now.AddMinutes(2));
+
+        Assert.Equal(1, record.FromRevision);
+        Assert.Equal(2, record.ToRevision);
+        Assert.Equal(active.SchemaJson, record.PreviousSchemaJson);
+        Assert.Equal(data.DataJson, record.PreviousGameDataJson);
+        Assert.Equal(result.ActiveSchema.SchemaJson, record.ResultSchemaJson);
+        Assert.Equal(result.GameData.DataJson, record.ResultGameDataJson);
+    }
+
+    [Fact]
     public void Identifies_data_bound_to_a_different_active_schema_revision()
     {
         var active = GameDataService.Activate(CreateProposal(), null, false, Now);

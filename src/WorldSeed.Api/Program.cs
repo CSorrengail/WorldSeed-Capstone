@@ -26,6 +26,8 @@ builder.Services.AddSingleton<MongoActiveGameSchemaStore>();
 builder.Services.AddSingleton<IActiveGameSchemaStore>(services => services.GetRequiredService<MongoActiveGameSchemaStore>());
 builder.Services.AddSingleton<MongoProjectGameDataStore>();
 builder.Services.AddSingleton<IProjectGameDataStore>(services => services.GetRequiredService<MongoProjectGameDataStore>());
+builder.Services.AddSingleton<MongoSchemaTransitionStore>();
+builder.Services.AddSingleton<ISchemaTransitionStore>(services => services.GetRequiredService<MongoSchemaTransitionStore>());
 builder.Services.AddSingleton<MongoContentProposalStore>();
 builder.Services.AddSingleton<IContentProposalStore>(services => services.GetRequiredService<MongoContentProposalStore>());
 builder.Services.AddSingleton<MongoContentApplicationStore>();
@@ -50,6 +52,7 @@ using (var scope = app.Services.CreateScope())
     await scope.ServiceProvider.GetRequiredService<MongoProjectSchemaChangeRequestStore>().EnsureIndexesAsync();
     await scope.ServiceProvider.GetRequiredService<MongoActiveGameSchemaStore>().EnsureIndexesAsync();
     await scope.ServiceProvider.GetRequiredService<MongoProjectGameDataStore>().EnsureIndexesAsync();
+    await scope.ServiceProvider.GetRequiredService<MongoSchemaTransitionStore>().EnsureIndexesAsync();
     await scope.ServiceProvider.GetRequiredService<MongoContentProposalStore>().EnsureIndexesAsync();
     await scope.ServiceProvider.GetRequiredService<MongoContentApplicationStore>().EnsureIndexesAsync();
     await scope.ServiceProvider.GetRequiredService<MongoContentBalanceProfileStore>().EnsureIndexesAsync();
@@ -77,7 +80,7 @@ projects.MapPut("/{projectId}", async (string projectId, DesignProject project, 
     await store.SaveAsync(project, cancellationToken);
     return Results.NoContent();
 });
-projects.MapDelete("/{projectId}", async (string projectId, IDesignProjectStore store, IWorkingRuleSetStore ruleSets, IProjectSchemaProposalStore schemaProposals, IProjectSchemaChangeRequestStore schemaChangeRequests, IActiveGameSchemaStore activeSchemas, IProjectGameDataStore gameData, IContentProposalStore contentProposals, IContentApplicationStore contentApplications, IContentBalanceProfileStore balanceProfiles, IPublicationSnapshotStore publications, IPublicationEditionStore publicationEditions, IPublicationEditorialStore publicationEditorial, CancellationToken cancellationToken) =>
+projects.MapDelete("/{projectId}", async (string projectId, IDesignProjectStore store, IWorkingRuleSetStore ruleSets, IProjectSchemaProposalStore schemaProposals, IProjectSchemaChangeRequestStore schemaChangeRequests, IActiveGameSchemaStore activeSchemas, IProjectGameDataStore gameData, ISchemaTransitionStore schemaTransitions, IContentProposalStore contentProposals, IContentApplicationStore contentApplications, IContentBalanceProfileStore balanceProfiles, IPublicationSnapshotStore publications, IPublicationEditionStore publicationEditions, IPublicationEditorialStore publicationEditorial, CancellationToken cancellationToken) =>
 {
     await publicationEditorial.DeleteAsync(projectId, cancellationToken);
     await publicationEditions.DeleteAsync(projectId, cancellationToken);
@@ -85,6 +88,7 @@ projects.MapDelete("/{projectId}", async (string projectId, IDesignProjectStore 
     await contentApplications.DeleteAsync(projectId, cancellationToken);
     await contentProposals.DeleteAsync(projectId, cancellationToken);
     await balanceProfiles.DeleteAsync(projectId, cancellationToken);
+    await schemaTransitions.DeleteAsync(projectId, cancellationToken);
     await gameData.DeleteAsync(projectId, cancellationToken);
     await activeSchemas.DeleteAsync(projectId, cancellationToken);
     await schemaProposals.DeleteAsync(projectId, cancellationToken);
@@ -299,7 +303,9 @@ projects.MapGet("/{projectId}/schema-transition", async (string projectId, IProj
     var existingData = await gameData.LoadAsync(projectId, cancellationToken);
     return Results.Ok(GameDataService.ReviewTransition(proposal, current, existingData, DateTimeOffset.UtcNow));
 });
-projects.MapPost("/{projectId}/active-schema", async (string projectId, IDesignProjectStore projectsStore, IProjectSchemaProposalStore proposals, IActiveGameSchemaStore activeSchemas, IProjectGameDataStore gameData, CancellationToken cancellationToken) =>
+projects.MapGet("/{projectId}/schema-transitions", async (string projectId, ISchemaTransitionStore store, CancellationToken cancellationToken) =>
+    Results.Ok(await store.ListAsync(projectId, cancellationToken)));
+projects.MapPost("/{projectId}/active-schema", async (string projectId, IDesignProjectStore projectsStore, IProjectSchemaProposalStore proposals, IActiveGameSchemaStore activeSchemas, IProjectGameDataStore gameData, ISchemaTransitionStore transitions, CancellationToken cancellationToken) =>
 {
     if (await projectsStore.LoadAsync(projectId, cancellationToken) is null) return Results.NotFound("The project does not exist.");
     var proposal = await proposals.LoadAsync(projectId, cancellationToken);
@@ -307,18 +313,35 @@ projects.MapPost("/{projectId}/active-schema", async (string projectId, IDesignP
 
     var current = await activeSchemas.LoadAsync(projectId, cancellationToken);
     var existingData = await gameData.LoadAsync(projectId, cancellationToken);
+    SchemaTransitionReview review;
     SchemaTransitionResult transition;
+    var now = DateTimeOffset.UtcNow;
     try
     {
-        transition = GameDataService.ApplyReviewedTransition(proposal, current, existingData, DateTimeOffset.UtcNow);
+        review = GameDataService.ReviewTransition(proposal, current, existingData, now);
+        transition = GameDataService.ApplyReviewedTransition(proposal, current, existingData, now);
     }
     catch (GameDataFormatException exception)
     {
         return Results.BadRequest(exception.Message);
     }
 
-    await activeSchemas.SaveAsync(transition.ActiveSchema, cancellationToken);
-    await gameData.SaveAsync(transition.GameData, cancellationToken);
+    var record = GameDataService.CreateTransitionRecord(proposal, current, existingData, review, transition, now);
+    try
+    {
+        await activeSchemas.SaveAsync(transition.ActiveSchema, cancellationToken);
+        await gameData.SaveAsync(transition.GameData, cancellationToken);
+        await transitions.SaveAsync(record, cancellationToken);
+    }
+    catch
+    {
+        // Recovery must still run when the request token itself was cancelled.
+        if (current is not null) await activeSchemas.SaveAsync(current, CancellationToken.None);
+        else await activeSchemas.DeleteAsync(projectId, CancellationToken.None);
+        if (existingData is not null) await gameData.SaveAsync(existingData, CancellationToken.None);
+        else await gameData.DeleteAsync(projectId, CancellationToken.None);
+        throw;
+    }
     return Results.Ok(transition.ActiveSchema);
 });
 
