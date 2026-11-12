@@ -23,6 +23,10 @@ public class SchemaTranslationServiceTests
         Assert.Contains("instance-bearing concept", model.Request.Messages[0].Content);
         Assert.Contains("workingRuleIds", model.Request.Messages[0].Content);
         Assert.Equal(SchemaTranslationService.MaxOutputTokens, model.Request.MaxOutputTokens);
+        Assert.NotNull(model.Request.ResponseSchema);
+        var allowedIds = model.Request.ResponseSchema!["properties"]!["proposal"]!["properties"]!["definitionSources"]!["items"]!["properties"]!["workingRuleIds"]!["items"]!["enum"]!.AsArray();
+        Assert.Equal(new[] { "casting-adds-mark" }, allowedIds.Select(value => value!.GetValue<string>()));
+        Assert.False(model.Request.RequireJsonObject);
         Assert.DoesNotContain("Evidence", model.Request.Messages[1].Content);
     }
 

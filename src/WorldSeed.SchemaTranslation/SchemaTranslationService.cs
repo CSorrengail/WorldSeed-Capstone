@@ -61,7 +61,8 @@ public sealed class SchemaTranslationService
             new LlmMessage(LlmMessageRole.System, SystemPrompt),
             new LlmMessage(LlmMessageRole.User, JsonSerializer.Serialize(input, JsonOptions))
         };
-        var response = await _client.CompleteAsync(new LlmChatRequest(messages, Temperature: 0.1, MaxOutputTokens: MaxOutputTokens, RequireJsonObject: true), cancellationToken);
+        var responseSchema = SchemaTranslationResponseSchema.Create(request.WorkingRuleSet.Rules.Select(rule => rule.Id).ToHashSet(StringComparer.Ordinal));
+        var response = await _client.CompleteAsync(new LlmChatRequest(messages, Temperature: 0.1, MaxOutputTokens: MaxOutputTokens, ResponseSchema: responseSchema), cancellationToken);
         for (var retryCount = 0; ; retryCount++)
         {
             try
@@ -71,7 +72,7 @@ public sealed class SchemaTranslationService
             catch (SchemaTranslationFormatException exception) when (retryCount < MaxCorrectiveRetries)
             {
                 var correction = RetryPrompt + "\nWorldSeed rejected the prior proposal for this exact reason: " + exception.Message;
-                response = await _client.CompleteAsync(new LlmChatRequest([.. messages, new(LlmMessageRole.User, correction)], Temperature: 0.0, MaxOutputTokens: MaxOutputTokens, RequireJsonObject: true), cancellationToken);
+                response = await _client.CompleteAsync(new LlmChatRequest([.. messages, new(LlmMessageRole.User, correction)], Temperature: 0.0, MaxOutputTokens: MaxOutputTokens, ResponseSchema: responseSchema), cancellationToken);
             }
             catch (SchemaTranslationFormatException exception)
             {
