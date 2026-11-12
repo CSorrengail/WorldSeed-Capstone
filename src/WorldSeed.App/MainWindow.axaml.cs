@@ -70,6 +70,7 @@ public partial class MainWindow : Window
     private string? _pendingContentApplicationProposalId;
     private bool _contentExpansionRunning;
     private bool _stopContentExpansionRequested;
+    private int _contentExpansionGeneration;
     private bool _processingSchemaQueue;
     private bool _buildingGameStructures;
     private bool _applyingSchemaChange;
@@ -1954,6 +1955,12 @@ public partial class MainWindow : Window
         StartContentExpansionButton.IsEnabled = ready && !_contentExpansionRunning;
         StopContentExpansionButton.IsEnabled = _contentExpansionRunning;
         ContentExpansionCountList.IsEnabled = !_contentExpansionRunning;
+        ContentProposalEntityTypeList.IsEnabled = !_contentExpansionRunning;
+        ContentProposalRequestText.IsEnabled = !_contentExpansionRunning;
+        ModelSelector.IsEnabled = !_contentExpansionRunning;
+        ProjectSelector.IsEnabled = !_contentExpansionRunning && _projectSummaries.Count > 0;
+        NewProjectButton.IsEnabled = !_contentExpansionRunning;
+        DeleteProjectButton.IsEnabled = !_contentExpansionRunning && _project is not null;
         SaveContentBalanceProfileButton.IsEnabled = ready && ContentProposalEntityTypeList.SelectedIndex >= 0;
 
         var selected = SelectedContentProposal;
@@ -2071,6 +2078,12 @@ public partial class MainWindow : Window
         StartContentExpansionButton.IsEnabled = ready && !_contentExpansionRunning;
         StopContentExpansionButton.IsEnabled = _contentExpansionRunning;
         ContentExpansionCountList.IsEnabled = !_contentExpansionRunning;
+        ContentProposalEntityTypeList.IsEnabled = !_contentExpansionRunning;
+        ContentProposalRequestText.IsEnabled = !_contentExpansionRunning;
+        ModelSelector.IsEnabled = !_contentExpansionRunning;
+        ProjectSelector.IsEnabled = !_contentExpansionRunning && _projectSummaries.Count > 0;
+        NewProjectButton.IsEnabled = !_contentExpansionRunning;
+        DeleteProjectButton.IsEnabled = !_contentExpansionRunning && _project is not null;
         SaveContentBalanceProfileButton.IsEnabled = ready && ContentProposalEntityTypeList.SelectedIndex >= 0;
     }
 
@@ -2148,13 +2161,15 @@ public partial class MainWindow : Window
             _contentExpansionQueue.Add(new ContentExpansionQueueItem(index));
         _contentExpansionRunning = true;
         _stopContentExpansionRequested = false;
+        var generation = ++_contentExpansionGeneration;
+        var queue = _contentExpansionQueue.ToArray();
         RefreshContentExpansionQueue();
         RefreshContentProposalControls();
 
         var completed = new List<ContentProposal>();
         try
         {
-            foreach (var item in _contentExpansionQueue)
+            foreach (var item in queue)
             {
                 if (_stopContentExpansionRequested)
                 {
@@ -2174,6 +2189,7 @@ public partial class MainWindow : Window
                     forcedInstruction: instruction,
                     persistedDesignerRequest: $"{goal}\n\nSequential Expansion Item {item.Index} Of {requestedCount}.",
                     usePendingRevision: false);
+                if (generation != _contentExpansionGeneration) return completed.Count;
                 if (saved && SelectedContentProposal is { } proposal)
                 {
                     completed.Add(proposal);
@@ -2186,10 +2202,14 @@ public partial class MainWindow : Window
         }
         finally
         {
-            _contentExpansionRunning = false;
-            StopContentExpansionButton.IsEnabled = false;
-            RefreshContentProposalControls();
+            if (generation == _contentExpansionGeneration)
+            {
+                _contentExpansionRunning = false;
+                StopContentExpansionButton.IsEnabled = false;
+                RefreshContentProposalControls();
+            }
         }
+        if (generation != _contentExpansionGeneration) return completed.Count;
         var stopped = _stopContentExpansionRequested;
         _stopContentExpansionRequested = false;
         ContentExpansionStatusText.Text = stopped
@@ -2371,6 +2391,12 @@ public partial class MainWindow : Window
         IEnumerable<ContentProposalDecision>? decisions = null,
         IEnumerable<ContentApplication>? applications = null)
     {
+        _contentExpansionGeneration++;
+        _contentExpansionQueue.Clear();
+        _contentExpansionRunning = false;
+        _stopContentExpansionRequested = false;
+        ContentExpansionQueueList.ItemsSource = Array.Empty<ContentExpansionQueueItem>();
+        ContentExpansionStatusText.Text = "No Expansion Queue Is Running.";
         _project = project;
         _workingRuleSet = workingRuleSet;
         _activeGameSchema = activeGameSchema;
@@ -3060,6 +3086,7 @@ public partial class MainWindow : Window
         _pendingContentApplicationProposalId = null;
         _contentBalanceProfiles.Clear();
         _contentExpansionQueue.Clear();
+        _contentExpansionGeneration++;
         _contentExpansionRunning = false;
         _stopContentExpansionRequested = false;
         _publicationSnapshots.Clear();

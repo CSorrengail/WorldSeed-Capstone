@@ -257,6 +257,12 @@ public sealed class ContentReviewReadyStateTests
 
             var expansion = window.GenerateContentExpansionAsync();
             await modelHandler.RequestStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            Assert.False(window.FindControl<ComboBox>("ModelSelector")!.IsEnabled);
+            Assert.False(window.FindControl<ComboBox>("ContentProposalEntityTypeList")!.IsEnabled);
+            Assert.False(window.FindControl<TextBox>("ContentProposalRequestText")!.IsEnabled);
+            Assert.False(window.FindControl<Button>("NewProjectButton")!.IsEnabled);
+            Assert.False(window.FindControl<Button>("DeleteProjectButton")!.IsEnabled);
+            Assert.True(window.FindControl<Button>("StopContentExpansionButton")!.IsEnabled);
             window.RequestContentExpansionStop();
             modelHandler.AllowResponse.TrySetResult();
 
@@ -265,8 +271,54 @@ public sealed class ContentReviewReadyStateTests
             Assert.Contains("Expansion Stopped", window.FindControl<TextBlock>("ContentExpansionStatusText")!.Text);
             Assert.Equal(3, window.FindControl<ListBox>("ContentExpansionQueueList")!.Items.Count);
             Assert.Equal(2, window.FindControl<ListBox>("ContentExpansionQueueList")!.Items.Cast<object>().Count(item => item.ToString()!.Contains("Stopped")));
+            Assert.True(window.FindControl<ComboBox>("ModelSelector")!.IsEnabled);
+            Assert.True(window.FindControl<ComboBox>("ContentProposalEntityTypeList")!.IsEnabled);
+            Assert.True(window.FindControl<TextBox>("ContentProposalRequestText")!.IsEnabled);
+            Assert.True(window.FindControl<Button>("NewProjectButton")!.IsEnabled);
+            Assert.True(window.FindControl<Button>("DeleteProjectButton")!.IsEnabled);
         }
         finally { window.Close(); }
+    }
+
+    [AvaloniaFact]
+    public async Task Replacing_workspace_invalidates_an_in_flight_expansion_without_saving_stale_results()
+    {
+        var modelHandler = new BlockingExpansionModelHandler();
+        using var model = new HttpClient(modelHandler);
+        using var api = new HttpClient(new ProposalApiHandler()) { BaseAddress = new Uri("http://qa.invalid/") };
+        var window = new MainWindow(model, api);
+        try
+        {
+            var now = DateTimeOffset.UtcNow;
+            var first = CreateExpansionWorkspace("first", now);
+            var second = CreateExpansionWorkspace("second", now.AddMinutes(1));
+            window.RestoreContentReviewWorkspace(first.Project, first.Rules, first.Schema, first.Data);
+            window.FindControl<ComboBox>("ModelSelector")!.ItemsSource = new[] { "local-model" };
+            window.FindControl<ComboBox>("ModelSelector")!.SelectedIndex = 0;
+            window.FindControl<ComboBox>("ContentProposalEntityTypeList")!.SelectedIndex = 0;
+            window.FindControl<TextBox>("ContentProposalRequestText")!.Text = "Create a forest encounter set.";
+
+            var expansion = window.GenerateContentExpansionAsync();
+            await modelHandler.RequestStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            window.RestoreContentReviewWorkspace(second.Project, second.Rules, second.Schema, second.Data);
+            modelHandler.AllowResponse.TrySetResult();
+
+            Assert.Equal(0, await expansion);
+            Assert.Empty(window.FindControl<ListBox>("ContentExpansionQueueList")!.Items.Cast<object>());
+            Assert.Empty(window.FindControl<ListBox>("ContentProposalList")!.Items.Cast<object>());
+            Assert.Equal("No Expansion Queue Is Running.", window.FindControl<TextBlock>("ContentExpansionStatusText")!.Text);
+        }
+        finally { window.Close(); }
+    }
+
+    private static (DesignProject Project, WorkingRuleSet Rules, ActiveGameSchema Schema, ProjectGameData Data) CreateExpansionWorkspace(string suffix, DateTimeOffset now)
+    {
+        var project = DesignProjectService.Create($"{suffix}-expansion-project", $"{suffix} Expansion Project");
+        var rule = new WorkingRule("creature-definition", "Creature Definition", WorkingRuleKind.Definition, "Creatures have names.", [], [], [], [], null, [], []);
+        var rules = new WorkingRuleSet($"{suffix}-expansion-rules", project.Id, "0.1", "Expansion Rules", null, 1, now, now, [rule], [], [], [], []);
+        var schemaJson = JsonNode.Parse($$"""{"id":"{{suffix}}-expansion-schema","name":"Expansion Schema","version":"1","entityTypes":[{"metadata":{"id":"creature","name":"Creature"},"properties":[{"metadata":{"id":"name","name":"Name"},"valueType":{"kind":"primitive","name":"string"},"required":true,"nullable":false}]}],"valueTypes":[]}""")!.AsObject();
+        var schema = new ActiveGameSchema($"active-{suffix}-expansion", project.Id, "0.1", "Expansion Schema", schemaJson.ToJsonString(), "proposal-expansion", rules.Id, rules.Revision, 1, now, now);
+        return (project, rules, schema, GameDataService.CreateEmpty(schema, now));
     }
 
     [AvaloniaFact]

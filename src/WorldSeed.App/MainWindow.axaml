@@ -2,7 +2,7 @@
   <Grid RowDefinitions="Auto,*,Auto" Margin="16">
     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
       <StackPanel><TextBlock Text="WorldSeed" FontSize="30"/><TextBlock Text="Traceable Local Rule Drafting." Opacity="0.7"/></StackPanel>
-      <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Spacing="8"><TextBlock Text="Project:" VerticalAlignment="Center"/><ComboBox Name="ProjectSelector" Width="220" SelectionChanged="ProjectSelector_SelectionChanged"/><Button Content="New" Click="CreateProject_Click"/><Button Content="Settings" Click="OpenSettings_Click"/><Button Content="Check Server" Click="CheckServer_Click"/><Button Name="DeleteProjectButton" Content="Delete" Click="DeleteProject_Click"/></StackPanel>
+      <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Spacing="8"><TextBlock Text="Project:" VerticalAlignment="Center"/><ComboBox Name="ProjectSelector" Width="220" SelectionChanged="ProjectSelector_SelectionChanged"/><Button Name="NewProjectButton" Content="New" Click="CreateProject_Click"/><Button Content="Settings" Click="OpenSettings_Click"/><Button Content="Check Server" Click="CheckServer_Click"/><Button Name="DeleteProjectButton" Content="Delete" Click="DeleteProject_Click"/></StackPanel>
     </Grid>
     <TabControl Name="WorkspaceTabs" Grid.Row="1" Margin="0,24,0,16">
       <TabItem Header="Sources">
