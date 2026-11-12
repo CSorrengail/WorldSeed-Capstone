@@ -1541,7 +1541,27 @@ public partial class MainWindow : Window
         PublicationEditorialProposalList.ItemsSource = proposals;
         if (PublicationEditorialProposalList.SelectedIndex >= proposals.Length) PublicationEditorialProposalList.SelectedIndex = -1;
         GeneratePublicationEditorialButton.IsEnabled = snapshot is not null && targets.Length > 0 && ModelSelector.SelectedItem is string;
+        RefreshPublicationEditorialSourceView();
         RefreshSelectedPublicationEditorialView();
+    }
+
+    private void RefreshPublicationEditorialSourceView()
+    {
+        var snapshot = SelectedPublicationSnapshot;
+        var target = (PublicationEditorialTargetList.SelectedItem as PublicationEditorialTargetListItem)?.Target;
+        if (snapshot?.Units is not { Count: > 0 } || target is null)
+        {
+            PublicationEditorialSourceText.Text = "Select A Section To Inspect Its Exact Sources.";
+            return;
+        }
+        var units = snapshot.Units.ToDictionary(unit => unit.Id, StringComparer.Ordinal);
+        var sourceText = target.SourceUnitIds
+            .Where(units.ContainsKey)
+            .Select(id => $"{units[id].Title}\n{units[id].MarkdownBody}")
+            .ToArray();
+        PublicationEditorialSourceText.Text = sourceText.Length == 0
+            ? "The Exact Source Material For This Section Is Unavailable."
+            : string.Join("\n\n", sourceText);
     }
 
     private void RefreshSelectedPublicationEditorialView()
@@ -1555,7 +1575,19 @@ public partial class MainWindow : Window
         RevisePublicationEditorialButton.IsEnabled = proposal is not null;
     }
 
-    private void PublicationEditorialProposalList_SelectionChanged(object? sender, SelectionChangedEventArgs e) => RefreshSelectedPublicationEditorialView();
+    private void PublicationEditorialTargetList_SelectionChanged(object? sender, SelectionChangedEventArgs e) => RefreshPublicationEditorialSourceView();
+    private void PublicationEditorialProposalList_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        var proposal = SelectedPublicationEditorialProposal;
+        if (proposal is not null)
+        {
+            var targets = PublicationEditorialTargetList.Items.Cast<PublicationEditorialTargetListItem>().ToArray();
+            var index = Array.FindIndex(targets, item => item.Target.Id == proposal.TargetSectionId);
+            if (index >= 0) PublicationEditorialTargetList.SelectedIndex = index;
+        }
+        RefreshPublicationEditorialSourceView();
+        RefreshSelectedPublicationEditorialView();
+    }
     private async void GeneratePublicationEditorial_Click(object? sender, RoutedEventArgs e) => await GeneratePublicationEditorialAsync();
     private async void ApprovePublicationEditorial_Click(object? sender, RoutedEventArgs e) => await DecidePublicationEditorialAsync(PublicationEditorialDecisionKind.Approved);
     private async void RejectPublicationEditorial_Click(object? sender, RoutedEventArgs e) => await DecidePublicationEditorialAsync(PublicationEditorialDecisionKind.Rejected);
@@ -2925,6 +2957,7 @@ public partial class MainWindow : Window
         PublicationEditorialTargetList.ItemsSource = Array.Empty<PublicationEditorialTargetListItem>();
         PublicationEditorialProposalList.ItemsSource = Array.Empty<PublicationEditorialProposalListItem>();
         PublicationEditorialGuidanceText.Text = string.Empty;
+        PublicationEditorialSourceText.Text = "Select A Section To Inspect Its Exact Sources.";
         PublicationEditorialText.Text = "Select Or Generate A Section Draft.";
         PublicationEditorialDecisionText.Text = "No Designer Decision Recorded.";
         PublicationEditorialStatusText.Text = "Select A Snapshot To Begin Section Editing.";

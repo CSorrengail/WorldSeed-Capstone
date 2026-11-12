@@ -113,6 +113,8 @@ public sealed class PublicationWorkspaceTests
             modelSelector.SelectedIndex = 0;
 
             Assert.Contains("Creatures have names.", window.FindControl<TextBox>("PublicationEditorialText")!.Text);
+            Assert.Contains("Creatures have names.", window.FindControl<TextBox>("PublicationEditorialSourceText")!.Text);
+            Assert.DoesNotContain("exactly one", window.FindControl<TextBox>("PublicationEditorialSourceText")!.Text, StringComparison.OrdinalIgnoreCase);
             Assert.True(window.FindControl<Button>("GeneratePublicationEditorialButton")!.IsEnabled);
             Assert.True(await window.DecidePublicationEditorialAsync(PublicationEditorialDecisionKind.Approved));
             Assert.Equal(PublicationEditorialDecisionKind.Approved, handler.Decision!.Kind);
