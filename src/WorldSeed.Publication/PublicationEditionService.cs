@@ -109,16 +109,7 @@ public static class PublicationEditionService
         var included = request.IncludedSectionIds.ToHashSet(StringComparer.Ordinal);
         var builder = new StringBuilder().AppendLine($"# {Escape(request.Title.Trim())}").AppendLine();
         if (Normalize(request.Subtitle) is { } subtitle) builder.AppendLine($"_{Escape(subtitle)}_").AppendLine();
-        builder.AppendLine("> Designer-reviewed WorldSeed publication edition. Presentation choices do not add or alter game mechanics.")
-            .AppendLine()
-            .AppendLine("## Edition Provenance")
-            .AppendLine()
-            .AppendLine($"- Edition: `{Escape(editionId)}` revision {revision}")
-            .AppendLine($"- Publication Snapshot: `{Escape(snapshot.Id)}`")
-            .AppendLine($"- Working Rule Set: `{Escape(snapshot.WorkingRuleSetId)}` revision {snapshot.WorkingRuleSetRevision}")
-            .AppendLine($"- Active Schema: `{Escape(snapshot.ActiveGameSchemaId)}` revision {snapshot.ActiveGameSchemaRevision}")
-            .AppendLine($"- Game Data Fingerprint: `{snapshot.GameDataFingerprint}`")
-            .AppendLine();
+        builder.AppendLine("> Designer-reviewed WorldSeed publication edition.").AppendLine();
 
         foreach (var sectionId in request.SectionOrder.Where(included.Contains))
         {
@@ -215,33 +206,33 @@ public static class PublicationEditionService
     {
         var top = new List<SourceSection>
         {
-            new("rules", "Rules", RenderUnits(units.Where(unit => unit.Kind == PublicationUnitKind.Rule), "###"), false, "rules"),
-            new("categories-and-value-types", "Categories And Value Types", RenderUnits(units.Where(unit => unit.Kind == PublicationUnitKind.ValueType), "###"), false, "categories-and-value-types"),
+            new("rules", "Rules", RenderUnits(units.Where(unit => unit.Kind == PublicationUnitKind.Rule), "###", readerFacing: true), false, "rules"),
+            new("categories-and-value-types", "Categories And Value Types", RenderUnits(units.Where(unit => unit.Kind == PublicationUnitKind.ValueType), "###", readerFacing: true), false, "categories-and-value-types"),
             new(GameContentSectionId, "Game Content", string.Empty, false, GameContentSectionId),
-            new("relationships", "Relationships", RenderRelationships(units.Where(unit => unit.Kind == PublicationUnitKind.Relationship)), false, "relationships")
+            new("relationships", "Relationships", RenderRelationships(units.Where(unit => unit.Kind == PublicationUnitKind.Relationship), readerFacing: true), false, "relationships")
         };
         var usedIds = top.Select(section => section.Id).ToHashSet(StringComparer.Ordinal);
         var entities = units.Where(unit => unit.Kind == PublicationUnitKind.ContentType).Select(contentType =>
         {
             var entries = units.Where(unit => unit.Kind == PublicationUnitKind.ContentEntry && unit.ParentId == contentType.Id);
-            var body = RenderUnits(entries, "####");
+            var body = RenderUnits(entries, "####", readerFacing: true);
             if (string.IsNullOrWhiteSpace(body)) body = "_No canonical entries._";
             return new SourceSection("entity-" + UniqueSlug(contentType.Title, usedIds), contentType.Title, body, true, contentType.Id);
         }).ToArray();
         return new ParsedSnapshot(top, entities);
     }
 
-    private static string RenderUnits(IEnumerable<PublicationUnit> units, string heading)
+    private static string RenderUnits(IEnumerable<PublicationUnit> units, string heading, bool readerFacing = false)
     {
         var builder = new StringBuilder();
         foreach (var unit in units)
-            builder.AppendLine($"{heading} {Escape(unit.Title)}").AppendLine().AppendLine(unit.MarkdownBody.Trim()).AppendLine();
+            builder.AppendLine($"{heading} {Escape(unit.Title)}").AppendLine().AppendLine((readerFacing ? unit.ReaderMarkdownBody ?? unit.MarkdownBody : unit.MarkdownBody).Trim()).AppendLine();
         return builder.ToString().Trim();
     }
 
-    private static string RenderRelationships(IEnumerable<PublicationUnit> units)
+    private static string RenderRelationships(IEnumerable<PublicationUnit> units, bool readerFacing = false)
     {
-        var bodies = units.Select(unit => unit.MarkdownBody.Trim()).Where(body => body.Length > 0).ToArray();
+        var bodies = units.Select(unit => (readerFacing ? unit.ReaderMarkdownBody ?? unit.MarkdownBody : unit.MarkdownBody).Trim()).Where(body => body.Length > 0).ToArray();
         return bodies.Length == 0 ? "_No canonical relationships._" : string.Join(Environment.NewLine, bodies);
     }
 

@@ -18,7 +18,8 @@ public sealed record PublicationUnit(
     string Title,
     string? ParentId,
     IReadOnlyList<PublicationUnitSource> Sources,
-    string MarkdownBody);
+    string MarkdownBody,
+    string? ReaderMarkdownBody = null);
 
 public sealed record PublicationSnapshot(
     string Id,
@@ -122,6 +123,9 @@ public static class PublicationSnapshotService
     private static IReadOnlyList<PublicationUnit> BuildUnits(WorkingRuleSet ruleSet, JsonObject schema, IReadOnlyList<JsonObject> entries, JsonObject data)
     {
         var units = new List<PublicationUnit>();
+        var valueTypeDefinitions = (schema["valueTypes"] as JsonArray)?.OfType<JsonObject>()
+            .Where(definition => DefinitionId(definition) is not null)
+            .ToDictionary(definition => DefinitionId(definition)!, StringComparer.Ordinal) ?? [];
         foreach (var rule in ruleSet.Rules.OrderBy(rule => rule.Name, StringComparer.Ordinal).ThenBy(rule => rule.Id, StringComparer.Ordinal))
             units.Add(new PublicationUnit($"rule:{rule.Id}", PublicationUnitKind.Rule, rule.Name, null, [new("working-rule", rule.Id)], rule.AuthoritativeText.Trim()));
 
@@ -130,9 +134,14 @@ public static class PublicationSnapshotService
             var definitionId = DefinitionId(definition) ?? throw new InvalidOperationException("A publication value type requires an identifier.");
             var kind = definition["kind"]?.GetValue<string>() ?? "unspecified";
             var body = new StringBuilder().AppendLine($"Type: {Escape(kind)}");
+            var readerBody = new StringBuilder();
             var categoryEntries = (definition["entries"] as JsonArray)?.OfType<JsonObject>().ToArray() ?? [];
-            foreach (var entry in categoryEntries.OrderBy(DisplayName, StringComparer.Ordinal)) body.AppendLine($"- {Escape(DisplayName(entry))} (`{Escape(DefinitionId(entry) ?? "unknown")}`)");
-            units.Add(new PublicationUnit($"value-type:{definitionId}", PublicationUnitKind.ValueType, DisplayName(definition), null, [new("schema-value-type", definitionId)], body.ToString().TrimEnd()));
+            foreach (var entry in categoryEntries.OrderBy(DisplayName, StringComparer.Ordinal))
+            {
+                body.AppendLine($"- {Escape(DisplayName(entry))} (`{Escape(DefinitionId(entry) ?? "unknown")}`)");
+                readerBody.AppendLine($"- {Escape(DisplayName(entry))}");
+            }
+            units.Add(new PublicationUnit($"value-type:{definitionId}", PublicationUnitKind.ValueType, DisplayName(definition), null, [new("schema-value-type", definitionId)], body.ToString().TrimEnd(), readerBody.ToString().TrimEnd()));
         }
 
         var entityTypes = (schema["entityTypes"] as JsonArray)?.OfType<JsonObject>()
@@ -144,16 +153,22 @@ public static class PublicationSnapshotService
             var contentTypeUnitId = $"content-type:{entityTypeId}";
             units.Add(new PublicationUnit(contentTypeUnitId, PublicationUnitKind.ContentType, DisplayName(entityType), null, [new("schema-entity-type", entityTypeId)], string.Empty));
             var typeEntries = entries.Where(entry => string.Equals(entry["entityTypeId"]?.GetValue<string>(), entityTypeId, StringComparison.Ordinal)).ToArray();
-            var propertyNames = EffectiveProperties(schema, entityType).ToDictionary(property => DefinitionId(property)!, DisplayName, StringComparer.Ordinal);
+            var properties = EffectiveProperties(schema, entityType).ToDictionary(property => DefinitionId(property)!, StringComparer.Ordinal);
             foreach (var entry in typeEntries)
             {
                 var entryId = entry["id"]?.GetValue<string>() ?? "unknown";
                 var values = entry["values"] as JsonObject ?? new JsonObject();
                 var heading = values.FirstOrDefault(property => IsLabelProperty(property.Key) && property.Value is JsonValue).Value is { } labelNode && StringValue(labelNode) is { Length: > 0 } label ? label : entryId;
                 var body = new StringBuilder().AppendLine($"Entry ID: `{Escape(entryId)}`").AppendLine();
-                foreach (var property in values.OrderBy(property => propertyNames.GetValueOrDefault(property.Key, property.Key), StringComparer.Ordinal))
-                    body.AppendLine($"- **{Escape(propertyNames.GetValueOrDefault(property.Key, property.Key))}:** {RenderValue(property.Value)}");
-                units.Add(new PublicationUnit($"content-entry:{entityTypeId}:{entryId}", PublicationUnitKind.ContentEntry, heading, contentTypeUnitId, [new("game-data-entry", entryId), new("schema-entity-type", entityTypeId)], body.ToString().TrimEnd()));
+                var readerBody = new StringBuilder();
+                foreach (var property in values.OrderBy(property => properties.TryGetValue(property.Key, out var definition) ? DisplayName(definition) : property.Key, StringComparer.Ordinal))
+                {
+                    properties.TryGetValue(property.Key, out var definition);
+                    var displayName = definition is null ? property.Key : DisplayName(definition);
+                    body.AppendLine($"- **{Escape(displayName)}:** {RenderValue(property.Value)}");
+                    readerBody.AppendLine($"- **{Escape(displayName)}:** {RenderReaderValue(property.Value, definition, valueTypeDefinitions)}");
+                }
+                units.Add(new PublicationUnit($"content-entry:{entityTypeId}:{entryId}", PublicationUnitKind.ContentEntry, heading, contentTypeUnitId, [new("game-data-entry", entryId), new("schema-entity-type", entityTypeId)], body.ToString().TrimEnd(), readerBody.ToString().TrimEnd()));
             }
         }
 
@@ -212,6 +227,18 @@ public static class PublicationSnapshotService
         JsonArray array => string.Join(", ", array.Select(RenderValue)),
         _ => $"`{value.ToJsonString()}`"
     };
+
+    private static string RenderReaderValue(JsonNode? value, JsonObject? property, IReadOnlyDictionary<string, JsonObject> valueTypes)
+    {
+        var type = property?["valueType"] as JsonObject;
+        if (type?["kind"]?.GetValue<string>() == "definedValueType" && type["valueTypeId"]?.GetValue<string>() is { } valueTypeId && valueTypes.TryGetValue(valueTypeId, out var definition) && definition["kind"]?.GetValue<string>() == "enumeration")
+        {
+            var entries = (definition["entries"] as JsonArray)?.OfType<JsonObject>().Where(entry => DefinitionId(entry) is not null).ToDictionary(entry => DefinitionId(entry)!, DisplayName, StringComparer.Ordinal) ?? [];
+            if (value is JsonValue scalar && scalar.TryGetValue<string>(out var id) && entries.TryGetValue(id, out var name)) return Escape(name);
+            if (value is JsonArray array) return string.Join(", ", array.Select(item => item is JsonValue itemValue && itemValue.TryGetValue<string>(out var itemId) && entries.TryGetValue(itemId, out var itemName) ? Escape(itemName) : RenderValue(item)));
+        }
+        return RenderValue(value);
+    }
 
     private static string Fingerprint(string text) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text))).ToLowerInvariant();
     private static string DisplayName(JsonObject definition) => (definition["metadata"] as JsonObject)?["name"]?.GetValue<string>() ?? definition["name"]?.GetValue<string>() ?? DefinitionId(definition) ?? "Unnamed";

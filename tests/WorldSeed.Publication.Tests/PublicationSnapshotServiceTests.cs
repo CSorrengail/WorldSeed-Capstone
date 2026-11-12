@@ -72,8 +72,13 @@ public sealed class PublicationSnapshotServiceTests
         Assert.Contains("_Designer Edition_", ready.Markdown);
         Assert.Contains("Glass Fox", ready.Markdown);
         Assert.DoesNotContain("## Relationships", ready.Markdown);
-        Assert.Contains(snapshot.GameDataFingerprint, ready.Markdown);
-        Assert.Contains(snapshot.Id, ready.Markdown);
+        Assert.DoesNotContain(snapshot.GameDataFingerprint, ready.Markdown);
+        Assert.DoesNotContain(snapshot.Id, ready.Markdown);
+        Assert.DoesNotContain("Edition Provenance", ready.Markdown);
+        Assert.DoesNotContain("Entry ID:", ready.Markdown);
+        Assert.DoesNotContain("Type: enumeration", ready.Markdown);
+        Assert.DoesNotContain("(`scout`)", ready.Markdown);
+        Assert.Contains("**Role:** Scout", ready.Markdown);
         var manifest = JsonNode.Parse(ready.ManifestJson)!.AsObject();
         Assert.Equal(snapshot.Id, manifest["snapshotId"]!.GetValue<string>());
         Assert.Equal(2, manifest["editionRevision"]!.GetValue<int>());
@@ -134,7 +139,7 @@ public sealed class PublicationSnapshotServiceTests
         Assert.Contains("Creatures have a role.", edition.Markdown);
         Assert.DoesNotContain("Rule ID:", edition.Markdown, StringComparison.Ordinal);
         Assert.Contains("#### Glass Fox", edition.Markdown);
-        Assert.Contains("**Role:** scout", edition.Markdown);
+        Assert.Contains("**Role:** Scout", edition.Markdown);
     }
 
     [Fact]
