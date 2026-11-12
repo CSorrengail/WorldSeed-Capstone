@@ -32,6 +32,65 @@ public class GameDataServiceTests
     }
 
     [Fact]
+    public void Reviews_an_optional_addition_as_compatible_with_existing_data()
+    {
+        var active = GameDataService.Activate(CreateProposal(), null, false, Now);
+        var data = GameDataService.CreateEmpty(active, Now);
+        var root = JsonNode.Parse(data.DataJson)!.AsObject();
+        root["entityInstances"]!.AsArray().Add(new JsonObject
+        {
+            ["id"] = "weapon-1",
+            ["entityTypeId"] = "weapon",
+            ["values"] = new JsonObject { ["name"] = "Sword" }
+        });
+        data = data with { DataJson = root.ToJsonString() };
+        var proposed = JsonNode.Parse(CreateProposal().SchemaJson)!.AsObject();
+        proposed["entityTypes"]![0]!["properties"]!.AsArray().Add(new JsonObject
+        {
+            ["metadata"] = new JsonObject { ["id"] = "reach", ["name"] = "Reach" },
+            ["valueType"] = new JsonObject { ["kind"] = "primitive", ["name"] = "integer" },
+            ["required"] = false,
+            ["nullable"] = false
+        });
+
+        var review = GameDataService.ReviewTransition(CreateProposal() with { SchemaJson = proposed.ToJsonString() }, active, data, Now.AddMinutes(1));
+
+        Assert.Equal(SchemaTransitionKind.Compatible, review.Kind);
+        Assert.True(review.CanActivate);
+        Assert.Contains(review.Changes, change => change.Contains("Changed content type 'weapon'", StringComparison.Ordinal));
+        Assert.Empty(review.Issues);
+    }
+
+    [Fact]
+    public void Reviews_a_required_addition_as_needing_data_work()
+    {
+        var active = GameDataService.Activate(CreateProposal(), null, false, Now);
+        var data = GameDataService.CreateEmpty(active, Now);
+        var root = JsonNode.Parse(data.DataJson)!.AsObject();
+        root["entityInstances"]!.AsArray().Add(new JsonObject
+        {
+            ["id"] = "weapon-1",
+            ["entityTypeId"] = "weapon",
+            ["values"] = new JsonObject { ["name"] = "Sword" }
+        });
+        data = data with { DataJson = root.ToJsonString() };
+        var proposed = JsonNode.Parse(CreateProposal().SchemaJson)!.AsObject();
+        proposed["entityTypes"]![0]!["properties"]!.AsArray().Add(new JsonObject
+        {
+            ["metadata"] = new JsonObject { ["id"] = "reach", ["name"] = "Reach" },
+            ["valueType"] = new JsonObject { ["kind"] = "primitive", ["name"] = "integer" },
+            ["required"] = true,
+            ["nullable"] = false
+        });
+
+        var review = GameDataService.ReviewTransition(CreateProposal() with { SchemaJson = proposed.ToJsonString() }, active, data, Now.AddMinutes(1));
+
+        Assert.Equal(SchemaTransitionKind.RequiresDataWork, review.Kind);
+        Assert.False(review.CanActivate);
+        Assert.Contains(review.Issues, issue => issue.Message.Contains("reach", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public void Identifies_data_bound_to_a_different_active_schema_revision()
     {
         var active = GameDataService.Activate(CreateProposal(), null, false, Now);

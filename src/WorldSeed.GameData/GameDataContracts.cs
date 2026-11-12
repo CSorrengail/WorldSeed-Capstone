@@ -50,6 +50,25 @@ public interface IProjectGameDataStore
 
 public sealed class GameDataFormatException(string message) : Exception(message);
 
+public enum SchemaTransitionKind
+{
+    InitialActivation,
+    NoChanges,
+    Compatible,
+    RequiresDataWork,
+    Unsupported
+}
+
+public sealed record SchemaTransitionReview(
+    string ProposalId,
+    DateTimeOffset ProposalUpdatedAt,
+    int TargetRevision,
+    SchemaTransitionKind Kind,
+    bool CanActivate,
+    string Summary,
+    IReadOnlyList<string> Changes,
+    IReadOnlyList<SchemaValidationIssue> Issues);
+
 public static class GameDataService
 {
     private const string FormatVersion = "0.1";
@@ -93,6 +112,144 @@ public static class GameDataService
             (current?.Revision ?? 0) + 1,
             current?.CreatedAt ?? now,
             now);
+    }
+
+    /// <summary>
+    /// Reviews a saved proposal against the current immutable snapshot without changing either
+    /// schema or canonical data. Existing data is rebound only in memory so compatibility means
+    /// it validates unchanged under the proposed revision.
+    /// </summary>
+    public static SchemaTransitionReview ReviewTransition(
+        ProjectSchemaProposal proposal,
+        ActiveGameSchema? current,
+        ProjectGameData? gameData,
+        DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(proposal);
+        var targetRevision = (current?.Revision ?? 0) + 1;
+        JsonObject proposed;
+        try
+        {
+            proposed = ParseObject(proposal.SchemaJson, "The saved schema proposal is not a JSON object.");
+            var structural = new GameSchemaValidator().Validate(proposed);
+            if (!structural.IsValid)
+                return Review(SchemaTransitionKind.Unsupported, false, "The saved proposal is not a valid game schema.", structural.Issues);
+        }
+        catch (GameDataFormatException exception)
+        {
+            return Review(SchemaTransitionKind.Unsupported, false, exception.Message,
+                [new SchemaValidationIssue("$", exception.Message)]);
+        }
+
+        if (current is null)
+            return new SchemaTransitionReview(proposal.Id, proposal.UpdatedAt, targetRevision,
+                SchemaTransitionKind.InitialActivation, true,
+                "No active schema exists. This proposal can become revision 1.",
+                DescribeChanges(null, proposed), []);
+
+        JsonObject active;
+        try
+        {
+            active = ParseObject(current.SchemaJson, "The active schema snapshot is not a JSON object.");
+        }
+        catch (GameDataFormatException exception)
+        {
+            return Review(SchemaTransitionKind.Unsupported, false, exception.Message,
+                [new SchemaValidationIssue("$", exception.Message)]);
+        }
+
+        if (JsonNode.DeepEquals(active, proposed))
+            return new SchemaTransitionReview(proposal.Id, proposal.UpdatedAt, current.Revision,
+                SchemaTransitionKind.NoChanges, false,
+                "The saved proposal is identical to the active schema.", [], []);
+
+        var changes = DescribeChanges(active, proposed);
+        if (!HasAuthoredContent(gameData))
+            return new SchemaTransitionReview(proposal.Id, proposal.UpdatedAt, targetRevision,
+                SchemaTransitionKind.Compatible, true,
+                "The proposal is structurally valid and the project has no authored Game Data to migrate.", changes, []);
+
+        if (gameData is null)
+            return Review(SchemaTransitionKind.Unsupported, false, "Canonical Game Data could not be loaded.",
+                [new SchemaValidationIssue("$", "Canonical Game Data could not be loaded.")]);
+
+        var candidate = CreateSnapshot(proposal, current, now);
+        var rebound = RebindGameData(candidate, gameData, now);
+        var validation = Validate(candidate, rebound);
+        return validation.IsValid
+            ? new SchemaTransitionReview(proposal.Id, proposal.UpdatedAt, targetRevision,
+                SchemaTransitionKind.Compatible, true,
+                "Existing canonical Game Data remains valid without transforming any entries.", changes, [])
+            : new SchemaTransitionReview(proposal.Id, proposal.UpdatedAt, targetRevision,
+                SchemaTransitionKind.RequiresDataWork, false,
+                "Existing canonical Game Data does not conform to the proposed schema. Nothing can be activated until the listed data issues are resolved.",
+                changes, validation.Issues);
+
+        SchemaTransitionReview Review(SchemaTransitionKind kind, bool canActivate, string summary, IReadOnlyList<SchemaValidationIssue> issues) =>
+            new(proposal.Id, proposal.UpdatedAt, targetRevision, kind, canActivate, summary, [], issues);
+    }
+
+    public static ProjectGameData RebindGameData(ActiveGameSchema target, ProjectGameData existing, DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        ArgumentNullException.ThrowIfNull(existing);
+        var data = ParseObject(existing.DataJson, "Game data is not a JSON object.");
+        var schema = ParseObject(target.SchemaJson, "The active schema snapshot is not a JSON object.");
+        data["gameSchemaId"] = schema["id"]?.DeepClone();
+        data["gameSchemaVersion"] = schema["version"]?.DeepClone();
+        return existing with
+        {
+            ActiveGameSchemaId = target.Id,
+            ActiveGameSchemaRevision = target.Revision,
+            DataJson = data.ToJsonString(PrettyJson),
+            UpdatedAt = now
+        };
+    }
+
+    private static ActiveGameSchema CreateSnapshot(ProjectSchemaProposal proposal, ActiveGameSchema current, DateTimeOffset now)
+    {
+        var schema = ParseObject(proposal.SchemaJson, "The saved schema proposal is not a JSON object.");
+        return new ActiveGameSchema(current.Id, proposal.ProjectId, FormatVersion,
+            schema["name"]?.GetValue<string>() ?? proposal.Summary,
+            schema.ToJsonString(PrettyJson), proposal.Id, proposal.WorkingRuleSetId,
+            proposal.WorkingRuleSetRevision, current.Revision + 1, current.CreatedAt, now);
+    }
+
+    private static IReadOnlyList<string> DescribeChanges(JsonObject? active, JsonObject proposed)
+    {
+        var changes = new List<string>();
+        foreach (var collectionName in new[] { "schemaFragments", "entityTypes", "valueTypes", "relationships", "rules", "procedures", "validations" })
+        {
+            var before = Definitions(active?[collectionName] as JsonArray);
+            var after = Definitions(proposed[collectionName] as JsonArray);
+            foreach (var id in after.Keys.Except(before.Keys, StringComparer.Ordinal).Order(StringComparer.Ordinal))
+                changes.Add($"Added {Label(collectionName)} '{id}'.");
+            foreach (var id in before.Keys.Except(after.Keys, StringComparer.Ordinal).Order(StringComparer.Ordinal))
+                changes.Add($"Removed {Label(collectionName)} '{id}'.");
+            foreach (var id in before.Keys.Intersect(after.Keys, StringComparer.Ordinal).Order(StringComparer.Ordinal))
+                if (!JsonNode.DeepEquals(before[id], after[id])) changes.Add($"Changed {Label(collectionName)} '{id}'.");
+        }
+        return changes;
+
+        static Dictionary<string, JsonNode> Definitions(JsonArray? definitions) =>
+            definitions?.OfType<JsonObject>()
+                .Select(definition => (Id: definition["metadata"]?["id"]?.GetValue<string>() ?? definition["id"]?.GetValue<string>(), Node: (JsonNode)definition))
+                .Where(item => !string.IsNullOrWhiteSpace(item.Id))
+                .GroupBy(item => item.Id!, StringComparer.Ordinal)
+                .ToDictionary(group => group.Key, group => group.First().Node, StringComparer.Ordinal)
+            ?? new Dictionary<string, JsonNode>(StringComparer.Ordinal);
+
+        static string Label(string collectionName) => collectionName switch
+        {
+            "schemaFragments" => "schema fragment",
+            "entityTypes" => "content type",
+            "valueTypes" => "value type",
+            "relationships" => "relationship",
+            "rules" => "schema rule",
+            "procedures" => "procedure",
+            "validations" => "validation",
+            _ => "definition"
+        };
     }
 
     /// <summary>Creates a valid empty data document for a newly activated schema snapshot.</summary>

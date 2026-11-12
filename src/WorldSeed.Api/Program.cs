@@ -291,6 +291,14 @@ projects.MapGet("/{projectId}/active-schema", async (string projectId, IActiveGa
     var schema = await store.LoadAsync(projectId, cancellationToken);
     return schema is null ? Results.NotFound() : Results.Ok(schema);
 });
+projects.MapGet("/{projectId}/schema-transition", async (string projectId, IProjectSchemaProposalStore proposals, IActiveGameSchemaStore activeSchemas, IProjectGameDataStore gameData, CancellationToken cancellationToken) =>
+{
+    var proposal = await proposals.LoadAsync(projectId, cancellationToken);
+    if (proposal is null) return Results.NotFound("A saved schema proposal is required before a transition can be reviewed.");
+    var current = await activeSchemas.LoadAsync(projectId, cancellationToken);
+    var existingData = await gameData.LoadAsync(projectId, cancellationToken);
+    return Results.Ok(GameDataService.ReviewTransition(proposal, current, existingData, DateTimeOffset.UtcNow));
+});
 projects.MapPost("/{projectId}/active-schema", async (string projectId, IDesignProjectStore projectsStore, IProjectSchemaProposalStore proposals, IActiveGameSchemaStore activeSchemas, IProjectGameDataStore gameData, CancellationToken cancellationToken) =>
 {
     if (await projectsStore.LoadAsync(projectId, cancellationToken) is null) return Results.NotFound("The project does not exist.");
