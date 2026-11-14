@@ -1,4 +1,6 @@
 using WorldSeed.DesignSessions;
+using WorldSeed.RuleDrafting;
+using WorldSeed.WorkingRules;
 
 namespace WorldSeed.ProjectPlanning;
 
@@ -29,6 +31,22 @@ public sealed record ExpansionRequest(
     IReadOnlyList<ExpansionRequestEvidence> Evidence,
     DateTimeOffset CreatedAt);
 
+public enum ExpansionProgressStage
+{
+    ReadyForClarification,
+    ClarificationInProgress,
+    DraftReady,
+    WorkingRulesIncorporated
+}
+
+public sealed record ExpansionRequestProgress(
+    string RequestId,
+    ExpansionProgressStage Stage,
+    string? SessionId,
+    int DraftRuleCount,
+    int? WorkingRuleSetRevision,
+    IReadOnlyList<string> WorkingRuleIds);
+
 public interface IExpansionRequestStore
 {
     Task SaveAsync(ExpansionRequest request, CancellationToken cancellationToken = default);
@@ -40,6 +58,39 @@ public interface IExpansionRequestStore
 
 public static class ExpansionRequestService
 {
+    public static ExpansionRequestProgress EvaluateProgress(
+        ExpansionRequest request,
+        DesignProject project,
+        WorkingRuleSet? workingRules)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(project);
+        if (request.ProjectId != project.Id || workingRules is not null && workingRules.ProjectId != project.Id)
+            throw new ArgumentException("Expansion progress inputs must belong to the same project.");
+        var session = project.Sessions
+            .Where(item => item.SourceNotes.Any(source => source.Id == request.SourceNoteId))
+            .OrderByDescending(item => item.UpdatedAt)
+            .FirstOrDefault();
+        var workingRuleIds = workingRules?.Rules
+            .Where(rule => rule.Evidence.Any(item => item.SourceNoteId == request.SourceNoteId) ||
+                           session is not null && rule.SourceDraftRules.Any(item => item.SessionId == session.Id))
+            .Select(rule => rule.Id)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray() ?? [];
+        var draftRuleCount = session?.LatestTurn?.Draft?.Rules.Count ?? 0;
+        var stage = workingRuleIds.Length > 0
+            ? ExpansionProgressStage.WorkingRulesIncorporated
+            : session?.LatestTurn?.Action == RuleDraftAction.PresentDraft
+                ? ExpansionProgressStage.DraftReady
+                : session is not null
+                    ? ExpansionProgressStage.ClarificationInProgress
+                    : ExpansionProgressStage.ReadyForClarification;
+        return new ExpansionRequestProgress(
+            request.Id, stage, session?.Id, draftRuleCount,
+            workingRuleIds.Length > 0 ? workingRules?.Revision : null,
+            workingRuleIds);
+    }
+
     public static (ExpansionRequest Request, DesignSourceNote SourceNote) Create(
         DesignProject project,
         ProjectInventory inventory,

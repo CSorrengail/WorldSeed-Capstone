@@ -1,6 +1,8 @@
 using WorldSeed.DesignSessions;
 using WorldSeed.LlmIntegration;
 using WorldSeed.ProjectPlanning;
+using WorldSeed.RuleDrafting;
+using WorldSeed.WorkingRules;
 
 namespace WorldSeed.ProjectPlanning.Tests;
 
@@ -99,6 +101,37 @@ public sealed class DevelopmentPlanServiceTests
             ExpansionRequestService.Create(project, inventory, plan, recommendation, rejection, Now));
 
         Assert.Contains("explicitly accepted", exception.Message);
+    }
+
+    [Fact]
+    public void Derives_expansion_progress_through_clarification_draft_and_working_rules()
+    {
+        var inventory = Inventory();
+        var project = DesignProjectService.Create(inventory.ProjectId, "Planning Project");
+        var recommendation = Recommendation();
+        var plan = DevelopmentPlanService.Create(inventory, "Plan", [], [recommendation], null, Now);
+        var acceptance = DevelopmentPlanService.DecideRecommendation(plan, recommendation.Id, DevelopmentRecommendationDecisionKind.Accepted, null, Now);
+        var (request, source) = ExpansionRequestService.Create(project, inventory, plan, recommendation, acceptance, Now);
+        project = DesignProjectService.AddSources(project, [source]);
+        Assert.Equal(ExpansionProgressStage.ReadyForClarification, ExpansionRequestService.EvaluateProgress(request, project, null).Stage);
+
+        var question = new RuleDraftTurn(RuleDraftAction.AskClarifyingQuestion, "How does it work?", ["How does it work?"], null);
+        var session = new DesignSession("session-expansion", project.Id, "local", Now, Now, [source], [new LlmMessage(LlmMessageRole.User, source.OriginalText)], question);
+        project = DesignProjectService.SaveSession(project, session);
+        Assert.Equal(ExpansionProgressStage.ClarificationInProgress, ExpansionRequestService.EvaluateProgress(request, project, null).Stage);
+
+        var draftRule = new RuleStatement("reaction-rule", "Reaction Rule", RuleStatementKind.Rule, "Reactions resolve immediately.", [source.Id], [new RuleSourceSupport(source.Id, "Reactions resolve immediately.")]);
+        session = session with { LatestTurn = new RuleDraftTurn(RuleDraftAction.PresentDraft, null, [], new StructuredRuleDraft("Reactions", "Define reactions.", [draftRule], [], [], [], [])) };
+        project = DesignProjectService.SaveSession(project, session);
+        Assert.Equal(ExpansionProgressStage.DraftReady, ExpansionRequestService.EvaluateProgress(request, project, null).Stage);
+
+        var evidence = new WorkingRuleEvidence(source.Id, null, "Reactions resolve immediately.");
+        var workingRule = new WorkingRule("reaction-rule", "Reaction Rule", WorkingRuleKind.Rule, "Reactions resolve immediately.", [evidence], [new DraftRuleReference(session.Id, draftRule.Id)], [], [], null, [], []);
+        var workingRules = new WorkingRuleSet("rules", project.Id, "0.1", "Rules", null, 4, Now, Now, [workingRule], [], [], [], []);
+        var progress = ExpansionRequestService.EvaluateProgress(request, project, workingRules);
+        Assert.Equal(ExpansionProgressStage.WorkingRulesIncorporated, progress.Stage);
+        Assert.Equal(4, progress.WorkingRuleSetRevision);
+        Assert.Equal([workingRule.Id], progress.WorkingRuleIds);
     }
 
     private static ProjectInventory Inventory() => new(
