@@ -1700,8 +1700,14 @@ public partial class MainWindow : Window
             $"Rules\n{inventory.Rules.RuleCount} Rule(s), {inventory.Rules.EvidenceBackedRuleCount} Evidence-Backed, {inventory.Rules.OpenQuestions.Count} Open Question(s), {inventory.Rules.Conflicts.Count} Conflict(s)\n\n" +
             $"Schema And Content\n{inventory.Schema.ContentTypes.Count} Content Type(s), {inventory.Schema.ValidationCount} Validation(s), Proposal Differs From Active: {(inventory.Schema.ProposalDiffersFromActive ? "Yes" : "No")}\n{content}\n\n" +
             $"Publication\n{inventory.Publication.SnapshotCount} Snapshot(s), {inventory.Publication.PublishedCanonicalEntryCount} Canonical Entry/Entries In Latest Snapshot";
-        ProjectInventoryObservationList.ItemsSource = inventory.Observations.Select(observation =>
-            $"{ObservationLabel(observation.Kind)} — {observation.Description}\nEvidence: {(observation.EvidenceIds.Count == 0 ? "Project State" : string.Join(", ", observation.EvidenceIds))}").ToArray();
+        ProjectInventoryObservationList.ItemsSource = inventory.Observations
+            .GroupBy(observation => observation.Kind)
+            .OrderBy(group => ObservationOrder(group.Key))
+            .Select(group =>
+                $"{ObservationLabel(group.Key)} ({group.Count()})\n" +
+                string.Join("\n", group.OrderBy(item => item.SubjectId, StringComparer.Ordinal).Select(item =>
+                    $"- {item.Description} [{(item.EvidenceIds.Count == 0 ? "Project State" : string.Join(", ", item.EvidenceIds))}]")))
+            .ToArray();
     }
 
     private static string ObservationLabel(InventoryObservationKind kind) => kind switch
@@ -1714,6 +1720,18 @@ public partial class MainWindow : Window
         InventoryObservationKind.MissingEvaluationCoverage => "Missing Evaluation Coverage",
         InventoryObservationKind.UnpublishedChanges => "Unpublished Changes",
         _ => kind.ToString()
+    };
+
+    private static int ObservationOrder(InventoryObservationKind kind) => kind switch
+    {
+        InventoryObservationKind.MissingFoundation => 0,
+        InventoryObservationKind.Conflict => 1,
+        InventoryObservationKind.UnresolvedQuestion => 2,
+        InventoryObservationKind.MissingSourceTrace => 3,
+        InventoryObservationKind.UnpublishedChanges => 4,
+        InventoryObservationKind.EmptyContentType => 5,
+        InventoryObservationKind.MissingEvaluationCoverage => 6,
+        _ => 99
     };
 
     private async Task LoadPublicationSnapshotsAsync(string projectId)

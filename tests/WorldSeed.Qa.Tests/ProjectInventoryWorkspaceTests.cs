@@ -30,7 +30,7 @@ public sealed class ProjectInventoryWorkspaceTests
             Assert.Contains("2 Source(s)", window.FindControl<TextBox>("ProjectInventorySummaryText")!.Text);
             Assert.Contains("Weapon: 4 Canonical", window.FindControl<TextBox>("ProjectInventorySummaryText")!.Text);
             var observation = Assert.Single((IEnumerable<object>)window.FindControl<ListBox>("ProjectInventoryObservationList")!.ItemsSource!);
-            Assert.Contains("Unresolved Question", observation.ToString());
+            Assert.Contains("Unresolved Question (1)", observation.ToString());
         }
         finally { window.Close(); }
     }
