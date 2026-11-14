@@ -75,6 +75,38 @@
           </Border>
         </Grid>
       </TabItem>
+      <TabItem Header="Development Plan">
+        <Grid ColumnDefinitions="300,*,420" ColumnSpacing="16">
+          <Border Padding="16"><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Spacing="10">
+            <TextBlock Text="Plan Setup" FontSize="20"/>
+            <TextBlock Text="Plans Use One Immutable Inventory Revision. They Recommend Work But Never Generate Or Apply Rules, Schema, Or Content." TextWrapping="Wrap" Opacity="0.75"/>
+            <TextBlock Text="Designer Direction"/>
+            <TextBox Name="DevelopmentPlanDirectionText" PlaceholderText="Optional Priorities, Boundaries, Or Preferred Direction" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="90" ScrollViewer.HorizontalScrollBarVisibility="Disabled"/>
+            <Button Name="GenerateDevelopmentPlanButton" Content="Generate Development Plan" Click="GenerateDevelopmentPlan_Click"/>
+            <Button Content="Start New Plan" Click="StartNewDevelopmentPlan_Click"/>
+            <TextBlock Text="Plan History" FontSize="16" Margin="0,12,0,0"/>
+            <ListBox Name="DevelopmentPlanList" MinHeight="220" SelectionChanged="DevelopmentPlanList_SelectionChanged"/>
+          </StackPanel></ScrollViewer></Border>
+          <Border Grid.Column="1" Padding="16"><Grid RowDefinitions="Auto,180,Auto,160,*" RowSpacing="10">
+            <TextBlock Name="DevelopmentPlanStatusText" Text="Load A Project And Build An Inventory Before Generating A Development Plan." TextWrapping="Wrap"/>
+            <TextBox Grid.Row="1" Name="DevelopmentPlanDetailText" Text="Select A Saved Plan Or Generate One From The Latest Project Inventory." IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Disabled"/>
+            <TextBlock Grid.Row="2" Text="Recommendations" FontSize="16"/>
+            <ListBox Grid.Row="3" Name="DevelopmentRecommendationList" SelectionChanged="DevelopmentRecommendationList_SelectionChanged"/>
+            <TextBox Grid.Row="4" Name="DevelopmentRecommendationDetailText" Text="Select A Recommendation To Review Its Evidence, Tradeoffs, Alternatives, And Any Difference Of Opinion." IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Disabled"/>
+          </Grid></Border>
+          <Border Grid.Column="2" Padding="16"><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Spacing="10">
+            <TextBlock Text="Designer Decisions" FontSize="20"/>
+            <TextBlock Text="Guidance Is Required For Revision Requests. Decisions Are Preserved And Do Not Execute The Plan." TextWrapping="Wrap" Opacity="0.75"/>
+            <TextBox Name="DevelopmentPlanGuidanceText" PlaceholderText="Decision Note Or Revision Guidance" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="90" ScrollViewer.HorizontalScrollBarVisibility="Disabled"/>
+            <TextBlock Text="Whole Plan" FontSize="16"/>
+            <WrapPanel ItemSpacing="6" LineSpacing="6"><Button Content="Approve Plan" Click="ApproveDevelopmentPlan_Click"/><Button Content="Reject Plan" Click="RejectDevelopmentPlan_Click"/><Button Content="Request Plan Revision" Click="ReviseDevelopmentPlan_Click"/></WrapPanel>
+            <TextBlock Text="Selected Recommendation" FontSize="16" Margin="0,8,0,0"/>
+            <WrapPanel ItemSpacing="6" LineSpacing="6"><Button Content="Accept" Click="AcceptDevelopmentRecommendation_Click"/><Button Content="Reject" Click="RejectDevelopmentRecommendation_Click"/><Button Content="Defer" Click="DeferDevelopmentRecommendation_Click"/><Button Content="Request Revision" Click="ReviseDevelopmentRecommendation_Click"/></WrapPanel>
+            <TextBlock Text="Decision History" FontSize="16" Margin="0,8,0,0"/>
+            <TextBox Name="DevelopmentPlanDecisionHistoryText" Text="No Plan Is Selected." IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="220" ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Disabled"/>
+          </StackPanel></ScrollViewer></Border>
+        </Grid>
+      </TabItem>
       <TabItem Header="Publication">
         <Grid ColumnDefinitions="300,360,*" ColumnSpacing="12">
           <Border Padding="16"><Grid RowDefinitions="Auto,Auto,Auto,*,Auto,Auto" RowSpacing="10"><TextBlock Text="Publication Snapshots" FontSize="20"/><TextBlock Grid.Row="1" Text="Builds Human-Readable Markdown Deterministically From The Selected Working Rule Snapshot, Active Schema, And Valid Canonical Game Data. Drafts And Unapplied Proposals Are Excluded." TextWrapping="Wrap" Opacity="0.75"/><Button Grid.Row="2" Name="CreatePublicationSnapshotButton" Content="Create Current Snapshot" Click="CreatePublicationSnapshot_Click"/><ListBox Grid.Row="3" Name="PublicationSnapshotList" SelectionChanged="PublicationSnapshotList_SelectionChanged"/><Button Grid.Row="4" Name="ExportPublicationMarkdownButton" Content="Export Snapshot Markdown" Click="ExportPublicationMarkdown_Click"/><Button Grid.Row="5" Name="ExportPublicationManifestButton" Content="Export Snapshot Manifest" Click="ExportPublicationManifest_Click"/></Grid></Border>

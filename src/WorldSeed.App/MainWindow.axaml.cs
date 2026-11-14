@@ -39,6 +39,7 @@ public partial class MainWindow : Window
     private readonly HttpContentProposalClient _contentProposals;
     private readonly HttpPublicationClient _publications;
     private readonly HttpProjectInventoryClient _projectInventoriesClient;
+    private readonly HttpDevelopmentPlanClient _developmentPlansClient;
     private readonly WorldSeedSettingsStore _settingsStore = new();
     private readonly DispatcherTimer _inactivityTimer = new() { Interval = TimeSpan.FromSeconds(10) };
     private readonly List<DesignProjectSummary> _projectSummaries = [];
@@ -61,6 +62,9 @@ public partial class MainWindow : Window
     private readonly List<PublicationSectionPlanItem> _publicationSectionPlan = [];
     private readonly List<PublicationSectionPlanItem> _publicationEntityPlan = [];
     private readonly List<ProjectInventory> _projectInventories = [];
+    private readonly List<DevelopmentPlanProposal> _developmentPlans = [];
+    private readonly List<DevelopmentPlanDecision> _developmentPlanDecisions = [];
+    private readonly List<DevelopmentRecommendationDecision> _developmentRecommendationDecisions = [];
     private int _projectLoadGeneration;
     private bool _updatingProjectSelector;
     private string? _pendingDeletionProjectId;
@@ -119,6 +123,7 @@ public partial class MainWindow : Window
         _contentProposals = new HttpContentProposalClient(_apiHttp);
         _publications = new HttpPublicationClient(_apiHttp);
         _projectInventoriesClient = new HttpProjectInventoryClient(_apiHttp);
+        _developmentPlansClient = new HttpDevelopmentPlanClient(_apiHttp);
         InitializeComponent();
         ContentExpansionQueueList.SelectionChanged += ContentExpansionQueueList_SelectionChanged;
         _settings = _settingsStore.Load();
@@ -310,6 +315,7 @@ public partial class MainWindow : Window
                 await LoadContentProposalsAsync(_project.Id);
                 await LoadPublicationSnapshotsAsync(_project.Id);
                 await LoadProjectInventoriesAsync(_project.Id);
+                await LoadDevelopmentPlansAsync(_project.Id);
                 RefreshNotes(); ShowSelectedSource();
                 ProjectLocationText.Text = "Project database: http://localhost:5080 (Docker local stack)";
                 _updatingProjectSelector = true;
@@ -1734,6 +1740,181 @@ public partial class MainWindow : Window
         _ => 99
     };
 
+    private async Task LoadDevelopmentPlansAsync(string projectId)
+    {
+        try
+        {
+            var workspace = await _developmentPlansClient.LoadAsync(projectId);
+            _developmentPlans.Clear(); _developmentPlans.AddRange(workspace.Plans);
+            _developmentPlanDecisions.Clear(); _developmentPlanDecisions.AddRange(workspace.PlanDecisions);
+            _developmentRecommendationDecisions.Clear(); _developmentRecommendationDecisions.AddRange(workspace.RecommendationDecisions);
+            RefreshDevelopmentPlanView();
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("Load development plans", ex);
+            _developmentPlans.Clear(); _developmentPlanDecisions.Clear(); _developmentRecommendationDecisions.Clear();
+            RefreshDevelopmentPlanView();
+            DevelopmentPlanStatusText.Text = "Could Not Load Development Plans. See The Diagnostic Log.";
+        }
+    }
+
+    private DevelopmentPlanProposal? SelectedDevelopmentPlan => (DevelopmentPlanList.SelectedItem as DevelopmentPlanListItem)?.Plan;
+    private DevelopmentRecommendation? SelectedDevelopmentRecommendation => (DevelopmentRecommendationList.SelectedItem as DevelopmentRecommendationListItem)?.Recommendation;
+
+    private async void GenerateDevelopmentPlan_Click(object? sender, RoutedEventArgs e) => await GenerateDevelopmentPlanAsync();
+
+    internal async Task<bool> GenerateDevelopmentPlanAsync()
+    {
+        if (_project is null || ModelSelector.SelectedItem is not string model)
+        {
+            DevelopmentPlanStatusText.Text = "Load A Project And Select A Local Model On The Sources Tab.";
+            return false;
+        }
+        var inventory = (ProjectInventoryList.SelectedItem as ProjectInventoryListItem)?.Inventory ?? _projectInventories.OrderByDescending(item => item.Revision).FirstOrDefault();
+        if (inventory is null)
+        {
+            DevelopmentPlanStatusText.Text = "Build A Project Inventory Before Generating A Development Plan.";
+            return false;
+        }
+        var selected = SelectedDevelopmentPlan;
+        var planRevision = selected is null ? null : _developmentPlanDecisions.Where(item => item.PlanId == selected.Id && item.Kind == DevelopmentPlanDecisionKind.RevisionRequested).OrderByDescending(item => item.CreatedAt).FirstOrDefault();
+        var itemRevisions = selected is null ? [] : _developmentRecommendationDecisions.Where(item => item.PlanId == selected.Id && item.Kind == DevelopmentRecommendationDecisionKind.RevisionRequested).OrderBy(item => item.CreatedAt).ToArray();
+        var replaces = planRevision is not null || itemRevisions.Length > 0 ? selected : null;
+        var guidanceParts = new List<string>();
+        if (planRevision?.Note is { Length: > 0 } planNote) guidanceParts.Add("Whole-plan guidance: " + planNote);
+        guidanceParts.AddRange(itemRevisions.Select(item => $"Recommendation {item.RecommendationId}: {item.Note}"));
+
+        GenerateDevelopmentPlanButton.IsEnabled = false;
+        DevelopmentPlanStatusText.Text = $"Generating A Bounded Plan From Inventory Revision {inventory.Revision} With {model}...";
+        var capture = new CapturingClient(new OllamaChatClient(_http, OllamaDefaults.CreateProfile("local", "Local", model)));
+        try
+        {
+            var plan = await new DevelopmentPlanGenerationService(capture).CreateAsync(
+                inventory, DevelopmentPlanDirectionText.Text, replaces,
+                guidanceParts.Count == 0 ? null : string.Join("\n", guidanceParts));
+            await _developmentPlansClient.SavePlanAsync(plan);
+            _developmentPlans.Add(plan);
+            RefreshDevelopmentPlanView(plan.Id);
+            DevelopmentPlanStatusText.Text = $"Saved Development Plan Version {plan.Version}. Review The Plan And Each Recommendation; Nothing Has Been Authorized Or Generated.";
+            return true;
+        }
+        catch (DevelopmentPlanFormatException ex)
+        {
+            AppLog.Error("Validate development plan", ex);
+            DevelopmentPlanStatusText.Text = "The Local Model Returned A Development Plan WorldSeed Could Not Safely Use. Nothing Was Saved.";
+            DevelopmentPlanDetailText.Text = $"Format Detail: {ex.Message}\n\nRaw Model Output:\n{Preview(capture.Last?.Content)}";
+            return false;
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("Generate development plan", ex);
+            DevelopmentPlanStatusText.Text = "Development Plan Generation Failed. Nothing Was Saved.";
+            DevelopmentPlanDetailText.Text = $"{ex.GetType().Name}: {ex.Message}\n\nDiagnostic Log: {AppLog.CurrentPath}";
+            return false;
+        }
+        finally { GenerateDevelopmentPlanButton.IsEnabled = _project is not null && _projectInventories.Count > 0; }
+    }
+
+    private void StartNewDevelopmentPlan_Click(object? sender, RoutedEventArgs e)
+    {
+        DevelopmentPlanList.SelectedIndex = -1;
+        DevelopmentPlanGuidanceText.Text = string.Empty;
+        RefreshDevelopmentPlanDetails();
+        DevelopmentPlanStatusText.Text = "Ready To Generate A New Plan From The Selected Inventory Rather Than Revise An Existing Plan.";
+    }
+
+    private void DevelopmentPlanList_SelectionChanged(object? sender, SelectionChangedEventArgs e) => RefreshDevelopmentPlanDetails();
+    private void DevelopmentRecommendationList_SelectionChanged(object? sender, SelectionChangedEventArgs e) => RefreshDevelopmentRecommendationDetails();
+    private async void ApproveDevelopmentPlan_Click(object? sender, RoutedEventArgs e) => await DecideDevelopmentPlanAsync(DevelopmentPlanDecisionKind.Approved);
+    private async void RejectDevelopmentPlan_Click(object? sender, RoutedEventArgs e) => await DecideDevelopmentPlanAsync(DevelopmentPlanDecisionKind.Rejected);
+    private async void ReviseDevelopmentPlan_Click(object? sender, RoutedEventArgs e) => await DecideDevelopmentPlanAsync(DevelopmentPlanDecisionKind.RevisionRequested);
+    private async void AcceptDevelopmentRecommendation_Click(object? sender, RoutedEventArgs e) => await DecideDevelopmentRecommendationAsync(DevelopmentRecommendationDecisionKind.Accepted);
+    private async void RejectDevelopmentRecommendation_Click(object? sender, RoutedEventArgs e) => await DecideDevelopmentRecommendationAsync(DevelopmentRecommendationDecisionKind.Rejected);
+    private async void DeferDevelopmentRecommendation_Click(object? sender, RoutedEventArgs e) => await DecideDevelopmentRecommendationAsync(DevelopmentRecommendationDecisionKind.Deferred);
+    private async void ReviseDevelopmentRecommendation_Click(object? sender, RoutedEventArgs e) => await DecideDevelopmentRecommendationAsync(DevelopmentRecommendationDecisionKind.RevisionRequested);
+
+    internal async Task<bool> DecideDevelopmentPlanAsync(DevelopmentPlanDecisionKind kind)
+    {
+        var plan = SelectedDevelopmentPlan;
+        if (_project is null || plan is null) { DevelopmentPlanStatusText.Text = "Select A Development Plan First."; return false; }
+        var note = DevelopmentPlanGuidanceText.Text;
+        try
+        {
+            var decision = await _developmentPlansClient.DecidePlanAsync(_project.Id, plan.Id, new(kind, note));
+            _developmentPlanDecisions.Add(decision);
+            RefreshDevelopmentPlanDetails();
+            DevelopmentPlanStatusText.Text = kind == DevelopmentPlanDecisionKind.RevisionRequested
+                ? "Plan Revision Requested. Select Generate Requested Revision To Create A Linked Replacement."
+                : $"Plan {kind}. This Decision Does Not Generate Or Apply Game Changes.";
+            return true;
+        }
+        catch (Exception ex) { AppLog.Error("Save development plan decision", ex); DevelopmentPlanStatusText.Text = ex.Message; return false; }
+    }
+
+    internal async Task<bool> DecideDevelopmentRecommendationAsync(DevelopmentRecommendationDecisionKind kind)
+    {
+        var plan = SelectedDevelopmentPlan;
+        var recommendation = SelectedDevelopmentRecommendation;
+        if (_project is null || plan is null || recommendation is null) { DevelopmentPlanStatusText.Text = "Select A Recommendation First."; return false; }
+        try
+        {
+            var decision = await _developmentPlansClient.DecideRecommendationAsync(_project.Id, plan.Id, recommendation.Id, new(kind, DevelopmentPlanGuidanceText.Text));
+            _developmentRecommendationDecisions.Add(decision);
+            RefreshDevelopmentPlanDetails();
+            DevelopmentPlanStatusText.Text = kind == DevelopmentRecommendationDecisionKind.RevisionRequested
+                ? "Recommendation Revision Requested. Generate A Requested Revision To Rebuild The Linked Plan."
+                : $"Recommendation {kind}. No Game Changes Were Generated Or Applied.";
+            return true;
+        }
+        catch (Exception ex) { AppLog.Error("Save recommendation decision", ex); DevelopmentPlanStatusText.Text = ex.Message; return false; }
+    }
+
+    private void RefreshDevelopmentPlanView(string? selectedId = null)
+    {
+        selectedId ??= SelectedDevelopmentPlan?.Id;
+        var items = _developmentPlans.OrderByDescending(item => item.CreatedAt).Select(item => new DevelopmentPlanListItem(item)).ToArray();
+        DevelopmentPlanList.ItemsSource = items;
+        DevelopmentPlanList.SelectedIndex = selectedId is null ? -1 : Array.FindIndex(items, item => item.Plan.Id == selectedId);
+        GenerateDevelopmentPlanButton.IsEnabled = _project is not null && _projectInventories.Count > 0;
+        RefreshDevelopmentPlanDetails();
+    }
+
+    private void RefreshDevelopmentPlanDetails()
+    {
+        var plan = SelectedDevelopmentPlan;
+        if (plan is null)
+        {
+            DevelopmentPlanDetailText.Text = "Select A Saved Plan Or Generate One From The Latest Project Inventory.";
+            DevelopmentRecommendationList.ItemsSource = Array.Empty<DevelopmentRecommendationListItem>();
+            DevelopmentRecommendationDetailText.Text = "Select A Recommendation To Review Its Evidence, Tradeoffs, Alternatives, And Any Difference Of Opinion.";
+            DevelopmentPlanDecisionHistoryText.Text = "No Plan Is Selected.";
+            GenerateDevelopmentPlanButton.Content = "Generate Development Plan";
+            return;
+        }
+        DevelopmentPlanDetailText.Text = $"Plan Version {plan.Version}\nInventory Revision {plan.InventoryRevision}\n\nSummary\n{plan.Summary}\n\nOverall Tradeoffs\n{(plan.OverallTradeoffs.Count == 0 ? "None Stated" : string.Join("\n", plan.OverallTradeoffs.Select(item => "- " + item)))}\n\nDesigner Direction\n{plan.DesignerDirection ?? "None Supplied"}";
+        var recommendations = plan.Recommendations.Select(item => new DevelopmentRecommendationListItem(item, LatestRecommendationDecision(plan.Id, item.Id)?.Kind)).ToArray();
+        DevelopmentRecommendationList.ItemsSource = recommendations;
+        if (recommendations.Length > 0 && DevelopmentRecommendationList.SelectedIndex < 0) DevelopmentRecommendationList.SelectedIndex = 0;
+        var planHistory = _developmentPlanDecisions.Where(item => item.PlanId == plan.Id).OrderBy(item => item.CreatedAt).Select(item => $"{item.Kind}: {item.Note ?? "No Note"}");
+        var itemHistory = _developmentRecommendationDecisions.Where(item => item.PlanId == plan.Id).OrderBy(item => item.CreatedAt).Select(item => $"{item.RecommendationId} — {item.Kind}: {item.Note ?? "No Note"}");
+        DevelopmentPlanDecisionHistoryText.Text = string.Join("\n", planHistory.Concat(itemHistory).DefaultIfEmpty("No Decisions Recorded."));
+        var needsRevision = _developmentPlanDecisions.Any(item => item.PlanId == plan.Id && item.Kind == DevelopmentPlanDecisionKind.RevisionRequested) || _developmentRecommendationDecisions.Any(item => item.PlanId == plan.Id && item.Kind == DevelopmentRecommendationDecisionKind.RevisionRequested);
+        GenerateDevelopmentPlanButton.Content = needsRevision ? "Generate Requested Revision" : "Generate Development Plan";
+        RefreshDevelopmentRecommendationDetails();
+    }
+
+    private void RefreshDevelopmentRecommendationDetails()
+    {
+        var recommendation = SelectedDevelopmentRecommendation;
+        if (recommendation is null) return;
+        DevelopmentRecommendationDetailText.Text =
+            $"{recommendation.Title}\n{recommendation.Category} — {recommendation.Priority}\n\nGoal\n{recommendation.Goal}\n\nRationale\n{recommendation.Rationale}\n\nExpected Outcome\n{recommendation.ExpectedOutcome}\n\nEvidence\n{string.Join("\n", recommendation.EvidenceObservationIds.Select(id => "- " + id))}\n\nDependencies\n{(recommendation.DependsOnRecommendationIds.Count == 0 ? "None" : string.Join("\n", recommendation.DependsOnRecommendationIds.Select(id => "- " + id)))}\n\nTradeoffs\n{(recommendation.Tradeoffs.Count == 0 ? "None Stated" : string.Join("\n", recommendation.Tradeoffs.Select(item => "- " + item)))}\n\nAlternative\n{recommendation.AlternativeApproach ?? "None Stated"}\n\nDifference Of Opinion\n{recommendation.DifferenceOfOpinion ?? "None Stated"}\n\nDesigner Decision Needed\n{recommendation.DesignerDecisionNeeded ?? "None Stated"}";
+    }
+
+    private DevelopmentRecommendationDecision? LatestRecommendationDecision(string planId, string recommendationId) => _developmentRecommendationDecisions
+        .Where(item => item.PlanId == planId && item.RecommendationId == recommendationId).OrderByDescending(item => item.CreatedAt).FirstOrDefault();
+
     private async Task LoadPublicationSnapshotsAsync(string projectId)
     {
         try
@@ -1826,6 +2007,9 @@ public partial class MainWindow : Window
         _publicationSectionPlan.Clear();
         _publicationEntityPlan.Clear();
         _projectInventories.Clear();
+        _developmentPlans.Clear();
+        _developmentPlanDecisions.Clear();
+        _developmentRecommendationDecisions.Clear();
         RefreshPublicationPlanLists();
         RefreshPublicationEditorialView();
         RefreshSelectedPublicationView();
@@ -3444,6 +3628,15 @@ public partial class MainWindow : Window
         ProjectInventoryStatusText.Text = "Load A Project To Build An Inventory.";
         ProjectInventorySummaryText.Text = "Build An Inventory To Inspect The Current Rules, Schema, Content, Evaluation, And Publication Coverage.";
         CreateProjectInventoryButton.IsEnabled = false;
+        DevelopmentPlanList.ItemsSource = Array.Empty<DevelopmentPlanListItem>();
+        DevelopmentRecommendationList.ItemsSource = Array.Empty<DevelopmentRecommendationListItem>();
+        DevelopmentPlanDirectionText.Text = string.Empty;
+        DevelopmentPlanGuidanceText.Text = string.Empty;
+        DevelopmentPlanDetailText.Text = "Select A Saved Plan Or Generate One From The Latest Project Inventory.";
+        DevelopmentRecommendationDetailText.Text = "Select A Recommendation To Review Its Evidence, Tradeoffs, Alternatives, And Any Difference Of Opinion.";
+        DevelopmentPlanDecisionHistoryText.Text = "No Plan Is Selected.";
+        DevelopmentPlanStatusText.Text = "Load A Project And Build An Inventory Before Generating A Development Plan.";
+        GenerateDevelopmentPlanButton.IsEnabled = false;
         CreatePublicationSnapshotButton.IsEnabled = false;
         ExportPublicationMarkdownButton.IsEnabled = false;
         ExportPublicationManifestButton.IsEnabled = false;
@@ -3586,6 +3779,14 @@ public partial class MainWindow : Window
     private sealed record ProjectInventoryListItem(ProjectInventory Inventory)
     {
         public override string ToString() => $"Revision {Inventory.Revision} — {Inventory.CapturedAt.LocalDateTime:g}";
+    }
+    private sealed record DevelopmentPlanListItem(DevelopmentPlanProposal Plan)
+    {
+        public override string ToString() => $"Version {Plan.Version} — Inventory r{Plan.InventoryRevision} — {Plan.CreatedAt.LocalDateTime:g}";
+    }
+    private sealed record DevelopmentRecommendationListItem(DevelopmentRecommendation Recommendation, DevelopmentRecommendationDecisionKind? Decision)
+    {
+        public override string ToString() => $"{Recommendation.Priority} — {Recommendation.Title} — {Decision?.ToString() ?? "Undecided"}";
     }
     private sealed record PublicationEditionListItem(PublicationEdition Edition)
     {
