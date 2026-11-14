@@ -13,7 +13,7 @@ internal sealed class HttpDevelopmentPlanClient(HttpClient http)
     {
         using var response = await _http.GetAsync($"api/projects/{Uri.EscapeDataString(projectId)}/development-plans", cancellationToken);
         await EnsureSuccessAsync(response, cancellationToken);
-        return await response.Content.ReadFromJsonAsync<DevelopmentPlanWorkspace>(JsonOptions, cancellationToken) ?? new([], [], []);
+        return await response.Content.ReadFromJsonAsync<DevelopmentPlanWorkspace>(JsonOptions, cancellationToken) ?? new([], [], [], []);
     }
 
     public async Task SavePlanAsync(DevelopmentPlanProposal plan, CancellationToken cancellationToken = default)
@@ -36,6 +36,13 @@ internal sealed class HttpDevelopmentPlanClient(HttpClient http)
         return (await response.Content.ReadFromJsonAsync<DevelopmentRecommendationDecision>(JsonOptions, cancellationToken))!;
     }
 
+    public async Task<ExpansionRequest> StartExpansionAsync(string projectId, string planId, string recommendationId, CancellationToken cancellationToken = default)
+    {
+        using var response = await _http.PostAsync($"api/projects/{Uri.EscapeDataString(projectId)}/development-plans/{Uri.EscapeDataString(planId)}/recommendations/{Uri.EscapeDataString(recommendationId)}/expansion-request", null, cancellationToken);
+        await EnsureSuccessAsync(response, cancellationToken);
+        return (await response.Content.ReadFromJsonAsync<ExpansionRequest>(JsonOptions, cancellationToken))!;
+    }
+
     private static async Task EnsureSuccessAsync(HttpResponseMessage response, CancellationToken cancellationToken)
     {
         if (response.IsSuccessStatusCode) return;
@@ -46,4 +53,5 @@ internal sealed class HttpDevelopmentPlanClient(HttpClient http)
 internal sealed record DevelopmentPlanWorkspace(
     IReadOnlyList<DevelopmentPlanProposal> Plans,
     IReadOnlyList<DevelopmentPlanDecision> PlanDecisions,
-    IReadOnlyList<DevelopmentRecommendationDecision> RecommendationDecisions);
+    IReadOnlyList<DevelopmentRecommendationDecision> RecommendationDecisions,
+    IReadOnlyList<ExpansionRequest> ExpansionRequests);

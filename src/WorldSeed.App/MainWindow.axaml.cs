@@ -65,6 +65,7 @@ public partial class MainWindow : Window
     private readonly List<DevelopmentPlanProposal> _developmentPlans = [];
     private readonly List<DevelopmentPlanDecision> _developmentPlanDecisions = [];
     private readonly List<DevelopmentRecommendationDecision> _developmentRecommendationDecisions = [];
+    private readonly List<ExpansionRequest> _expansionRequests = [];
     private int _projectLoadGeneration;
     private bool _updatingProjectSelector;
     private string? _pendingDeletionProjectId;
@@ -1748,12 +1749,13 @@ public partial class MainWindow : Window
             _developmentPlans.Clear(); _developmentPlans.AddRange(workspace.Plans);
             _developmentPlanDecisions.Clear(); _developmentPlanDecisions.AddRange(workspace.PlanDecisions);
             _developmentRecommendationDecisions.Clear(); _developmentRecommendationDecisions.AddRange(workspace.RecommendationDecisions);
+            _expansionRequests.Clear(); _expansionRequests.AddRange(workspace.ExpansionRequests);
             RefreshDevelopmentPlanView();
         }
         catch (Exception ex)
         {
             AppLog.Error("Load development plans", ex);
-            _developmentPlans.Clear(); _developmentPlanDecisions.Clear(); _developmentRecommendationDecisions.Clear();
+            _developmentPlans.Clear(); _developmentPlanDecisions.Clear(); _developmentRecommendationDecisions.Clear(); _expansionRequests.Clear();
             RefreshDevelopmentPlanView();
             DevelopmentPlanStatusText.Text = "Could Not Load Development Plans. See The Diagnostic Log.";
         }
@@ -1833,6 +1835,38 @@ public partial class MainWindow : Window
     private async void RejectDevelopmentRecommendation_Click(object? sender, RoutedEventArgs e) => await DecideDevelopmentRecommendationAsync(DevelopmentRecommendationDecisionKind.Rejected);
     private async void DeferDevelopmentRecommendation_Click(object? sender, RoutedEventArgs e) => await DecideDevelopmentRecommendationAsync(DevelopmentRecommendationDecisionKind.Deferred);
     private async void ReviseDevelopmentRecommendation_Click(object? sender, RoutedEventArgs e) => await DecideDevelopmentRecommendationAsync(DevelopmentRecommendationDecisionKind.RevisionRequested);
+    private async void StartExpansionRequest_Click(object? sender, RoutedEventArgs e) => await StartExpansionRequestAsync();
+
+    internal async Task<bool> StartExpansionRequestAsync()
+    {
+        var plan = SelectedDevelopmentPlan;
+        var recommendation = SelectedDevelopmentRecommendation;
+        if (_project is null || plan is null || recommendation is null)
+        {
+            DevelopmentPlanStatusText.Text = "Select An Accepted Recommendation First.";
+            return false;
+        }
+        try
+        {
+            var request = await _developmentPlansClient.StartExpansionAsync(_project.Id, plan.Id, recommendation.Id);
+            if (_expansionRequests.All(item => item.Id != request.Id)) _expansionRequests.Add(request);
+            _project = await ProjectStore().LoadAsync(_project.Id) ?? throw new InvalidOperationException("The updated project could not be reloaded.");
+            RefreshNotes();
+            SourceNotesList.SelectedIndex = _project.SourceNotes.ToList().FindIndex(item => item.Id == request.SourceNoteId);
+            WorkspaceTabs.SelectedIndex = 0;
+            ShowSelectedSource();
+            StatusText.Text = $"Expansion Request '{request.Title}' Is Ready. Start The Selected Source To Begin Clarification; No Rules Or Schema Were Changed.";
+            DevelopmentPlanStatusText.Text = "Expansion Request Created And Opened On The Sources Tab.";
+            RefreshDevelopmentPlanDetails();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("Start expansion request", ex);
+            DevelopmentPlanStatusText.Text = ex.Message;
+            return false;
+        }
+    }
 
     internal async Task<bool> DecideDevelopmentPlanAsync(DevelopmentPlanDecisionKind kind)
     {
@@ -1890,6 +1924,7 @@ public partial class MainWindow : Window
             DevelopmentRecommendationDetailText.Text = "Select A Recommendation To Review Its Evidence, Tradeoffs, Alternatives, And Any Difference Of Opinion.";
             DevelopmentPlanDecisionHistoryText.Text = "No Plan Is Selected.";
             GenerateDevelopmentPlanButton.Content = "Generate Development Plan";
+            RefreshExpansionRequestView();
             return;
         }
         DevelopmentPlanDetailText.Text = $"Plan Version {plan.Version}\nInventory Revision {plan.InventoryRevision}\n\nSummary\n{plan.Summary}\n\nOverall Tradeoffs\n{(plan.OverallTradeoffs.Count == 0 ? "None Stated" : string.Join("\n", plan.OverallTradeoffs.Select(item => "- " + item)))}\n\nDesigner Direction\n{plan.DesignerDirection ?? "None Supplied"}";
@@ -1901,6 +1936,7 @@ public partial class MainWindow : Window
         DevelopmentPlanDecisionHistoryText.Text = string.Join("\n", planHistory.Concat(itemHistory).DefaultIfEmpty("No Decisions Recorded."));
         var needsRevision = _developmentPlanDecisions.Any(item => item.PlanId == plan.Id && item.Kind == DevelopmentPlanDecisionKind.RevisionRequested) || _developmentRecommendationDecisions.Any(item => item.PlanId == plan.Id && item.Kind == DevelopmentRecommendationDecisionKind.RevisionRequested);
         GenerateDevelopmentPlanButton.Content = needsRevision ? "Generate Requested Revision" : "Generate Development Plan";
+        RefreshExpansionRequestView();
         RefreshDevelopmentRecommendationDetails();
     }
 
@@ -1910,6 +1946,22 @@ public partial class MainWindow : Window
         if (recommendation is null) return;
         DevelopmentRecommendationDetailText.Text =
             $"{recommendation.Title}\n{recommendation.Category} — {recommendation.Priority}\n\nGoal\n{recommendation.Goal}\n\nRationale\n{recommendation.Rationale}\n\nExpected Outcome\n{recommendation.ExpectedOutcome}\n\nEvidence\n{string.Join("\n", recommendation.EvidenceObservationIds.Select(id => "- " + id))}\n\nDependencies\n{(recommendation.DependsOnRecommendationIds.Count == 0 ? "None" : string.Join("\n", recommendation.DependsOnRecommendationIds.Select(id => "- " + id)))}\n\nTradeoffs\n{(recommendation.Tradeoffs.Count == 0 ? "None Stated" : string.Join("\n", recommendation.Tradeoffs.Select(item => "- " + item)))}\n\nAlternative\n{recommendation.AlternativeApproach ?? "None Stated"}\n\nDifference Of Opinion\n{recommendation.DifferenceOfOpinion ?? "None Stated"}\n\nDesigner Decision Needed\n{recommendation.DesignerDecisionNeeded ?? "None Stated"}";
+        RefreshExpansionRequestView();
+    }
+
+    private void RefreshExpansionRequestView()
+    {
+        var plan = SelectedDevelopmentPlan;
+        var recommendation = SelectedDevelopmentRecommendation;
+        var requests = plan is null ? [] : _expansionRequests.Where(item => item.PlanId == plan.Id).OrderByDescending(item => item.CreatedAt).Select(item => new ExpansionRequestListItem(item)).ToArray();
+        ExpansionRequestList.ItemsSource = requests;
+        var latestDecision = plan is null || recommendation is null ? null : LatestRecommendationDecision(plan.Id, recommendation.Id);
+        var request = recommendation is null ? null : _expansionRequests.FirstOrDefault(item => item.PlanId == plan?.Id && item.RecommendationId == recommendation.Id && item.AcceptanceDecisionId == latestDecision?.Id);
+        StartExpansionRequestButton.IsEnabled = latestDecision?.Kind == DevelopmentRecommendationDecisionKind.Accepted;
+        StartExpansionRequestButton.Content = request is null ? "Start Expansion Request" : "Open Expansion Source";
+        ExpansionRequestStatusText.Text = request is null
+            ? latestDecision?.Kind == DevelopmentRecommendationDecisionKind.Accepted ? "Accepted And Ready To Start." : "Accept The Selected Recommendation Before Starting Expansion."
+            : $"Created From Inventory Revision {request.InventoryRevision}. No Canonical Rules Or Content Were Changed.";
     }
 
     private DevelopmentRecommendationDecision? LatestRecommendationDecision(string planId, string recommendationId) => _developmentRecommendationDecisions
@@ -2010,6 +2062,7 @@ public partial class MainWindow : Window
         _developmentPlans.Clear();
         _developmentPlanDecisions.Clear();
         _developmentRecommendationDecisions.Clear();
+        _expansionRequests.Clear();
         RefreshPublicationPlanLists();
         RefreshPublicationEditorialView();
         RefreshSelectedPublicationView();
@@ -3635,6 +3688,9 @@ public partial class MainWindow : Window
         DevelopmentPlanDetailText.Text = "Select A Saved Plan Or Generate One From The Latest Project Inventory.";
         DevelopmentRecommendationDetailText.Text = "Select A Recommendation To Review Its Evidence, Tradeoffs, Alternatives, And Any Difference Of Opinion.";
         DevelopmentPlanDecisionHistoryText.Text = "No Plan Is Selected.";
+        ExpansionRequestList.ItemsSource = Array.Empty<ExpansionRequestListItem>();
+        ExpansionRequestStatusText.Text = "Accept A Recommendation To Start A Traceable Expansion Request.";
+        StartExpansionRequestButton.IsEnabled = false;
         DevelopmentPlanStatusText.Text = "Load A Project And Build An Inventory Before Generating A Development Plan.";
         GenerateDevelopmentPlanButton.IsEnabled = false;
         CreatePublicationSnapshotButton.IsEnabled = false;
@@ -3787,6 +3843,10 @@ public partial class MainWindow : Window
     private sealed record DevelopmentRecommendationListItem(DevelopmentRecommendation Recommendation, DevelopmentRecommendationDecisionKind? Decision)
     {
         public override string ToString() => $"{Recommendation.Priority} — {Recommendation.Title} — {Decision?.ToString() ?? "Undecided"}";
+    }
+    private sealed record ExpansionRequestListItem(ExpansionRequest Request)
+    {
+        public override string ToString() => $"{Request.Title} — Inventory r{Request.InventoryRevision}";
     }
     private sealed record PublicationEditionListItem(PublicationEdition Edition)
     {
