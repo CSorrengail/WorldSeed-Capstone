@@ -43,6 +43,8 @@ builder.Services.AddSingleton<MongoPublicationEditorialStore>();
 builder.Services.AddSingleton<IPublicationEditorialStore>(services => services.GetRequiredService<MongoPublicationEditorialStore>());
 builder.Services.AddSingleton<MongoProjectInventoryStore>();
 builder.Services.AddSingleton<IProjectInventoryStore>(services => services.GetRequiredService<MongoProjectInventoryStore>());
+builder.Services.AddSingleton<MongoDevelopmentPlanStore>();
+builder.Services.AddSingleton<IDevelopmentPlanStore>(services => services.GetRequiredService<MongoDevelopmentPlanStore>());
 builder.Services.AddSingleton<WorkingRuleSetValidator>();
 builder.Services.AddCors(options => options.AddDefaultPolicy(policy => policy.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()));
 
@@ -63,6 +65,7 @@ using (var scope = app.Services.CreateScope())
     await scope.ServiceProvider.GetRequiredService<MongoPublicationEditionStore>().EnsureIndexesAsync();
     await scope.ServiceProvider.GetRequiredService<MongoPublicationEditorialStore>().EnsureIndexesAsync();
     await scope.ServiceProvider.GetRequiredService<MongoProjectInventoryStore>().EnsureIndexesAsync();
+    await scope.ServiceProvider.GetRequiredService<MongoDevelopmentPlanStore>().EnsureIndexesAsync();
 }
 
 app.MapGet("/health", async (MongoDesignProjectStore store, CancellationToken cancellationToken) =>
@@ -84,8 +87,9 @@ projects.MapPut("/{projectId}", async (string projectId, DesignProject project, 
     await store.SaveAsync(project, cancellationToken);
     return Results.NoContent();
 });
-projects.MapDelete("/{projectId}", async (string projectId, IDesignProjectStore store, IWorkingRuleSetStore ruleSets, IProjectSchemaProposalStore schemaProposals, IProjectSchemaChangeRequestStore schemaChangeRequests, IActiveGameSchemaStore activeSchemas, IProjectGameDataStore gameData, ISchemaTransitionStore schemaTransitions, IContentProposalStore contentProposals, IContentApplicationStore contentApplications, IContentBalanceProfileStore balanceProfiles, IPublicationSnapshotStore publications, IPublicationEditionStore publicationEditions, IPublicationEditorialStore publicationEditorial, IProjectInventoryStore inventories, CancellationToken cancellationToken) =>
+projects.MapDelete("/{projectId}", async (string projectId, IDesignProjectStore store, IWorkingRuleSetStore ruleSets, IProjectSchemaProposalStore schemaProposals, IProjectSchemaChangeRequestStore schemaChangeRequests, IActiveGameSchemaStore activeSchemas, IProjectGameDataStore gameData, ISchemaTransitionStore schemaTransitions, IContentProposalStore contentProposals, IContentApplicationStore contentApplications, IContentBalanceProfileStore balanceProfiles, IPublicationSnapshotStore publications, IPublicationEditionStore publicationEditions, IPublicationEditorialStore publicationEditorial, IProjectInventoryStore inventories, IDevelopmentPlanStore developmentPlans, CancellationToken cancellationToken) =>
 {
+    await developmentPlans.DeleteAsync(projectId, cancellationToken);
     await inventories.DeleteAsync(projectId, cancellationToken);
     await publicationEditorial.DeleteAsync(projectId, cancellationToken);
     await publicationEditions.DeleteAsync(projectId, cancellationToken);
@@ -101,6 +105,46 @@ projects.MapDelete("/{projectId}", async (string projectId, IDesignProjectStore 
     await ruleSets.DeleteAsync(projectId, cancellationToken);
     await store.DeleteAsync(projectId, cancellationToken);
     return Results.NoContent();
+});
+
+projects.MapGet("/{projectId}/development-plans", async (string projectId, IDevelopmentPlanStore store, CancellationToken cancellationToken) =>
+    Results.Ok(new
+    {
+        plans = await store.ListPlansAsync(projectId, cancellationToken),
+        planDecisions = await store.ListPlanDecisionsAsync(projectId, cancellationToken),
+        recommendationDecisions = await store.ListRecommendationDecisionsAsync(projectId, cancellationToken)
+    }));
+projects.MapPut("/{projectId}/development-plans/{planId}", async (string projectId, string planId, DevelopmentPlanProposal plan, IDesignProjectStore projectsStore, IProjectInventoryStore inventories, IDevelopmentPlanStore plans, CancellationToken cancellationToken) =>
+{
+    if (plan.ProjectId != projectId || plan.Id != planId) return Results.BadRequest("The URL identifiers must match the development plan.");
+    if (await projectsStore.LoadAsync(projectId, cancellationToken) is null) return Results.NotFound("The project does not exist.");
+    var inventory = (await inventories.ListAsync(projectId, cancellationToken)).SingleOrDefault(item => item.Id == plan.InventoryId);
+    if (inventory is null) return Results.BadRequest("The development plan inventory does not exist in this project.");
+    var replaced = plan.ReplacesPlanId is null ? null : await plans.LoadPlanAsync(projectId, plan.ReplacesPlanId, cancellationToken);
+    try { DevelopmentPlanService.Validate(plan, inventory, replaced); }
+    catch (ArgumentException exception) { return Results.BadRequest(exception.Message); }
+    await plans.SavePlanAsync(plan, cancellationToken);
+    return Results.NoContent();
+});
+projects.MapPost("/{projectId}/development-plans/{planId}/decisions", async (string projectId, string planId, DevelopmentPlanDecisionRequest request, IDevelopmentPlanStore store, CancellationToken cancellationToken) =>
+{
+    var plan = await store.LoadPlanAsync(projectId, planId, cancellationToken);
+    if (plan is null) return Results.NotFound("The development plan does not exist.");
+    DevelopmentPlanDecision decision;
+    try { decision = DevelopmentPlanService.DecidePlan(plan, request.Kind, request.Note, DateTimeOffset.UtcNow); }
+    catch (ArgumentException exception) { return Results.BadRequest(exception.Message); }
+    await store.SavePlanDecisionAsync(decision, cancellationToken);
+    return Results.Ok(decision);
+});
+projects.MapPost("/{projectId}/development-plans/{planId}/recommendations/{recommendationId}/decisions", async (string projectId, string planId, string recommendationId, DevelopmentRecommendationDecisionRequest request, IDevelopmentPlanStore store, CancellationToken cancellationToken) =>
+{
+    var plan = await store.LoadPlanAsync(projectId, planId, cancellationToken);
+    if (plan is null) return Results.NotFound("The development plan does not exist.");
+    DevelopmentRecommendationDecision decision;
+    try { decision = DevelopmentPlanService.DecideRecommendation(plan, recommendationId, request.Kind, request.Note, DateTimeOffset.UtcNow); }
+    catch (ArgumentException exception) { return Results.BadRequest(exception.Message); }
+    await store.SaveRecommendationDecisionAsync(decision, cancellationToken);
+    return Results.Ok(decision);
 });
 
 projects.MapGet("/{projectId}/inventories", async (string projectId, IProjectInventoryStore store, CancellationToken cancellationToken) =>

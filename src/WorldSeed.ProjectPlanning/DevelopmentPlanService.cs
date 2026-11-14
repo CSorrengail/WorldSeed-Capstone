@@ -19,6 +19,31 @@ public static class DevelopmentPlanService
         if (replaces is not null && (replaces.ProjectId != inventory.ProjectId || replaces.InventoryId != inventory.Id))
             throw new ArgumentException("A replacement plan must use the same project and inventory snapshot.", nameof(replaces));
 
+        ValidateRecommendations(inventory, recommendations);
+        return new DevelopmentPlanProposal(
+            $"development-plan-{inventory.ProjectId}-{Guid.NewGuid():N}", inventory.ProjectId, FormatVersion,
+            replaces?.SeriesId ?? $"development-plan-series-{Guid.NewGuid():N}", (replaces?.Version ?? 0) + 1,
+            inventory.Id, inventory.Revision, replaces?.Id, summary.Trim(), overallTradeoffs.Where(item => !string.IsNullOrWhiteSpace(item)).Select(item => item.Trim()).ToArray(),
+            recommendations, string.IsNullOrWhiteSpace(designerDirection) ? null : designerDirection.Trim(), now);
+    }
+
+    public static void Validate(DevelopmentPlanProposal plan, ProjectInventory inventory, DevelopmentPlanProposal? replacedPlan = null)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        ArgumentNullException.ThrowIfNull(inventory);
+        if (plan.ProjectId != inventory.ProjectId || plan.InventoryId != inventory.Id || plan.InventoryRevision != inventory.Revision)
+            throw new ArgumentException("The development plan must be bound to the exact project inventory snapshot.", nameof(plan));
+        if (plan.Version < 1 || string.IsNullOrWhiteSpace(plan.Id) || string.IsNullOrWhiteSpace(plan.SeriesId) || string.IsNullOrWhiteSpace(plan.Summary))
+            throw new ArgumentException("The development plan identity, version, and summary are required.", nameof(plan));
+        if (plan.Recommendations is not { Count: > 0 and <= 10 }) throw new ArgumentException("A development plan needs between one and ten recommendations.", nameof(plan));
+        if (plan.ReplacesPlanId is null && plan.Version != 1) throw new ArgumentException("Only an initial plan may omit a replaced plan.", nameof(plan));
+        if (plan.ReplacesPlanId is not null && (replacedPlan is null || replacedPlan.Id != plan.ReplacesPlanId || replacedPlan.SeriesId != plan.SeriesId || plan.Version != replacedPlan.Version + 1))
+            throw new ArgumentException("A plan revision must follow the identified prior plan in the same series.", nameof(plan));
+        ValidateRecommendations(inventory, plan.Recommendations);
+    }
+
+    private static void ValidateRecommendations(ProjectInventory inventory, IReadOnlyList<DevelopmentRecommendation> recommendations)
+    {
         var observationIds = inventory.Observations.Select(item => item.Id).ToHashSet(StringComparer.Ordinal);
         var recommendationIds = recommendations.Select(item => item.Id).ToArray();
         if (recommendationIds.Any(string.IsNullOrWhiteSpace) || recommendationIds.Distinct(StringComparer.Ordinal).Count() != recommendationIds.Length)
@@ -33,12 +58,6 @@ public static class DevelopmentPlanService
                 throw new ArgumentException($"Recommendation '{recommendation.Id}' has an invalid dependency.", nameof(recommendations));
         }
         EnsureAcyclic(recommendations);
-
-        return new DevelopmentPlanProposal(
-            $"development-plan-{inventory.ProjectId}-{Guid.NewGuid():N}", inventory.ProjectId, FormatVersion,
-            replaces?.SeriesId ?? $"development-plan-series-{Guid.NewGuid():N}", (replaces?.Version ?? 0) + 1,
-            inventory.Id, inventory.Revision, replaces?.Id, summary.Trim(), overallTradeoffs.Where(item => !string.IsNullOrWhiteSpace(item)).Select(item => item.Trim()).ToArray(),
-            recommendations, string.IsNullOrWhiteSpace(designerDirection) ? null : designerDirection.Trim(), now);
     }
 
     public static DevelopmentPlanDecision DecidePlan(DevelopmentPlanProposal plan, DevelopmentPlanDecisionKind kind, string? note, DateTimeOffset now, DevelopmentPlanProposal? replacement = null)

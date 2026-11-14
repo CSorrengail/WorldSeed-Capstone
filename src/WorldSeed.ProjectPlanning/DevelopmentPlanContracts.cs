@@ -64,6 +64,9 @@ public sealed record DevelopmentRecommendationDecision(
     string? Note,
     DateTimeOffset CreatedAt);
 
+public sealed record DevelopmentPlanDecisionRequest(DevelopmentPlanDecisionKind Kind, string? Note);
+public sealed record DevelopmentRecommendationDecisionRequest(DevelopmentRecommendationDecisionKind Kind, string? Note);
+
 public interface IDevelopmentPlanStore
 {
     Task SavePlanAsync(DevelopmentPlanProposal plan, CancellationToken cancellationToken = default);
