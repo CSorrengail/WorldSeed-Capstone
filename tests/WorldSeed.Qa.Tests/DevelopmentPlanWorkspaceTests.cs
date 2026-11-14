@@ -91,6 +91,19 @@ public sealed class DevelopmentPlanWorkspaceTests
             Assert.Contains("Start The Selected Source To Begin Clarification", window.FindControl<TextBlock>("StatusText")!.Text);
             Assert.Contains("No Rules Or Schema Were Changed", window.FindControl<TextBlock>("StatusText")!.Text);
             Assert.Single(apiHandler.ExpansionRequests);
+            Assert.Contains("ReadyForClarification", Assert.Single((IEnumerable<object>)window.FindControl<ListBox>("ExpansionRequestList")!.ItemsSource!).ToString());
+
+            apiHandler.ProgressStage = ExpansionProgressStage.DraftReady;
+            Assert.True(await window.StartExpansionRequestAsync());
+            Assert.Equal("Review Source Draft", window.FindControl<Button>("StartExpansionRequestButton")!.Content);
+            Assert.Contains("Source Draft Ready", window.FindControl<TextBlock>("ExpansionRequestStatusText")!.Text);
+
+            apiHandler.ProgressStage = ExpansionProgressStage.WorkingRulesIncorporated;
+            Assert.True(await window.StartExpansionRequestAsync());
+            Assert.Equal(1, window.FindControl<TabControl>("WorkspaceTabs")!.SelectedIndex);
+            Assert.Equal("View Incorporated Rules", window.FindControl<Button>("StartExpansionRequestButton")!.Content);
+            Assert.Contains("Working Rule Set Revision 4", window.FindControl<TextBlock>("ExpansionRequestStatusText")!.Text);
+            Assert.Single(apiHandler.ExpansionRequests);
         }
         finally { window.Close(); }
     }
@@ -169,6 +182,7 @@ public sealed class DevelopmentPlanWorkspaceTests
         public List<DevelopmentPlanDecision> PlanDecisions { get; } = [];
         public List<DevelopmentRecommendationDecision> RecommendationDecisions { get; } = [];
         public List<ExpansionRequest> ExpansionRequests { get; } = [];
+        public ExpansionProgressStage ProgressStage { get; set; } = ExpansionProgressStage.ReadyForClarification;
         private DesignProject Project { get; set; } = DesignProjectService.Create(inventory.ProjectId, "Planning Project");
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
@@ -176,6 +190,20 @@ public sealed class DevelopmentPlanWorkspaceTests
             var path = request.RequestUri!.AbsolutePath;
             if (request.Method == HttpMethod.Get && path == $"/api/projects/{inventory.ProjectId}")
                 return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(Project, options: Options) };
+            if (request.Method == HttpMethod.Get && path.EndsWith("/development-plans", StringComparison.Ordinal))
+            {
+                var progress = ExpansionRequests.Select(item => new ExpansionRequestProgress(
+                    item.Id,
+                    ProgressStage,
+                    ProgressStage == ExpansionProgressStage.ReadyForClarification ? null : "session-expansion",
+                    ProgressStage is ExpansionProgressStage.DraftReady or ExpansionProgressStage.WorkingRulesIncorporated ? 1 : 0,
+                    ProgressStage == ExpansionProgressStage.WorkingRulesIncorporated ? 4 : null,
+                    ProgressStage == ExpansionProgressStage.WorkingRulesIncorporated ? ["reaction-rule"] : [])).ToArray();
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = JsonContent.Create(new DevelopmentPlanWorkspace(SavedPlans, PlanDecisions, RecommendationDecisions, ExpansionRequests, progress), options: Options)
+                };
+            }
             if (request.Method == HttpMethod.Put && path.Contains("/development-plans/", StringComparison.Ordinal))
             {
                 SavedPlans.Add((await request.Content!.ReadFromJsonAsync<DevelopmentPlanProposal>(Options, cancellationToken))!);
@@ -183,6 +211,8 @@ public sealed class DevelopmentPlanWorkspaceTests
             }
             if (request.Method == HttpMethod.Post && path.EndsWith("/expansion-request", StringComparison.Ordinal))
             {
+                if (ExpansionRequests.Count > 0)
+                    return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(ExpansionRequests[0], options: Options) };
                 var plan = SavedPlans.Single(item => path.Contains(item.Id, StringComparison.Ordinal));
                 var recommendation = plan.Recommendations.Single(item => path.Contains(item.Id, StringComparison.Ordinal));
                 var acceptance = RecommendationDecisions.Last(item => item.PlanId == plan.Id && item.RecommendationId == recommendation.Id && item.Kind == DevelopmentRecommendationDecisionKind.Accepted);
