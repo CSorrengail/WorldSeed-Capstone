@@ -1,0 +1,78 @@
+namespace WorldSeed.ProjectPlanning;
+
+public static class DevelopmentPlanService
+{
+    private const string FormatVersion = "0.1";
+
+    public static DevelopmentPlanProposal Create(
+        ProjectInventory inventory,
+        string summary,
+        IReadOnlyList<string> overallTradeoffs,
+        IReadOnlyList<DevelopmentRecommendation> recommendations,
+        string? designerDirection,
+        DateTimeOffset now,
+        DevelopmentPlanProposal? replaces = null)
+    {
+        ArgumentNullException.ThrowIfNull(inventory);
+        if (string.IsNullOrWhiteSpace(summary)) throw new ArgumentException("A development plan needs a summary.", nameof(summary));
+        if (recommendations is not { Count: > 0 and <= 10 }) throw new ArgumentException("A development plan needs between one and ten recommendations.", nameof(recommendations));
+        if (replaces is not null && (replaces.ProjectId != inventory.ProjectId || replaces.InventoryId != inventory.Id))
+            throw new ArgumentException("A replacement plan must use the same project and inventory snapshot.", nameof(replaces));
+
+        var observationIds = inventory.Observations.Select(item => item.Id).ToHashSet(StringComparer.Ordinal);
+        var recommendationIds = recommendations.Select(item => item.Id).ToArray();
+        if (recommendationIds.Any(string.IsNullOrWhiteSpace) || recommendationIds.Distinct(StringComparer.Ordinal).Count() != recommendationIds.Length)
+            throw new ArgumentException("Recommendation ids must be present and unique.", nameof(recommendations));
+        foreach (var recommendation in recommendations)
+        {
+            if (string.IsNullOrWhiteSpace(recommendation.Title) || string.IsNullOrWhiteSpace(recommendation.Goal) || string.IsNullOrWhiteSpace(recommendation.Rationale) || string.IsNullOrWhiteSpace(recommendation.ExpectedOutcome))
+                throw new ArgumentException($"Recommendation '{recommendation.Id}' is incomplete.", nameof(recommendations));
+            if (recommendation.EvidenceObservationIds.Count == 0 || recommendation.EvidenceObservationIds.Any(id => !observationIds.Contains(id)))
+                throw new ArgumentException($"Recommendation '{recommendation.Id}' must cite existing inventory observations.", nameof(recommendations));
+            if (recommendation.DependsOnRecommendationIds.Any(id => id == recommendation.Id || !recommendationIds.Contains(id, StringComparer.Ordinal)))
+                throw new ArgumentException($"Recommendation '{recommendation.Id}' has an invalid dependency.", nameof(recommendations));
+        }
+        EnsureAcyclic(recommendations);
+
+        return new DevelopmentPlanProposal(
+            $"development-plan-{inventory.ProjectId}-{Guid.NewGuid():N}", inventory.ProjectId, FormatVersion,
+            replaces?.SeriesId ?? $"development-plan-series-{Guid.NewGuid():N}", (replaces?.Version ?? 0) + 1,
+            inventory.Id, inventory.Revision, replaces?.Id, summary.Trim(), overallTradeoffs.Where(item => !string.IsNullOrWhiteSpace(item)).Select(item => item.Trim()).ToArray(),
+            recommendations, string.IsNullOrWhiteSpace(designerDirection) ? null : designerDirection.Trim(), now);
+    }
+
+    public static DevelopmentPlanDecision DecidePlan(DevelopmentPlanProposal plan, DevelopmentPlanDecisionKind kind, string? note, DateTimeOffset now, DevelopmentPlanProposal? replacement = null)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        if (kind == DevelopmentPlanDecisionKind.RevisionRequested && string.IsNullOrWhiteSpace(note)) throw new ArgumentException("A plan revision request needs designer guidance.", nameof(note));
+        if (replacement is not null && (replacement.ProjectId != plan.ProjectId || replacement.ReplacesPlanId != plan.Id)) throw new ArgumentException("A replacement plan must identify the reviewed plan.", nameof(replacement));
+        return new DevelopmentPlanDecision($"development-plan-decision-{Guid.NewGuid():N}", plan.ProjectId, plan.Id, plan.Version, kind, Normalize(note), replacement?.Id, now);
+    }
+
+    public static DevelopmentRecommendationDecision DecideRecommendation(DevelopmentPlanProposal plan, string recommendationId, DevelopmentRecommendationDecisionKind kind, string? note, DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        if (!plan.Recommendations.Any(item => item.Id == recommendationId)) throw new ArgumentException("The recommendation does not belong to this plan.", nameof(recommendationId));
+        if (kind == DevelopmentRecommendationDecisionKind.RevisionRequested && string.IsNullOrWhiteSpace(note)) throw new ArgumentException("A recommendation revision needs designer guidance.", nameof(note));
+        return new DevelopmentRecommendationDecision($"development-recommendation-decision-{Guid.NewGuid():N}", plan.ProjectId, plan.Id, plan.Version, recommendationId, kind, Normalize(note), now);
+    }
+
+    private static string? Normalize(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static void EnsureAcyclic(IReadOnlyList<DevelopmentRecommendation> recommendations)
+    {
+        var byId = recommendations.ToDictionary(item => item.Id, StringComparer.Ordinal);
+        var visiting = new HashSet<string>(StringComparer.Ordinal);
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var recommendation in recommendations) Visit(recommendation.Id);
+
+        void Visit(string id)
+        {
+            if (visited.Contains(id)) return;
+            if (!visiting.Add(id)) throw new ArgumentException("Recommendation dependencies cannot contain a cycle.", nameof(recommendations));
+            foreach (var dependency in byId[id].DependsOnRecommendationIds) Visit(dependency);
+            visiting.Remove(id);
+            visited.Add(id);
+        }
+    }
+}
