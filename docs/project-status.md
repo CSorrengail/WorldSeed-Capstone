@@ -2,11 +2,13 @@
 
 ## Approved MVP Status
 
-**Completed and independently verified on 2026-11-10.** The approved creature
-vertical slice satisfies its ingestion, generation, system-specific mechanical
-validation, system-specific balance evaluation, designer decision/history,
-approved export, two-system, and observable-workflow criteria. This completion
-does not claim that WorldSeed's larger product vision is finished.
+**In progress.** On 2026-11-13 the owner approved decision 0015, replacing the
+creature-focused demonstration as the active MVP finish line. The class MVP is
+now the complete experienced-designer workflow from several loose files to a
+substantially fleshed-out TTRPG with cohesive rules, expanded systems and
+game-specific content, evaluation, preserved decisions, and organized readable
+publication. The completed creature slice remains verified evidence for the
+architecture; it is not described as the completed WorldSeed MVP.
 
 Standalone testing and status commits were consolidated locally on 2026-11-07.
 QA reports retain the original commit IDs they actually tested; rewriting commit
@@ -15,8 +17,13 @@ preserved at `backup/main-before-test-doc-squash-20261107`.
 
 ## Current Development Task
 
-The owner authorized ongoing post-MVP work on 2026-11-10. The first complete
-post-MVP sequence is now independently verified: bounded context-backed content
+The active task is milestone 1 of the complete-game MVP: project-wide planning
+and gap analysis. The first implementation cycle should produce a persisted,
+designer-reviewable assessment of the project's rules, schema, canonical
+content, decisions, and publication coverage without changing any of them.
+
+The previously described post-creature work is now recognized as foundation for
+the expanded MVP. Its first complete sequence is independently verified: bounded context-backed content
 generation (`36f638d`), explicit promotion of approved proposals into canonical
 Game Data (`776fbba`), and deterministic human-readable publication (`a05f827`).
 The Publication workspace creates immutable Markdown snapshots and provenance
@@ -103,6 +110,24 @@ and missing legacy source references fail visibly instead of crashing. QA passed
 Release build for the latest revision. Evidence is retained at
 `artifacts/qa/20261111-reader-publication/report.md` and
 `artifacts/qa/20261111-editorial-source-review/report.md`.
+
+Revision `329b1fb` closes the normal-launcher publication review finding by
+distinguishing current editable snapshots from legacy snapshots that require a
+new current snapshot. The same desktop pass confirmed that Publication is
+functional but visually dense; broader layout polish remains optional. Revisions
+`3617be5`, `8426fcc`, and `9cfab98` then add and harden a bounded sequential
+Content Expansion Queue. It generates 2-5 entries one at a time, retains each as
+an independently validated and reviewable proposal, supports stop-after-current,
+refuses stale project/schema/rule results, and never approves or applies content
+automatically. Revision `1900df5` lets each completed queue row open its exact
+proposal for review. QA passed 8 headless Content Review tests, 17 Content tests,
+and a clean App build. An isolated connected smoke with `gemma3:12b`, a real API,
+and tmpfs Mongo proved two sequential calls, distinct persistence/reload,
+prior-ID exclusion, independent mechanical validation, no decisions or
+applications, and complete cleanup. Evidence is retained under
+`artifacts/qa/20261111-content-expansion-queue`,
+`artifacts/qa/20261111-content-expansion-connected`, and
+`artifacts/qa/20261111-expansion-queue-navigation`.
 
 Advisor review selected rule-conforming content expansion before publication.
 Revision
@@ -199,6 +224,82 @@ remains available for any later owner-action stop.
   changes during this demonstration.
 
 ## Latest Verified Application Revision
+
+- **Tested revision:** `3be5ce2` - Preserve schema transition history, following
+  deterministic review at `6ecb209` and explicit compatible activation at
+  `88fbeec`.
+- **QA result:** PASS. Ten Game Data tests, two headless transition-workspace
+  tests, Release API/App builds, and an isolated Mongo/API exercise passed. The
+  connected exercise preserved authored data across a compatible optional-field
+  update, retained exact immutable before/result snapshots for revisions 1 and
+  2, and removed transition history with project deletion. A first apparent
+  one-record failure was superseded after raw JSON proved it was a disposable
+  PowerShell array-parsing error rather than a product defect.
+- **Behavior:** the first desktop action reviews a saved proposal without
+  mutation; a compatible result requires a second explicit activation action;
+  changes requiring data work remain blocked with affected paths. Successful
+  activations retain an immutable transition record and server-side review is
+  repeated before writes.
+- **Evidence:** `artifacts/qa/20261112-schema-transition-review/report.md`,
+  `artifacts/qa/20261112-schema-transition-activation/report.md`, and
+  `artifacts/qa/20261112-schema-transition-history/report.md`.
+
+- **Tested revision:** `ed2ff8e` - Constrain local schema translation output,
+  following scoped queued-rule discovery at `47141b3`.
+- **QA result:** PASS. All 26 Schema Translation tests and the App/probe Release
+  builds passed. An isolated connected `gemma3:12b` run then completed typed
+  source -> Working Rules -> bounded Habitat structure discovery -> saved schema
+  proposal. Every live translation request carried the native structured-output
+  schema; the saved definition-source mapping used only the one rule selected by
+  the discovered plan; no active schema was created.
+- **Evidence:**
+  `artifacts/qa/20261112-schema-structured-output-connected/report.md`.
+
+- **Tested revision:** `47141b3` - Build schema structures from queued rules.
+- **QA result:** PASS on the exact revision: 2 focused Avalonia tests, all 26
+  Schema Translation tests, and a clean App Release build. The bounded run left
+  zero MSBuild or compiler-server workers.
+- **Behavior:** designers can queue several related Working Rules and discover
+  schema structures using only that selected scope. The existing sequential,
+  traceable proposal flow handles each discovered structure; clarification
+  resumes the same plan; only successfully handled rules leave the queue; saved
+  proposals remain editable and non-canonical; activation remains explicit.
+- **Evidence:** `artifacts/qa/20261112-scoped-schema-discovery/report.md`.
+
+- **Tested revision:** `1463eda` - Preserve typed design ideas as sources.
+- **QA result:** PASS on the exact revision: 4 Source Ingestion tests, 2
+  Avalonia headless tests, and a clean App Release build.
+- **Behavior:** the Sources workspace can preserve a designer's incomplete
+  mechanic, system, or concept as exact original source text. The idea is saved
+  in the project database, selected for inspection, and enters the existing
+  clarification/rule-drafting flow only when the designer starts it. It does not
+  call a model, create rules, or change schema merely by being preserved.
+- **Evidence:** `artifacts/qa/20261111-design-idea-source/report.md`.
+- **Connected evidence:** revision `bbc9e83` passed the bounded direct-DLL
+  `gemma3:12b` reliability suite after an environment cleanup: complete
+  procedural and facilitator-driven ideas became validated, traceable Working
+  Rule Sets, while the deliberately incomplete idea produced a focused
+  clarification. Nine LLM adapter tests and the Release tool build also passed.
+  Evidence: `artifacts/qa/20261111-design-idea-connected-retest/report.md`.
+- **Resource incident:** an interrupted unbounded SDK build and a `dotnet run`
+  preflight left 310 orphaned MSBuild workers consuming about 10.6 GB. Their
+  parent wrappers no longer existed; development removed only those exact
+  orphan workers. Connected QA now requires bounded build-then-direct-DLL
+  execution, which left zero MSBuild workers. Ollama failures now retain bounded
+  structured local-runtime diagnostics.
+
+- **Tested revision:** `1900df5` - Open proposals from expansion queue,
+  following queue implementation and concurrency corrections through `9cfab98`.
+- **QA result:** PASS: 8 Content Review headless tests, 17 Content tests, clean
+  App Release builds, and an isolated connected two-entry `gemma3:12b` run with
+  real API and tmpfs Mongo.
+- **Behavior:** a bounded 2-5 item queue generates strictly sequential,
+  separately persisted proposals; later prompts exclude earlier successful IDs;
+  stop, workspace replacement, and stale-result UI paths are safe; completed
+  rows open their exact proposal; approval and application remain individual.
+- **Evidence:** `artifacts/qa/20261111-content-expansion-queue/report.md`,
+  `artifacts/qa/20261111-content-expansion-connected/report.md`, and
+  `artifacts/qa/20261111-expansion-queue-navigation/report.md`.
 
 - **Tested revision:** `ebf71be` - Show exact sources during editorial review,
   following reader-facing export cleanup at `998779a`.
@@ -560,16 +661,30 @@ remains available for any later owner-action stop.
 
 ## Approved MVP Direction And Remaining Decisions
 
-The owner-approved MVP requires two mechanically different TTRPG demonstrations
-of creature generation, system-specific mechanical validation and balance
-evaluation, designer approve/reject/revise actions with preserved history, and
-export. See decision 0014, `docs/mvp-plan.md`, and `qa/MVP_ACCEPTANCE.md`.
+The owner-approved class MVP is the complete experienced-designer workflow in
+decision 0015, `docs/mvp-plan.md`, and `qa/MVP_ACCEPTANCE.md`. It begins with
+several loose files and ends with a substantially fleshed-out, evaluated, and
+human-readable game. The prior creature demonstration satisfies a subset of this
+contract and remains evidence rather than the finish line.
 
-No implementation decision remains for the approved MVP. The reopened normal
-user workflow now has owner-observed launcher evidence plus independent coverage
-of the schema re-evaluation correction.
+No owner decision blocks the first milestone. The owner deliberately left
+“fully fleshed out” as a product-sufficiency judgment rather than a universal
+numeric threshold; final acceptance therefore includes an owner-observed Sword
+of Truth demonstration.
 
-## Advisor Review Of Approved Scope
+## Advisor Review Of Expanded MVP Scope
+
+- **Date reviewed:** 2026-11-13.
+- **Assessment:** GREEN. Decision 0015 expands the demonstration standard while
+  preserving the original capstone architecture, game-agnostic boundary, human
+  authority, and system-specific evaluation.
+- **YELLOW guidance adopted:** project planning will surface minimum evaluation
+  coverage early; dependencies and publication links remain bounded to explicit
+  project-owned evidence; beginner polish and universal planning/retrieval
+  engines remain deferred.
+- **Owner decisions:** none required before milestone 1.
+
+## Historical Advisor Review Of Creature Slice
 
 - **Revision reviewed:** `4b082d3`.
 - **Assessment:** GREEN. The creature vertical slice preserves the proposal's
@@ -605,38 +720,35 @@ of the schema re-evaluation correction.
   armor-value rule/property and references is a game-design choice, not an
   implementation assumption. It is not required to verify the generic workflow.
 
-## MVP Completion Advisor Review
+## Historical Creature-Slice Completion Review
 
 - **Revision and evidence reviewed:** application revision `29719c4`, its QA
   report, the two-system demonstration contracts/results, connected Emberbound
   evidence, and the owner's normal-launcher smoke.
-- **Assessment:** GREEN. All owner-approved creature-MVP acceptance criteria are
-  credibly satisfied; no required criterion remains unmet.
+- **Assessment:** GREEN for the historical creature-slice criteria. Decision
+  0015 subsequently expanded the active MVP; this finding does not claim that
+  the complete-game authoring MVP is finished.
 - **Non-blocking limitation:** Windows visual automation remains unavailable, and
   the lineage QA was headless rather than screenshot-based. This is optional UX
   and automation debt, not missing functional acceptance evidence.
-- **Continuation boundary:** genuinely new rule-conforming content expansion and
-  human-readable rulebook/source publication remain required next-stage product
-  capabilities. They are explicitly not claimed complete by this MVP.
-- **Owner decisions:** none are needed to close the approved MVP. A later owner
-  decision is needed to prioritize the two continuation capabilities and any
-  game-specific SoT schema additions.
+- **Continuation boundary:** rule-conforming expansion, full-game planning, and
+  human-readable publication are now part of the active MVP under decision 0015.
 
 ## Remaining Authorized Work
 
-- The post-MVP content loop can suggest a new entry from bounded project context,
-  preserve review decisions, explicitly promote an approved valid proposal into
-  canonical Game Data, and publish immutable human-readable snapshots.
-- Continue publication toward an organized, designer-reviewable source/rulebook
-  artifact without allowing editorial presentation to invent or change game
-  mechanics.
+- Build persisted project-wide planning and gap analysis with designer decisions.
+- Turn approved plan items into coordinated rule and system expansion.
+- Scale reviewed generation across arbitrary game-owned content types and their
+  dependencies.
+- Assist designers in establishing game-specific validation and balance coverage.
+- Produce a coherent complete-game publication rather than isolated snapshots.
+- Run the substantial Sword of Truth demonstration and a smaller mechanically
+  different genericity check.
 - Preserve the optional future retrieval seam; semantic embeddings remain
   unnecessary while the structured project context is sufficient.
 
 ## Next Action Required
 
-Complete one normal-launcher visual/usability review of the Publication tab,
-including exact-source comparison, approved prose composition, player-facing
-Ready Markdown, and manifest separation. The automated and isolated connected
-paths are verified; this remaining check requires an interactive desktop review
-and should produce usability findings rather than re-prove service behavior.
+Begin one bounded multi-iteration development cycle for persisted project-wide
+planning and gap analysis, followed by one consolidated QA pass. No owner
+decision or confirmed defect currently blocks this cycle.

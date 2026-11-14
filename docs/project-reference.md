@@ -21,8 +21,8 @@ product requirements or replace a decision by the project owner.
    A later accepted decision takes precedence over an earlier note when they
    conflict. In particular, decisions 0001 through 0009 define provenance and
    proposal boundaries; 0010 through 0013 define UI, local-model, localization,
-   and distribution directions; 0014 defines the owner-approved initial MVP
-   vertical slice.
+   and distribution directions; 0014 defines the completed historical creature
+   slice; 0015 defines the active complete-game authoring MVP.
 5. **Architecture documents** in `docs/architecture/` describe the intended
    component boundaries and current workspace design. They are implementation
    guidance and must yield to the first four sources when inconsistent.
@@ -40,11 +40,11 @@ knowledge to propose content; deterministic checks and, where feasible,
 quantitative balance evaluation inform revision; the designer retains control of
 what becomes established game knowledge.
 
-The initial demonstrable workflow is intentionally narrower than a finished game
-authoring product. It should establish rule interpretation, structured data,
-content generation, validation, balance evaluation, revision, and human control
-for a limited set of content types. Stretch work includes model-based balance
-prediction, encounter support, export, and image generation.
+The active class MVP is the complete experienced-designer workflow in decision
+0015: several loose files become cohesive rules, expanded game-specific systems
+and content, system-specific evaluation, preserved designer decisions, and an
+organized readable game document. It need not provide beginner onboarding or
+commercial-release polish.
 
 ## Current Evidence To Review
 
@@ -63,12 +63,12 @@ prediction, encounter support, export, and image generation.
 
 These are review questions, not requirements:
 
-- The owner-approved MVP scope, creature focus, designer decision workflow,
-  system-specific balance direction, and retrieval deferral are recorded in
-  decision 0014 and `docs/mvp-plan.md`.
-- The two specific demonstration systems, their balance-reference datasets, the
-  export format, and the revision-request comparison remain implementation
-  decisions that must be documented before their corresponding work begins.
+- The active MVP scope, designer decision workflow, system-specific balance
+  direction, and retrieval deferral are recorded in decision 0015 and
+  `docs/mvp-plan.md`. Decision 0014 remains historical creature-slice evidence.
+- “Substantially fleshed out” is intentionally an owner-assessed product outcome.
+  Project-specific coverage measures may guide planning but are not universal
+  numeric requirements.
 - The change-management ledger and the language-versioning model have accepted
   architectural direction but no implementation milestone or acceptance criteria.
 - QA has focused evidence for selected workflows. Approved visual baselines and a

@@ -2,7 +2,9 @@
 
 ## Status
 
-Owner approved on 2026-11-06.
+Owner approved on 2026-11-06. Superseded as the active MVP completion target by
+[decision 0015](0015-expand-mvp-to-complete-game-authoring.md) on 2026-11-13.
+The completed creature slice remains verified historical evidence.
 
 ## Context
 

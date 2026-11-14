@@ -1,44 +1,56 @@
-# Monster MVP QA Acceptance Contract
+# Complete Game Authoring MVP QA Acceptance Contract
 
-Use this contract only after the implementation is assigned. QA verifies the
-implemented revision and reports evidence; it does not choose systems, invent
-balance rules, approve content, or repair failures.
+QA verifies the assigned integrated cycle and final demonstration. It does not
+invent game rules, approve designer decisions, or modify production code.
 
-## Required Demonstration Evidence
+## Required Final Evidence
 
-For each of two mechanically different TTRPG systems, QA must be able to verify:
+1. **Loose-file ingestion:** several source files enter one persistent project;
+   exact source excerpts remain traceable through resulting Working Rules.
+2. **Cohesive rules:** clarification and formalization produce a project-wide
+   ruleset while preserving uncertainty, conflicts, and natural-language rules.
+3. **Planning:** WorldSeed identifies meaningful missing or incomplete systems,
+   dependencies, and content coverage. The designer can accept, revise, reject,
+   or defer recommendations.
+4. **System expansion:** an approved gap can become reviewed rules and schema
+   changes through the normal provenance and decision boundaries.
+5. **Content breadth:** the project generates and manages multiple game-owned
+   content types with individually reviewable entries, duplicate prevention,
+   dependency awareness, and explicit canonical application.
+6. **Evaluation:** deterministic mechanical violations and game-specific balance
+   concerns are separate, source/reference-backed, and demonstrably different
+   across mechanically different games.
+7. **Designer control:** approval, rejection, revision, schema-transition, and
+   content-application histories survive reload and identify the reviewed
+   revisions.
+8. **Publication:** canonical rules and approved content produce an organized,
+   human-readable document without internal IDs; its manifest retains exact
+   technical provenance.
+9. **Real-project demonstration:** a substantial Sword of Truth workflow reaches
+   readable output without database edits, manual JSON repair, or code changes
+   between stages.
+10. **Genericity check:** a smaller mechanically different TTRPG follows the
+    same universal workflow without introducing universal monsters, items,
+    skills, dice, or challenge ratings.
 
-1. **Ingestion:** the selected source rules become traceable structured rules and
-   game-schema context for that system.
-2. **Generation:** a creature proposal identifies the exact rule/schema revision
-   it used and conforms to the game-specific creature structure.
-3. **Mechanical validation:** deliberate invalid examples demonstrate that the
-   system detects declared system-specific constraints or references.
-4. **Balance evaluation:** a declared, game-specific balance profile supplies
-   explicit constraints/reference values. The result distinguishes hard
-   mechanical violations from explanatory balance concerns. QA must not accept a
-   universal challenge-rating formula as evidence for both systems.
-5. **Designer decisions:** approve, reject, and revision-request paths preserve
-   the reviewed proposal/version, decision, and relationship to a replacement
-   proposal where one exists.
-6. **Export:** an approved creature exports the documented content plus the
-   selected schema/rule and decision/version provenance fields.
+## Verification Strategy
 
-## Verification Approach
+- Run focused deterministic tests during development, then one consolidated QA
+  pass after each bounded multi-iteration development cycle.
+- Use connected local-model/API/Mongo testing only at integration boundaries or
+  when deterministic tests cannot establish the behavior.
+- Preserve exact revision, commands, fixtures, outputs, pass/fail/blocked checks,
+  process isolation, and observed limitations in the QA report.
+- Final acceptance includes an owner-observed real-project run because “fully
+  fleshed out” is a product sufficiency judgment, not only a structural test.
 
-- Use deterministic fixtures for each system's rules, schema, creature data,
-  balance profile, expected violations, and expected calculated concerns.
-- Keep model observations separate from deterministic assertions. A live model
-  may be used only when the parent authorizes it; preserve raw output and do not
-  use a second model as an oracle.
-- Exercise the designer workflow through isolated UI tests or documented manual
-  review where an interaction cannot be automated.
-- Record the exact revision, systems, source fixtures, commands, exports,
-  pass/fail/blocked checks, and observable two-system differences.
+## Failure Conditions
 
-## Preconditions Still Needed Before Final MVP QA
-
-- The owner or implementation design must name the two systems.
-- Each system needs an explicit balance profile/reference dataset.
-- The export format and required fields must be documented.
-- The revision-request comparison behavior must be specified.
+- A stage requires undocumented repair, direct database manipulation, or a code
+  change to continue.
+- Generated rules or content silently become canonical.
+- Game-specific concepts leak into the universal meta-schema or application
+  domain model.
+- Validation or balance claims lack game-owned rules/reference values.
+- Publication omits approved canonical material or exposes technical IDs as
+  player-facing prose.

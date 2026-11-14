@@ -1,78 +1,85 @@
-# Monster MVP Demonstration Plan
+# Complete Game Authoring MVP Plan
 
-## Approved Scope
+## Goal
 
-This plan implements the owner-approved monster/creature vertical slice in
-[decision 0014](decisions/0014-approve-monster-mvp-vertical-slice.md). It is the
-minimum capstone demonstration, not the long-term product boundary.
+An experienced TTRPG designer can take a handful of loose and incomplete source
+files through WorldSeed and produce a substantially fleshed-out game containing
+cohesive rules, game-specific systems and content, validation and balance
+explanations, preserved designer decisions, and an organized readable document.
 
-## Demonstration Flow
+Decision 0015 is the active scope authority. The earlier creature vertical slice
+is completed architectural evidence, not the current finish line.
 
-```text
-system source rules
-  -> structured working rules and game schema
-  -> creature-generation request and proposal
-  -> system-specific validation and balance evaluation
-  -> designer approve, reject, or request revision
-  -> preserved decision/version history
-  -> export
-```
+## Existing Foundation
 
-The flow must run for two TTRPG systems whose creature mechanics differ in a
-documented way. A test system may be small, but each system must define the
-specific schema, constraints, and reference values used to evaluate its creature.
+- Source ingestion, clarification, traceable drafts, and project-wide Working
+  Rules.
+- Game-specific schema proposals, scoped structure discovery, safe compatible
+  activation, and immutable transition history.
+- Canonical Game Data, bounded content proposals and expansion queues,
+  validation, game-specific balance profiles, decisions, and application.
+- Deterministic publication snapshots, editorial review, revision history, and
+  human-readable Markdown output.
 
-## Implementation Milestones
+## Remaining Milestones
 
-1. **Demonstration contracts:** select the two systems; model the creature
-   content requirements, validation constraints, balance-reference values, and
-   expected export fields as game-specific data.
-2. **Creature proposals:** add a bounded generation request and proposal artifact
-   that uses established project rules and an active game schema. It must retain
-   the rules/schema revision it used.
-3. **Evaluation:** run existing structural/reference validation plus a
-   game-specific balance profile. Present mechanical violations separately from
-   non-fatal balance concerns and their supporting reference values.
-4. **Designer decisions:** support approve, reject, and revision-request actions.
-   Preserve the proposal version, resulting decision, and replacement proposal
-   relationship without placing workflow fields into canonical game data.
-5. **Export:** produce a documented export artifact for an approved creature,
-   including its content, game-schema/rule context, and decision/version data.
-6. **Two-system demonstration:** run the complete flow for both systems and
-   document the observable results, limitations, and differences.
+### 1. Project Planner And Gap Analysis
 
-## Boundaries
+Provide a project-wide view of existing rules, schema, content, and publication
+coverage. Identify contradictions, incomplete mechanics, missing dependencies,
+missing content types, underdeveloped areas, and missing minimum game-specific
+validation or balance coverage. Present a prioritized plan that the designer can
+accept, reject, revise, or defer.
 
-- Use the structured rules knowledge base first. Retrieval/embedding work is a
-  future extension behind a retrieval boundary, not a prerequisite.
-- Balance profiles are system-specific and evidence-based. They must not imply
-  that a single challenge-rating or formula applies across games.
-- LLM output remains a proposal. Deterministic code validates structure,
-  references, declared constraints, and balance-profile calculations; designers
-  control final decisions.
-- Preserve the universal meta-schema's game-agnostic boundary. Creature-specific
-  definitions live only in the selected game schemas and demonstration data.
+### 2. Coordinated Rule And System Expansion
 
-## Exit Criteria
+Turn an approved plan item into a bounded clarification and proposal workflow.
+Allow new systems and related rules to be created, connected to existing rules,
+reviewed, and safely incorporated without requiring the designer to manually
+assemble every schema grouping. Carry forward any explicitly accepted minimum
+validation and balance needs without building the later automated assistance
+feature prematurely.
 
-The MVP is ready for capstone evaluation only when QA has independently verified
-the acceptance contract, the two-system results are documented, and the designer
-can observe the complete flow without relying on undocumented manual repair.
+### 3. Scalable Multi-Type Content Expansion
 
-## Required Continuation Beyond This Vertical Slice
+Generate reviewable batches across arbitrary game-owned content types. Respect
+dependencies, existing canonical examples, designer decisions, validation, and
+duplicate prevention. Keep every generated entry individually reviewable and
+never auto-approve or silently apply it.
 
-Completing the creature MVP does not complete WorldSeed's product vision. The
-next-stage plan must retain both of these owner-required capabilities:
+### 4. Evaluation Assistance
 
-1. **Rule-conforming content expansion:** the AI can propose genuinely new game
-   content, such as specific weapons or creatures, using the project's rules,
-   schema, existing content, and recorded designer decisions as constraints. It
-   must not be limited to restructuring examples already supplied by the user.
-2. **Human-readable game publication:** canonical rules and approved game data
-   can be assembled into organized source/rulebook text for people to read. This
-   publication artifact is distinct from the structured JSON/provenance export
-   used by the MVP workflow.
+Use game-owned rules and reference values to propose useful validation and
+balance-profile coverage. Clearly separate deterministic violations from
+advisory concerns. Require designer approval for new evaluation rules and never
+invent a universal balance formula.
 
-Both remain proposal-and-review workflows under human control. Neither capability
-may introduce universal TTRPG concepts or replace canonical structured knowledge
-with untraceable model output.
+### 5. Complete Game Publication
+
+Assemble canonical rules and approved Game Data into a coherent document with
+designer-controlled organization, terminology, examples, cross-references, and
+source-grounded editorial revision. Player-facing output must omit internal IDs
+while manifests preserve technical provenance.
+
+### 6. Full Demonstration And Stabilization
+
+Run a substantial Sword of Truth project through the complete workflow, resolve
+blocking defects, and document observable results. Repeat a smaller check with a
+mechanically different TTRPG to confirm the universal layer remains generic.
+
+## Deferred Until After This MVP
+
+- Beginner-oriented onboarding and broad visual polish.
+- Semantic embeddings when structured retrieval remains sufficient.
+- Automated migration of incompatible schema revisions.
+- Universal content types, dice assumptions, or balance formulas.
+- Production-grade installer, distribution, and platform certification beyond
+  what is necessary for the class demonstration.
+
+## Completion Standard
+
+The workflow must be usable without undocumented database edits, hand-authored
+JSON repair, or code changes between stages. QA must verify the deterministic
+boundaries and a connected demonstration. The owner determines whether the real
+project is sufficiently fleshed out to represent a usable game rather than a
+collection of isolated examples.

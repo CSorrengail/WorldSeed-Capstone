@@ -8,12 +8,21 @@ Routine QA must not modify production code, application configuration, tracked t
 
 ## Permanent Three Agent Workflow
 
-The primary development agent is the coordinator. For each authorized development
-task it must identify the applicable requirements, implement the change, commit a
-reviewable revision, prepare a bounded QA handoff, and delegate independent
-verification to `qa_engineer`. The handoff must name the revision, intended
-behavior, acceptance criteria, exact relevant checks, isolation requirements, and
-any limits on the test scope.
+The primary development agent is the coordinator. It organizes authorized work
+into bounded development cycles containing multiple coherent implementation
+iterations. During a cycle it identifies applicable requirements, implements and
+commits reviewable revisions, and runs proportionate developer checks. At the end
+of the cycle it prepares one consolidated QA handoff and delegates independent
+verification to `qa_engineer`. The handoff must name every revision in scope,
+intended behavior, acceptance criteria, exact relevant checks, isolation
+requirements, and any limits on the test scope.
+
+Do not invoke QA after every small implementation commit. Use an earlier focused
+QA pass only when a high-risk boundary cannot safely wait, a defect blocks the
+remaining cycle, or the owner explicitly requests it. Connected local-model and
+broad regression testing normally belong at the cycle boundary. This batching is
+required to preserve the owner's limited Codex usage while retaining independent
+verification.
 
 If QA reports a defect, the primary agent investigates and corrects it, then
 delegates retesting. It repeats only while there is meaningful progress. After
