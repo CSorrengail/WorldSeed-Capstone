@@ -14,6 +14,7 @@ using WorldSeed.DesignSessions;
 using WorldSeed.GameData;
 using WorldSeed.LlmIntegration;
 using WorldSeed.Publication;
+using WorldSeed.ProjectPlanning;
 using WorldSeed.RuleDrafting;
 using WorldSeed.SchemaTranslation;
 using WorldSeed.SourceIngestion;
@@ -37,6 +38,7 @@ public partial class MainWindow : Window
     private readonly HttpGameDataWorkspaceClient _gameDataWorkspace;
     private readonly HttpContentProposalClient _contentProposals;
     private readonly HttpPublicationClient _publications;
+    private readonly HttpProjectInventoryClient _projectInventoriesClient;
     private readonly WorldSeedSettingsStore _settingsStore = new();
     private readonly DispatcherTimer _inactivityTimer = new() { Interval = TimeSpan.FromSeconds(10) };
     private readonly List<DesignProjectSummary> _projectSummaries = [];
@@ -58,6 +60,7 @@ public partial class MainWindow : Window
     private readonly List<PublicationEditorialDecision> _publicationEditorialDecisions = [];
     private readonly List<PublicationSectionPlanItem> _publicationSectionPlan = [];
     private readonly List<PublicationSectionPlanItem> _publicationEntityPlan = [];
+    private readonly List<ProjectInventory> _projectInventories = [];
     private int _projectLoadGeneration;
     private bool _updatingProjectSelector;
     private string? _pendingDeletionProjectId;
@@ -115,6 +118,7 @@ public partial class MainWindow : Window
         _gameDataWorkspace = new HttpGameDataWorkspaceClient(_apiHttp);
         _contentProposals = new HttpContentProposalClient(_apiHttp);
         _publications = new HttpPublicationClient(_apiHttp);
+        _projectInventoriesClient = new HttpProjectInventoryClient(_apiHttp);
         InitializeComponent();
         ContentExpansionQueueList.SelectionChanged += ContentExpansionQueueList_SelectionChanged;
         _settings = _settingsStore.Load();
@@ -305,6 +309,7 @@ public partial class MainWindow : Window
                 await LoadGameDataWorkspaceAsync(_project.Id);
                 await LoadContentProposalsAsync(_project.Id);
                 await LoadPublicationSnapshotsAsync(_project.Id);
+                await LoadProjectInventoriesAsync(_project.Id);
                 RefreshNotes(); ShowSelectedSource();
                 ProjectLocationText.Text = "Project database: http://localhost:5080 (Docker local stack)";
                 _updatingProjectSelector = true;
@@ -1612,6 +1617,105 @@ public partial class MainWindow : Window
         RefreshContentProposalView();
     }
 
+    private async Task LoadProjectInventoriesAsync(string projectId)
+    {
+        try
+        {
+            _projectInventories.Clear();
+            _projectInventories.AddRange(await _projectInventoriesClient.ListAsync(projectId));
+            RefreshProjectInventoryView();
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("Load project inventories", ex);
+            _projectInventories.Clear();
+            RefreshProjectInventoryView();
+            ProjectInventoryStatusText.Text = "Could Not Load Project Inventories. See The Diagnostic Log.";
+        }
+    }
+
+    private async void CreateProjectInventory_Click(object? sender, RoutedEventArgs e) => await CreateProjectInventoryAsync();
+
+    internal async Task<bool> CreateProjectInventoryAsync()
+    {
+        if (_project is null)
+        {
+            ProjectInventoryStatusText.Text = "Select A Project Before Building An Inventory.";
+            return false;
+        }
+        CreateProjectInventoryButton.IsEnabled = false;
+        ProjectInventoryStatusText.Text = "Building A Factual Snapshot From The Current Project...";
+        try
+        {
+            var inventory = await _projectInventoriesClient.CreateAsync(_project.Id);
+            _projectInventories.RemoveAll(item => item.Id == inventory.Id);
+            _projectInventories.Add(inventory);
+            RefreshProjectInventoryView(inventory.Id);
+            ProjectInventoryStatusText.Text = $"Inventory Revision {inventory.Revision} Saved. It Describes Current Project State And Contains No AI Recommendations.";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("Create project inventory", ex);
+            ProjectInventoryStatusText.Text = "Could Not Build The Project Inventory. Existing Inventory History Was Not Changed.";
+            ProjectInventorySummaryText.Text = $"{ex.GetType().Name}: {ex.Message}\n\nDiagnostic Log: {AppLog.CurrentPath}";
+            return false;
+        }
+        finally
+        {
+            CreateProjectInventoryButton.IsEnabled = _project is not null;
+        }
+    }
+
+    private void ProjectInventoryList_SelectionChanged(object? sender, SelectionChangedEventArgs e) => RefreshProjectInventoryDetails();
+
+    private void RefreshProjectInventoryView(string? selectedId = null)
+    {
+        selectedId ??= (ProjectInventoryList.SelectedItem as ProjectInventoryListItem)?.Inventory.Id;
+        var items = _projectInventories.OrderByDescending(item => item.Revision).Select(item => new ProjectInventoryListItem(item)).ToArray();
+        ProjectInventoryList.ItemsSource = items;
+        ProjectInventoryList.SelectedIndex = selectedId is null ? (items.Length == 0 ? -1 : 0) : Array.FindIndex(items, item => item.Inventory.Id == selectedId);
+        CreateProjectInventoryButton.IsEnabled = _project is not null;
+        if (items.Length == 0)
+        {
+            ProjectInventoryStatusText.Text = _project is null ? "Load A Project To Build An Inventory." : "No Inventory Has Been Built For This Project.";
+            ProjectInventorySummaryText.Text = "Build An Inventory To Inspect The Current Rules, Schema, Content, Evaluation, And Publication Coverage.";
+            ProjectInventoryObservationList.ItemsSource = Array.Empty<string>();
+        }
+        else RefreshProjectInventoryDetails();
+    }
+
+    private void RefreshProjectInventoryDetails()
+    {
+        var inventory = (ProjectInventoryList.SelectedItem as ProjectInventoryListItem)?.Inventory;
+        if (inventory is null) return;
+        ProjectInventoryStatusText.Text = $"Inventory Revision {inventory.Revision}, Captured {inventory.CapturedAt.LocalDateTime:g}.";
+        var content = inventory.Schema.ContentTypes.Count == 0
+            ? "No Content Types"
+            : string.Join("\n", inventory.Schema.ContentTypes.Select(type =>
+                $"- {type.Name}: {type.CanonicalEntryCount} Canonical, {type.ProposalCount} Proposed, {type.AppliedProposalCount} Applied, Balance Profile: {(type.HasCurrentBalanceProfile ? "Yes" : "No")}"));
+        ProjectInventorySummaryText.Text =
+            $"Revision Bindings\nWorking Rules: {inventory.Binding.WorkingRuleSetId ?? "None"} / {inventory.Binding.WorkingRuleSetRevision?.ToString() ?? "-"}\nActive Schema: {inventory.Binding.ActiveSchemaId ?? "None"} / {inventory.Binding.ActiveSchemaRevision?.ToString() ?? "-"}\nGame Data: {inventory.Binding.GameDataId ?? "None"}\nLatest Publication: {inventory.Binding.LatestPublicationSnapshotId ?? "None"}\n\n" +
+            $"Sources\n{inventory.Sources.SourceCount} Source(s), {inventory.Sources.CompletedDraftCount} Completed Draft(s), {inventory.Sources.UnreferencedSourceIds.Count} Unreferenced Source(s)\n\n" +
+            $"Rules\n{inventory.Rules.RuleCount} Rule(s), {inventory.Rules.EvidenceBackedRuleCount} Evidence-Backed, {inventory.Rules.OpenQuestions.Count} Open Question(s), {inventory.Rules.Conflicts.Count} Conflict(s)\n\n" +
+            $"Schema And Content\n{inventory.Schema.ContentTypes.Count} Content Type(s), {inventory.Schema.ValidationCount} Validation(s), Proposal Differs From Active: {(inventory.Schema.ProposalDiffersFromActive ? "Yes" : "No")}\n{content}\n\n" +
+            $"Publication\n{inventory.Publication.SnapshotCount} Snapshot(s), {inventory.Publication.PublishedCanonicalEntryCount} Canonical Entry/Entries In Latest Snapshot";
+        ProjectInventoryObservationList.ItemsSource = inventory.Observations.Select(observation =>
+            $"{ObservationLabel(observation.Kind)} — {observation.Description}\nEvidence: {(observation.EvidenceIds.Count == 0 ? "Project State" : string.Join(", ", observation.EvidenceIds))}").ToArray();
+    }
+
+    private static string ObservationLabel(InventoryObservationKind kind) => kind switch
+    {
+        InventoryObservationKind.MissingFoundation => "Missing Foundation",
+        InventoryObservationKind.UnresolvedQuestion => "Unresolved Question",
+        InventoryObservationKind.Conflict => "Conflict",
+        InventoryObservationKind.MissingSourceTrace => "Missing Source Trace",
+        InventoryObservationKind.EmptyContentType => "Empty Content Type",
+        InventoryObservationKind.MissingEvaluationCoverage => "Missing Evaluation Coverage",
+        InventoryObservationKind.UnpublishedChanges => "Unpublished Changes",
+        _ => kind.ToString()
+    };
+
     private async Task LoadPublicationSnapshotsAsync(string projectId)
     {
         try
@@ -1703,6 +1807,7 @@ public partial class MainWindow : Window
         PublicationEditionSubtitleText.Text = string.Empty;
         _publicationSectionPlan.Clear();
         _publicationEntityPlan.Clear();
+        _projectInventories.Clear();
         RefreshPublicationPlanLists();
         RefreshPublicationEditorialView();
         RefreshSelectedPublicationView();
@@ -3316,6 +3421,11 @@ public partial class MainWindow : Window
         PublicationMarkdownText.Text = "No Publication Snapshot Or Edition Is Selected.";
         PublicationManifestText.Text = "No Manifest Is Selected.";
         PublicationStatusText.Text = "Load A Project To Build Or Review Publication Snapshots.";
+        ProjectInventoryList.ItemsSource = Array.Empty<ProjectInventoryListItem>();
+        ProjectInventoryObservationList.ItemsSource = Array.Empty<string>();
+        ProjectInventoryStatusText.Text = "Load A Project To Build An Inventory.";
+        ProjectInventorySummaryText.Text = "Build An Inventory To Inspect The Current Rules, Schema, Content, Evaluation, And Publication Coverage.";
+        CreateProjectInventoryButton.IsEnabled = false;
         CreatePublicationSnapshotButton.IsEnabled = false;
         ExportPublicationMarkdownButton.IsEnabled = false;
         ExportPublicationManifestButton.IsEnabled = false;
@@ -3453,6 +3563,11 @@ public partial class MainWindow : Window
     private sealed record PublicationSnapshotListItem(PublicationSnapshot Snapshot)
     {
         public override string ToString() => $"{Snapshot.CreatedAt.LocalDateTime:g} - Rules r{Snapshot.WorkingRuleSetRevision} / Schema r{Snapshot.ActiveGameSchemaRevision}";
+    }
+
+    private sealed record ProjectInventoryListItem(ProjectInventory Inventory)
+    {
+        public override string ToString() => $"Revision {Inventory.Revision} — {Inventory.CapturedAt.LocalDateTime:g}";
     }
     private sealed record PublicationEditionListItem(PublicationEdition Edition)
     {

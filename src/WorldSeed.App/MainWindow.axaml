@@ -50,6 +50,31 @@
           <Border Grid.Column="2" Padding="16"><Grid RowDefinitions="Auto,*,Auto,*" RowSpacing="10"><TextBlock Text="Proposal History" FontSize="20"/><ListBox Grid.Row="1" Name="ContentProposalList" SelectionChanged="ContentProposalList_SelectionChanged"/><TextBlock Grid.Row="2" Text="Decisions" FontSize="16"/><TextBox Grid.Row="3" Name="ContentProposalDecisionHistoryText" Text="No decisions recorded." IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Disabled"/></Grid></Border>
         </Grid>
       </TabItem>
+      <TabItem Header="Project Inventory">
+        <Grid ColumnDefinitions="280,*,420" ColumnSpacing="16">
+          <Border Padding="16">
+            <Grid RowDefinitions="Auto,Auto,Auto,*" RowSpacing="10">
+              <TextBlock Text="Inventory History" FontSize="20"/>
+              <TextBlock Grid.Row="1" Text="Each Inventory Is An Immutable Factual Snapshot. It Does Not Ask An AI What The Game Should Become." TextWrapping="Wrap" Opacity="0.75"/>
+              <Button Grid.Row="2" Name="CreateProjectInventoryButton" Content="Build Current Inventory" Click="CreateProjectInventory_Click"/>
+              <ListBox Grid.Row="3" Name="ProjectInventoryList" SelectionChanged="ProjectInventoryList_SelectionChanged"/>
+            </Grid>
+          </Border>
+          <Border Grid.Column="1" Padding="16">
+            <Grid RowDefinitions="Auto,*" RowSpacing="10">
+              <TextBlock Name="ProjectInventoryStatusText" Text="Load A Project To Build An Inventory." TextWrapping="Wrap"/>
+              <TextBox Grid.Row="1" Name="ProjectInventorySummaryText" Text="Build An Inventory To Inspect The Current Rules, Schema, Content, Evaluation, And Publication Coverage." IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Disabled"/>
+            </Grid>
+          </Border>
+          <Border Grid.Column="2" Padding="16">
+            <Grid RowDefinitions="Auto,Auto,*" RowSpacing="10">
+              <TextBlock Text="Factual Observations" FontSize="20"/>
+              <TextBlock Grid.Row="1" Text="These Are Directly Derived From Stored Project State. AI Recommendations And Designer Decisions Will Be Added In The Development Plan Stage." TextWrapping="Wrap" Opacity="0.75"/>
+              <ListBox Grid.Row="2" Name="ProjectInventoryObservationList"/>
+            </Grid>
+          </Border>
+        </Grid>
+      </TabItem>
       <TabItem Header="Publication">
         <Grid ColumnDefinitions="300,360,*" ColumnSpacing="12">
           <Border Padding="16"><Grid RowDefinitions="Auto,Auto,Auto,*,Auto,Auto" RowSpacing="10"><TextBlock Text="Publication Snapshots" FontSize="20"/><TextBlock Grid.Row="1" Text="Builds Human-Readable Markdown Deterministically From The Selected Working Rule Snapshot, Active Schema, And Valid Canonical Game Data. Drafts And Unapplied Proposals Are Excluded." TextWrapping="Wrap" Opacity="0.75"/><Button Grid.Row="2" Name="CreatePublicationSnapshotButton" Content="Create Current Snapshot" Click="CreatePublicationSnapshot_Click"/><ListBox Grid.Row="3" Name="PublicationSnapshotList" SelectionChanged="PublicationSnapshotList_SelectionChanged"/><Button Grid.Row="4" Name="ExportPublicationMarkdownButton" Content="Export Snapshot Markdown" Click="ExportPublicationMarkdown_Click"/><Button Grid.Row="5" Name="ExportPublicationManifestButton" Content="Export Snapshot Manifest" Click="ExportPublicationManifest_Click"/></Grid></Border>
