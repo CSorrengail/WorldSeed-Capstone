@@ -4,6 +4,7 @@ using WorldSeed.DesignSessions;
 using WorldSeed.GameData;
 using WorldSeed.Persistence.Mongo;
 using WorldSeed.Publication;
+using WorldSeed.ProjectPlanning;
 using WorldSeed.SchemaTranslation;
 using WorldSeed.WorkingRules;
 
@@ -40,6 +41,8 @@ builder.Services.AddSingleton<MongoPublicationEditionStore>();
 builder.Services.AddSingleton<IPublicationEditionStore>(services => services.GetRequiredService<MongoPublicationEditionStore>());
 builder.Services.AddSingleton<MongoPublicationEditorialStore>();
 builder.Services.AddSingleton<IPublicationEditorialStore>(services => services.GetRequiredService<MongoPublicationEditorialStore>());
+builder.Services.AddSingleton<MongoProjectInventoryStore>();
+builder.Services.AddSingleton<IProjectInventoryStore>(services => services.GetRequiredService<MongoProjectInventoryStore>());
 builder.Services.AddSingleton<WorkingRuleSetValidator>();
 builder.Services.AddCors(options => options.AddDefaultPolicy(policy => policy.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()));
 
@@ -59,6 +62,7 @@ using (var scope = app.Services.CreateScope())
     await scope.ServiceProvider.GetRequiredService<MongoPublicationSnapshotStore>().EnsureIndexesAsync();
     await scope.ServiceProvider.GetRequiredService<MongoPublicationEditionStore>().EnsureIndexesAsync();
     await scope.ServiceProvider.GetRequiredService<MongoPublicationEditorialStore>().EnsureIndexesAsync();
+    await scope.ServiceProvider.GetRequiredService<MongoProjectInventoryStore>().EnsureIndexesAsync();
 }
 
 app.MapGet("/health", async (MongoDesignProjectStore store, CancellationToken cancellationToken) =>
@@ -80,8 +84,9 @@ projects.MapPut("/{projectId}", async (string projectId, DesignProject project, 
     await store.SaveAsync(project, cancellationToken);
     return Results.NoContent();
 });
-projects.MapDelete("/{projectId}", async (string projectId, IDesignProjectStore store, IWorkingRuleSetStore ruleSets, IProjectSchemaProposalStore schemaProposals, IProjectSchemaChangeRequestStore schemaChangeRequests, IActiveGameSchemaStore activeSchemas, IProjectGameDataStore gameData, ISchemaTransitionStore schemaTransitions, IContentProposalStore contentProposals, IContentApplicationStore contentApplications, IContentBalanceProfileStore balanceProfiles, IPublicationSnapshotStore publications, IPublicationEditionStore publicationEditions, IPublicationEditorialStore publicationEditorial, CancellationToken cancellationToken) =>
+projects.MapDelete("/{projectId}", async (string projectId, IDesignProjectStore store, IWorkingRuleSetStore ruleSets, IProjectSchemaProposalStore schemaProposals, IProjectSchemaChangeRequestStore schemaChangeRequests, IActiveGameSchemaStore activeSchemas, IProjectGameDataStore gameData, ISchemaTransitionStore schemaTransitions, IContentProposalStore contentProposals, IContentApplicationStore contentApplications, IContentBalanceProfileStore balanceProfiles, IPublicationSnapshotStore publications, IPublicationEditionStore publicationEditions, IPublicationEditorialStore publicationEditorial, IProjectInventoryStore inventories, CancellationToken cancellationToken) =>
 {
+    await inventories.DeleteAsync(projectId, cancellationToken);
     await publicationEditorial.DeleteAsync(projectId, cancellationToken);
     await publicationEditions.DeleteAsync(projectId, cancellationToken);
     await publications.DeleteAsync(projectId, cancellationToken);
@@ -96,6 +101,45 @@ projects.MapDelete("/{projectId}", async (string projectId, IDesignProjectStore 
     await ruleSets.DeleteAsync(projectId, cancellationToken);
     await store.DeleteAsync(projectId, cancellationToken);
     return Results.NoContent();
+});
+
+projects.MapGet("/{projectId}/inventories", async (string projectId, IProjectInventoryStore store, CancellationToken cancellationToken) =>
+    Results.Ok(await store.ListAsync(projectId, cancellationToken)));
+projects.MapGet("/{projectId}/inventories/latest", async (string projectId, IProjectInventoryStore store, CancellationToken cancellationToken) =>
+{
+    var inventory = await store.LoadLatestAsync(projectId, cancellationToken);
+    return inventory is null ? Results.NotFound() : Results.Ok(inventory);
+});
+projects.MapPost("/{projectId}/inventories", async (
+    string projectId,
+    IDesignProjectStore projectsStore,
+    IWorkingRuleSetStore ruleSets,
+    IProjectSchemaProposalStore schemaProposals,
+    IActiveGameSchemaStore activeSchemas,
+    IProjectGameDataStore gameData,
+    IContentProposalStore contentProposals,
+    IContentApplicationStore contentApplications,
+    IContentBalanceProfileStore balanceProfiles,
+    IPublicationSnapshotStore publications,
+    IProjectInventoryStore inventories,
+    CancellationToken cancellationToken) =>
+{
+    var project = await projectsStore.LoadAsync(projectId, cancellationToken);
+    if (project is null) return Results.NotFound("The project does not exist.");
+    var input = new ProjectInventoryInput(
+        project,
+        await ruleSets.LoadAsync(projectId, cancellationToken),
+        await schemaProposals.LoadAsync(projectId, cancellationToken),
+        await activeSchemas.LoadAsync(projectId, cancellationToken),
+        await gameData.LoadAsync(projectId, cancellationToken),
+        await contentProposals.ListProposalsAsync(projectId, cancellationToken),
+        await contentProposals.ListDecisionsAsync(projectId, cancellationToken),
+        await contentApplications.ListAsync(projectId, cancellationToken),
+        await balanceProfiles.ListAsync(projectId, cancellationToken),
+        await publications.ListAsync(projectId, cancellationToken));
+    var inventory = ProjectInventoryService.Create(input, await inventories.LoadLatestAsync(projectId, cancellationToken), DateTimeOffset.UtcNow);
+    await inventories.SaveAsync(inventory, cancellationToken);
+    return Results.Ok(inventory);
 });
 
 projects.MapGet("/{projectId}/content-proposals", async (string projectId, IContentProposalStore store, IContentApplicationStore applications, CancellationToken cancellationToken) => Results.Ok(new { proposals = await store.ListProposalsAsync(projectId, cancellationToken), decisions = await store.ListDecisionsAsync(projectId, cancellationToken), applications = await applications.ListAsync(projectId, cancellationToken) }));

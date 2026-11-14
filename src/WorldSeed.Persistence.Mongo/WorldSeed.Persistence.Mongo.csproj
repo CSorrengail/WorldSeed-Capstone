@@ -7,6 +7,7 @@
   <ItemGroup>
     <ProjectReference Include="..\WorldSeed.Content\WorldSeed.Content.csproj" />
     <ProjectReference Include="..\WorldSeed.Publication\WorldSeed.Publication.csproj" />
+    <ProjectReference Include="..\WorldSeed.ProjectPlanning\WorldSeed.ProjectPlanning.csproj" />
     <PackageReference Include="MongoDB.Driver" Version="2.30.0" />
   </ItemGroup>
   <ItemGroup>
