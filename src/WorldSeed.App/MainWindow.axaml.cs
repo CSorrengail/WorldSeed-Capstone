@@ -502,7 +502,11 @@ public partial class MainWindow : Window
         StatusText.Text = $"Working on {note.Origin?.DisplayName ?? note.Id} with {model}. This can take a few seconds…";
         try
         {
-            var result = await service.AdvanceAsync(session);
+            var isExpansion = _expansionRequests.Any(item => item.SourceNoteId == note.Id);
+            var result = await service.AdvanceAsync(
+                session,
+                isExpansion ? ExpansionRequestService.ClarificationInstruction : null,
+                requireClarificationOnFirstTurn: isExpansion);
             if (_project is null) throw new InvalidOperationException("No project is selected.");
             _project = DesignProjectService.SaveSession(_project, result); await ProjectStore().SaveAsync(_project); await RefreshProjectsAsync(); RefreshNotes(); ShowSelectedSource();
             StatusText.Text = result.LatestTurn!.Action == RuleDraftAction.PresentDraft ? "Validated draft saved in this project. Review each rule and its exact source excerpt." : "Clarification needed; the project was saved locally. Answer the questions in the Conversation panel.";

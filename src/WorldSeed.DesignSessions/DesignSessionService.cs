@@ -39,11 +39,17 @@ public sealed class DesignSessionService
     }
 
     public async Task<DesignSession> AdvanceAsync(DesignSession session, CancellationToken cancellationToken = default)
+        => await AdvanceAsync(session, null, false, cancellationToken);
+
+    public async Task<DesignSession> AdvanceAsync(DesignSession session, string? workflowInstruction, bool requireClarificationOnFirstTurn, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(session);
         ValidateSession(session);
-        var conversation = new RuleDraftConversation(session.ProjectId, session.SourceNotes.Select(source => source.Id).ToArray(), session.Messages, session.SourceNotes.ToDictionary(source => source.Id, source => source.OriginalText, StringComparer.Ordinal));
+        var firstTurn = session.LatestTurn is null;
+        var conversation = new RuleDraftConversation(session.ProjectId, session.SourceNotes.Select(source => source.Id).ToArray(), session.Messages, session.SourceNotes.ToDictionary(source => source.Id, source => source.OriginalText, StringComparer.Ordinal), WorkflowInstruction: workflowInstruction);
         var result = await _ruleDrafting.AdvanceWithTranscriptAsync(conversation, cancellationToken);
+        if (firstTurn && requireClarificationOnFirstTurn && result.Turn.Action != RuleDraftAction.AskClarifyingQuestion)
+            throw new RuleDraftFormatException("An expansion request must begin with clarification before it can produce draft rules.");
         var messages = session.Messages.Append(new LlmMessage(LlmMessageRole.Assistant, result.RawModelResponse)).ToArray();
         return session with { Messages = messages, LatestTurn = result.Turn, UpdatedAt = _timeProvider.GetUtcNow() };
     }

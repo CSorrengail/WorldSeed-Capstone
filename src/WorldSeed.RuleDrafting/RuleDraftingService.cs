@@ -44,6 +44,8 @@ public sealed class RuleDraftingService
         var sourcePassages = conversation.SourcePassages ?? SourcePassageCatalog.Create(sourceTextById);
         if (sourcePassages.Any(passage => !allowedSourceNoteIds.Contains(passage.SourceNoteId) || string.IsNullOrWhiteSpace(passage.Id) || string.IsNullOrWhiteSpace(passage.Text))) throw new ArgumentException("Source passages must belong to available source notes and contain text.", nameof(conversation));
         var messages = new List<LlmMessage> { new(LlmMessageRole.System, SystemPrompt), new(LlmMessageRole.System, "Source material IDs for this turn: " + string.Join(", ", conversation.SourceMaterialIds)) };
+        if (!string.IsNullOrWhiteSpace(conversation.WorkflowInstruction))
+            messages.Add(new LlmMessage(LlmMessageRole.System, conversation.WorkflowInstruction.Trim()));
         if (sourcePassages.Count > 0) messages.Add(new LlmMessage(LlmMessageRole.System, "Source passages available for citation:\n" + string.Join("\n", sourcePassages.Select(passage => $"[{passage.Id} | {passage.SourceNoteId}] {passage.Text}"))));
         messages.AddRange(conversation.Messages);
         var response = await _client.CompleteAsync(new LlmChatRequest(

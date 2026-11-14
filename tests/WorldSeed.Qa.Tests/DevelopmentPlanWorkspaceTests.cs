@@ -69,6 +69,32 @@ public sealed class DevelopmentPlanWorkspaceTests
         finally { window.Close(); }
     }
 
+    [AvaloniaFact]
+    public async Task Accepted_recommendation_opens_a_traceable_expansion_source()
+    {
+        var inventory = Inventory();
+        var modelHandler = new SequencedOllamaHandler(PlanResponse("Resolve Reactions", null));
+        var apiHandler = new DevelopmentPlanApiHandler(inventory);
+        using var model = new HttpClient(modelHandler) { BaseAddress = new Uri("http://model.invalid/") };
+        using var api = new HttpClient(apiHandler) { BaseAddress = new Uri("http://qa.invalid/") };
+        var window = CreateWindow(model, api, inventory);
+        try
+        {
+            Assert.True(await window.GenerateDevelopmentPlanAsync());
+            Assert.True(await window.DecideDevelopmentRecommendationAsync(DevelopmentRecommendationDecisionKind.Accepted));
+            Assert.True(window.FindControl<Button>("StartExpansionRequestButton")!.IsEnabled);
+
+            Assert.True(await window.StartExpansionRequestAsync());
+
+            Assert.Equal(0, window.FindControl<TabControl>("WorkspaceTabs")!.SelectedIndex);
+            Assert.Contains("Expansion Request - Resolve Reactions", window.FindControl<TextBlock>("SourceText")!.Text);
+            Assert.Contains("Start The Selected Source To Begin Clarification", window.FindControl<TextBlock>("StatusText")!.Text);
+            Assert.Contains("No Rules Or Schema Were Changed", window.FindControl<TextBlock>("StatusText")!.Text);
+            Assert.Single(apiHandler.ExpansionRequests);
+        }
+        finally { window.Close(); }
+    }
+
     private static MainWindow CreateWindow(HttpClient model, HttpClient api, ProjectInventory inventory)
     {
         var window = new MainWindow(model, api);
@@ -142,14 +168,28 @@ public sealed class DevelopmentPlanWorkspaceTests
         public List<DevelopmentPlanProposal> SavedPlans { get; } = [];
         public List<DevelopmentPlanDecision> PlanDecisions { get; } = [];
         public List<DevelopmentRecommendationDecision> RecommendationDecisions { get; } = [];
+        public List<ExpansionRequest> ExpansionRequests { get; } = [];
+        private DesignProject Project { get; set; } = DesignProjectService.Create(inventory.ProjectId, "Planning Project");
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var path = request.RequestUri!.AbsolutePath;
+            if (request.Method == HttpMethod.Get && path == $"/api/projects/{inventory.ProjectId}")
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(Project, options: Options) };
             if (request.Method == HttpMethod.Put && path.Contains("/development-plans/", StringComparison.Ordinal))
             {
                 SavedPlans.Add((await request.Content!.ReadFromJsonAsync<DevelopmentPlanProposal>(Options, cancellationToken))!);
                 return new HttpResponseMessage(HttpStatusCode.NoContent);
+            }
+            if (request.Method == HttpMethod.Post && path.EndsWith("/expansion-request", StringComparison.Ordinal))
+            {
+                var plan = SavedPlans.Single(item => path.Contains(item.Id, StringComparison.Ordinal));
+                var recommendation = plan.Recommendations.Single(item => path.Contains(item.Id, StringComparison.Ordinal));
+                var acceptance = RecommendationDecisions.Last(item => item.PlanId == plan.Id && item.RecommendationId == recommendation.Id && item.Kind == DevelopmentRecommendationDecisionKind.Accepted);
+                var (expansion, source) = ExpansionRequestService.Create(Project, inventory, plan, recommendation, acceptance, inventory.CapturedAt.AddMinutes(2));
+                ExpansionRequests.Add(expansion);
+                Project = DesignProjectService.AddSources(Project, [source]);
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(expansion, options: Options) };
             }
             if (request.Method == HttpMethod.Post && path.Contains("/recommendations/", StringComparison.Ordinal) && path.EndsWith("/decisions", StringComparison.Ordinal))
             {

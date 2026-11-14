@@ -25,6 +25,21 @@ public class DesignSessionServiceTests
     }
 
     [Fact]
+    public async Task Expansion_workflow_requires_clarification_on_its_first_turn()
+    {
+        var model = new FakeModel("""{"action":"presentDraft","draft":{"title":"Magic","intent":"Define marks.","rules":[{"id":"marks","name":"Marks","kind":"rule","text":"Magic leaves marks.","sourceNoteIds":["source-001"],"sourceSupport":[{"sourceNoteId":"source-001","passageIds":["source-001:p001"]}]}],"concepts":[],"assumptions":[],"openQuestions":[],"exclusions":[]}}""");
+        var service = new DesignSessionService(new RuleDraftingService(model));
+        var source = new DesignSourceNote("source-001", "Magic leaves marks.", DateTimeOffset.UtcNow);
+        var session = service.Start("session-001", "project-001", "local-model", source);
+
+        var exception = await Assert.ThrowsAsync<RuleDraftFormatException>(() =>
+            service.AdvanceAsync(session, "Ask clarification before drafting.", true));
+
+        Assert.Contains("must begin with clarification", exception.Message);
+        Assert.Contains(model.Request!.Messages, message => message.Content == "Ask clarification before drafting.");
+    }
+
+    [Fact]
     public async Task Saves_and_loads_a_session_without_storing_a_secret()
     {
         var directory = Path.Combine(Path.GetTempPath(), "worldseed-design-session-tests", Guid.NewGuid().ToString("N"));
