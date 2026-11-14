@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\WorldSeed.Content\WorldSeed.Content.csproj" />
+    <ProjectReference Include="..\WorldSeed.DesignSessions\WorldSeed.DesignSessions.csproj" />
+    <ProjectReference Include="..\WorldSeed.GameData\WorldSeed.GameData.csproj" />
+    <ProjectReference Include="..\WorldSeed.Publication\WorldSeed.Publication.csproj" />
+    <ProjectReference Include="..\WorldSeed.SchemaTranslation\WorldSeed.SchemaTranslation.csproj" />
+    <ProjectReference Include="..\WorldSeed.WorkingRules\WorldSeed.WorkingRules.csproj" />
+  </ItemGroup>
+</Project>
