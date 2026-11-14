@@ -45,6 +45,8 @@ builder.Services.AddSingleton<MongoProjectInventoryStore>();
 builder.Services.AddSingleton<IProjectInventoryStore>(services => services.GetRequiredService<MongoProjectInventoryStore>());
 builder.Services.AddSingleton<MongoDevelopmentPlanStore>();
 builder.Services.AddSingleton<IDevelopmentPlanStore>(services => services.GetRequiredService<MongoDevelopmentPlanStore>());
+builder.Services.AddSingleton<MongoExpansionRequestStore>();
+builder.Services.AddSingleton<IExpansionRequestStore>(services => services.GetRequiredService<MongoExpansionRequestStore>());
 builder.Services.AddSingleton<WorkingRuleSetValidator>();
 builder.Services.AddCors(options => options.AddDefaultPolicy(policy => policy.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()));
 
@@ -66,6 +68,7 @@ using (var scope = app.Services.CreateScope())
     await scope.ServiceProvider.GetRequiredService<MongoPublicationEditorialStore>().EnsureIndexesAsync();
     await scope.ServiceProvider.GetRequiredService<MongoProjectInventoryStore>().EnsureIndexesAsync();
     await scope.ServiceProvider.GetRequiredService<MongoDevelopmentPlanStore>().EnsureIndexesAsync();
+    await scope.ServiceProvider.GetRequiredService<MongoExpansionRequestStore>().EnsureIndexesAsync();
 }
 
 app.MapGet("/health", async (MongoDesignProjectStore store, CancellationToken cancellationToken) =>
@@ -87,8 +90,9 @@ projects.MapPut("/{projectId}", async (string projectId, DesignProject project, 
     await store.SaveAsync(project, cancellationToken);
     return Results.NoContent();
 });
-projects.MapDelete("/{projectId}", async (string projectId, IDesignProjectStore store, IWorkingRuleSetStore ruleSets, IProjectSchemaProposalStore schemaProposals, IProjectSchemaChangeRequestStore schemaChangeRequests, IActiveGameSchemaStore activeSchemas, IProjectGameDataStore gameData, ISchemaTransitionStore schemaTransitions, IContentProposalStore contentProposals, IContentApplicationStore contentApplications, IContentBalanceProfileStore balanceProfiles, IPublicationSnapshotStore publications, IPublicationEditionStore publicationEditions, IPublicationEditorialStore publicationEditorial, IProjectInventoryStore inventories, IDevelopmentPlanStore developmentPlans, CancellationToken cancellationToken) =>
+projects.MapDelete("/{projectId}", async (string projectId, IDesignProjectStore store, IWorkingRuleSetStore ruleSets, IProjectSchemaProposalStore schemaProposals, IProjectSchemaChangeRequestStore schemaChangeRequests, IActiveGameSchemaStore activeSchemas, IProjectGameDataStore gameData, ISchemaTransitionStore schemaTransitions, IContentProposalStore contentProposals, IContentApplicationStore contentApplications, IContentBalanceProfileStore balanceProfiles, IPublicationSnapshotStore publications, IPublicationEditionStore publicationEditions, IPublicationEditorialStore publicationEditorial, IProjectInventoryStore inventories, IDevelopmentPlanStore developmentPlans, IExpansionRequestStore expansionRequests, CancellationToken cancellationToken) =>
 {
+    await expansionRequests.DeleteAsync(projectId, cancellationToken);
     await developmentPlans.DeleteAsync(projectId, cancellationToken);
     await inventories.DeleteAsync(projectId, cancellationToken);
     await publicationEditorial.DeleteAsync(projectId, cancellationToken);
@@ -107,12 +111,13 @@ projects.MapDelete("/{projectId}", async (string projectId, IDesignProjectStore 
     return Results.NoContent();
 });
 
-projects.MapGet("/{projectId}/development-plans", async (string projectId, IDevelopmentPlanStore store, CancellationToken cancellationToken) =>
+projects.MapGet("/{projectId}/development-plans", async (string projectId, IDevelopmentPlanStore store, IExpansionRequestStore expansionRequests, CancellationToken cancellationToken) =>
     Results.Ok(new
     {
         plans = await store.ListPlansAsync(projectId, cancellationToken),
         planDecisions = await store.ListPlanDecisionsAsync(projectId, cancellationToken),
-        recommendationDecisions = await store.ListRecommendationDecisionsAsync(projectId, cancellationToken)
+        recommendationDecisions = await store.ListRecommendationDecisionsAsync(projectId, cancellationToken),
+        expansionRequests = await expansionRequests.ListAsync(projectId, cancellationToken)
     }));
 projects.MapPut("/{projectId}/development-plans/{planId}", async (string projectId, string planId, DevelopmentPlanProposal plan, IDesignProjectStore projectsStore, IProjectInventoryStore inventories, IDevelopmentPlanStore plans, CancellationToken cancellationToken) =>
 {
@@ -145,6 +150,52 @@ projects.MapPost("/{projectId}/development-plans/{planId}/recommendations/{recom
     catch (ArgumentException exception) { return Results.BadRequest(exception.Message); }
     await store.SaveRecommendationDecisionAsync(decision, cancellationToken);
     return Results.Ok(decision);
+});
+projects.MapPost("/{projectId}/development-plans/{planId}/recommendations/{recommendationId}/expansion-request", async (
+    string projectId,
+    string planId,
+    string recommendationId,
+    IDesignProjectStore projectsStore,
+    IProjectInventoryStore inventories,
+    IDevelopmentPlanStore plans,
+    IExpansionRequestStore expansionRequests,
+    CancellationToken cancellationToken) =>
+{
+    var project = await projectsStore.LoadAsync(projectId, cancellationToken);
+    var plan = await plans.LoadPlanAsync(projectId, planId, cancellationToken);
+    if (project is null || plan is null) return Results.NotFound("The project or development plan does not exist.");
+    var recommendation = plan.Recommendations.SingleOrDefault(item => item.Id == recommendationId);
+    if (recommendation is null) return Results.NotFound("The recommendation does not exist in this plan.");
+
+    var allPlans = await plans.ListPlansAsync(projectId, cancellationToken);
+    if (allPlans.Any(item => item.ReplacesPlanId == plan.Id))
+        return Results.Conflict("This plan has been replaced. Accept a recommendation from the current plan instead.");
+    var latestInventory = await inventories.LoadLatestAsync(projectId, cancellationToken);
+    if (latestInventory is null || latestInventory.Id != plan.InventoryId || latestInventory.Revision != plan.InventoryRevision)
+        return Results.Conflict("This plan uses an older inventory. Build and review a current plan before starting expansion.");
+    var latestPlanDecision = (await plans.ListPlanDecisionsAsync(projectId, cancellationToken))
+        .Where(item => item.PlanId == plan.Id).OrderByDescending(item => item.CreatedAt).FirstOrDefault();
+    if (latestPlanDecision?.Kind is DevelopmentPlanDecisionKind.Rejected or DevelopmentPlanDecisionKind.RevisionRequested)
+        return Results.Conflict("A rejected plan or a plan awaiting revision cannot start expansion.");
+    var acceptance = (await plans.ListRecommendationDecisionsAsync(projectId, cancellationToken))
+        .Where(item => item.PlanId == plan.Id && item.RecommendationId == recommendationId)
+        .OrderByDescending(item => item.CreatedAt).FirstOrDefault();
+    if (acceptance?.Kind != DevelopmentRecommendationDecisionKind.Accepted)
+        return Results.Conflict("Accept the current recommendation before starting expansion.");
+
+    var existing = await expansionRequests.LoadByAcceptanceDecisionAsync(projectId, acceptance.Id, cancellationToken);
+    if (existing is not null) return Results.Ok(existing);
+    ExpansionRequest request;
+    DesignSourceNote source;
+    try { (request, source) = ExpansionRequestService.Create(project, latestInventory, plan, recommendation, acceptance, DateTimeOffset.UtcNow); }
+    catch (ArgumentException exception) { return Results.BadRequest(exception.Message); }
+    if (!project.SourceNotes.Any(item => item.Id == source.Id))
+    {
+        project = DesignProjectService.AddSources(project, [source]);
+        await projectsStore.SaveAsync(project, cancellationToken);
+    }
+    await expansionRequests.SaveAsync(request, cancellationToken);
+    return Results.Ok(request);
 });
 
 projects.MapGet("/{projectId}/inventories", async (string projectId, IProjectInventoryStore store, CancellationToken cancellationToken) =>

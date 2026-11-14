@@ -1,3 +1,4 @@
+using WorldSeed.DesignSessions;
 using WorldSeed.LlmIntegration;
 using WorldSeed.ProjectPlanning;
 
@@ -59,6 +60,45 @@ public sealed class DevelopmentPlanServiceTests
         Assert.Equal(DevelopmentPlanDecisionKind.RevisionRequested, planDecision.Kind);
         Assert.Equal(DevelopmentRecommendationDecisionKind.Deferred, itemDecision.Kind);
         Assert.Equal(recommendation.Id, itemDecision.RecommendationId);
+    }
+
+    [Fact]
+    public void Creates_an_inventory_bound_expansion_source_only_from_an_accepted_recommendation()
+    {
+        var inventory = Inventory();
+        var project = DesignProjectService.Create(inventory.ProjectId, "Planning Project");
+        var recommendation = Recommendation();
+        var plan = DevelopmentPlanService.Create(inventory, "Plan", [], [recommendation], null, Now);
+        var acceptance = DevelopmentPlanService.DecideRecommendation(
+            plan, recommendation.Id, DevelopmentRecommendationDecisionKind.Accepted,
+            "Keep reactions optional for the first pass.", Now);
+
+        var (request, source) = ExpansionRequestService.Create(project, inventory, plan, recommendation, acceptance, Now);
+
+        Assert.Equal(inventory.Id, request.InventoryId);
+        Assert.Equal(plan.Id, request.PlanId);
+        Assert.Equal(acceptance.Id, request.AcceptanceDecisionId);
+        Assert.Equal(source.Id, request.SourceNoteId);
+        Assert.Contains("not approve any new mechanic", source.OriginalText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("How are reactions resolved?", source.OriginalText);
+        Assert.Contains("Keep reactions optional", source.OriginalText);
+        Assert.Contains("first turn", ExpansionRequestService.ClarificationInstruction, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Refuses_to_expand_a_rejected_recommendation()
+    {
+        var inventory = Inventory();
+        var project = DesignProjectService.Create(inventory.ProjectId, "Planning Project");
+        var recommendation = Recommendation();
+        var plan = DevelopmentPlanService.Create(inventory, "Plan", [], [recommendation], null, Now);
+        var rejection = DevelopmentPlanService.DecideRecommendation(
+            plan, recommendation.Id, DevelopmentRecommendationDecisionKind.Rejected, null, Now);
+
+        var exception = Assert.Throws<ArgumentException>(() =>
+            ExpansionRequestService.Create(project, inventory, plan, recommendation, rejection, Now));
+
+        Assert.Contains("explicitly accepted", exception.Message);
     }
 
     private static ProjectInventory Inventory() => new(
