@@ -13,7 +13,7 @@ internal sealed class HttpDevelopmentPlanClient(HttpClient http)
     {
         using var response = await _http.GetAsync($"api/projects/{Uri.EscapeDataString(projectId)}/development-plans", cancellationToken);
         await EnsureSuccessAsync(response, cancellationToken);
-        return await response.Content.ReadFromJsonAsync<DevelopmentPlanWorkspace>(JsonOptions, cancellationToken) ?? new([], [], [], []);
+        return await response.Content.ReadFromJsonAsync<DevelopmentPlanWorkspace>(JsonOptions, cancellationToken) ?? new([], [], [], [], []);
     }
 
     public async Task SavePlanAsync(DevelopmentPlanProposal plan, CancellationToken cancellationToken = default)
@@ -54,4 +54,5 @@ internal sealed record DevelopmentPlanWorkspace(
     IReadOnlyList<DevelopmentPlanProposal> Plans,
     IReadOnlyList<DevelopmentPlanDecision> PlanDecisions,
     IReadOnlyList<DevelopmentRecommendationDecision> RecommendationDecisions,
-    IReadOnlyList<ExpansionRequest> ExpansionRequests);
+    IReadOnlyList<ExpansionRequest> ExpansionRequests,
+    IReadOnlyList<ExpansionRequestProgress> ExpansionProgress);

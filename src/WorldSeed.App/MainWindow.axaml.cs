@@ -66,6 +66,7 @@ public partial class MainWindow : Window
     private readonly List<DevelopmentPlanDecision> _developmentPlanDecisions = [];
     private readonly List<DevelopmentRecommendationDecision> _developmentRecommendationDecisions = [];
     private readonly List<ExpansionRequest> _expansionRequests = [];
+    private readonly List<ExpansionRequestProgress> _expansionProgress = [];
     private int _projectLoadGeneration;
     private bool _updatingProjectSelector;
     private string? _pendingDeletionProjectId;
@@ -509,6 +510,7 @@ public partial class MainWindow : Window
                 requireClarificationOnFirstTurn: isExpansion);
             if (_project is null) throw new InvalidOperationException("No project is selected.");
             _project = DesignProjectService.SaveSession(_project, result); await ProjectStore().SaveAsync(_project); await RefreshProjectsAsync(); RefreshNotes(); ShowSelectedSource();
+            await LoadDevelopmentPlansAsync(_project.Id);
             StatusText.Text = result.LatestTurn!.Action == RuleDraftAction.PresentDraft ? "Validated draft saved in this project. Review each rule and its exact source excerpt." : "Clarification needed; the project was saved locally. Answer the questions in the Conversation panel.";
         }
         catch (RuleDraftFormatException ex) { AppLog.Error("Validate model draft", ex); StatusText.Text = "The model returned text WorldSeed could not safely use. Nothing was saved."; DraftText.Text = $"Format detail: {ex.Message}\n\nRaw model output (for diagnosis):\n{Preview(capture.Last?.Content)}"; }
@@ -574,6 +576,7 @@ public partial class MainWindow : Window
             var result = await new WorkingRuleSetFormalizationService(capture).CreateProposalAsync(_project, _workingRuleSet);
             await WorkingRuleStore().SaveAsync(result.RuleSet);
             _workingRuleSet = result.RuleSet;
+            await LoadDevelopmentPlansAsync(_project.Id);
             _schemaProposal = null;
             _schemaTransitionReview = null;
             _schemaQueueRuleIds.Clear();
@@ -1754,12 +1757,13 @@ public partial class MainWindow : Window
             _developmentPlanDecisions.Clear(); _developmentPlanDecisions.AddRange(workspace.PlanDecisions);
             _developmentRecommendationDecisions.Clear(); _developmentRecommendationDecisions.AddRange(workspace.RecommendationDecisions);
             _expansionRequests.Clear(); _expansionRequests.AddRange(workspace.ExpansionRequests);
+            _expansionProgress.Clear(); _expansionProgress.AddRange(workspace.ExpansionProgress);
             RefreshDevelopmentPlanView();
         }
         catch (Exception ex)
         {
             AppLog.Error("Load development plans", ex);
-            _developmentPlans.Clear(); _developmentPlanDecisions.Clear(); _developmentRecommendationDecisions.Clear(); _expansionRequests.Clear();
+            _developmentPlans.Clear(); _developmentPlanDecisions.Clear(); _developmentRecommendationDecisions.Clear(); _expansionRequests.Clear(); _expansionProgress.Clear();
             RefreshDevelopmentPlanView();
             DevelopmentPlanStatusText.Text = "Could Not Load Development Plans. See The Diagnostic Log.";
         }
@@ -1855,12 +1859,30 @@ public partial class MainWindow : Window
             var request = await _developmentPlansClient.StartExpansionAsync(_project.Id, plan.Id, recommendation.Id);
             if (_expansionRequests.All(item => item.Id != request.Id)) _expansionRequests.Add(request);
             _project = await ProjectStore().LoadAsync(_project.Id) ?? throw new InvalidOperationException("The updated project could not be reloaded.");
+            await LoadDevelopmentPlansAsync(_project.Id);
             RefreshNotes();
-            SourceNotesList.SelectedIndex = _project.SourceNotes.ToList().FindIndex(item => item.Id == request.SourceNoteId);
-            WorkspaceTabs.SelectedIndex = 0;
-            ShowSelectedSource();
-            StatusText.Text = $"Expansion Request '{request.Title}' Is Ready. Start The Selected Source To Begin Clarification; No Rules Or Schema Were Changed.";
-            DevelopmentPlanStatusText.Text = "Expansion Request Created And Opened On The Sources Tab.";
+            var progress = _expansionProgress.FirstOrDefault(item => item.RequestId == request.Id);
+            if (progress?.Stage == ExpansionProgressStage.WorkingRulesIncorporated)
+            {
+                WorkspaceTabs.SelectedIndex = 1;
+                var firstRule = progress.WorkingRuleIds.FirstOrDefault();
+                WorkingRuleList.SelectedIndex = firstRule is null ? -1 : _workingRules.FindIndex(item => item.Id == firstRule);
+                WorkingRulesStatusText.Text = $"Expansion '{request.Title}' Is Incorporated In Working Rule Set Revision {progress.WorkingRuleSetRevision}.";
+                DevelopmentPlanStatusText.Text = "Opened The Incorporated Working Rules. No Schema Or Canonical Content Was Changed.";
+            }
+            else
+            {
+                SourceNotesList.SelectedIndex = _project.SourceNotes.ToList().FindIndex(item => item.Id == request.SourceNoteId);
+                WorkspaceTabs.SelectedIndex = 0;
+                ShowSelectedSource();
+                StatusText.Text = progress?.Stage switch
+                {
+                    ExpansionProgressStage.ClarificationInProgress => $"Expansion Request '{request.Title}' Is Waiting For Clarification Answers.",
+                    ExpansionProgressStage.DraftReady => $"Expansion Request '{request.Title}' Has A Reviewable Source Draft. Build The Working Proposal When Ready.",
+                    _ => $"Expansion Request '{request.Title}' Is Ready. Start The Selected Source To Begin Clarification; No Rules Or Schema Were Changed."
+                };
+                DevelopmentPlanStatusText.Text = "Expansion Request Opened On The Sources Tab.";
+            }
             RefreshDevelopmentPlanDetails();
             return true;
         }
@@ -1957,16 +1979,31 @@ public partial class MainWindow : Window
     {
         var plan = SelectedDevelopmentPlan;
         var recommendation = SelectedDevelopmentRecommendation;
-        var requests = plan is null ? [] : _expansionRequests.Where(item => item.PlanId == plan.Id).OrderByDescending(item => item.CreatedAt).Select(item => new ExpansionRequestListItem(item)).ToArray();
+        var requests = plan is null ? [] : _expansionRequests.Where(item => item.PlanId == plan.Id).OrderByDescending(item => item.CreatedAt).Select(item => new ExpansionRequestListItem(item, _expansionProgress.FirstOrDefault(progress => progress.RequestId == item.Id))).ToArray();
         ExpansionRequestList.ItemsSource = requests;
         var latestDecision = plan is null || recommendation is null ? null : LatestRecommendationDecision(plan.Id, recommendation.Id);
         var request = recommendation is null ? null : _expansionRequests.FirstOrDefault(item => item.PlanId == plan?.Id && item.RecommendationId == recommendation.Id && item.AcceptanceDecisionId == latestDecision?.Id);
+        var progress = request is null ? null : _expansionProgress.FirstOrDefault(item => item.RequestId == request.Id);
         StartExpansionRequestButton.IsEnabled = latestDecision?.Kind == DevelopmentRecommendationDecisionKind.Accepted;
-        StartExpansionRequestButton.Content = request is null ? "Start Expansion Request" : "Open Expansion Source";
+        StartExpansionRequestButton.Content = progress?.Stage switch
+        {
+            ExpansionProgressStage.ClarificationInProgress => "Continue Clarification",
+            ExpansionProgressStage.DraftReady => "Review Source Draft",
+            ExpansionProgressStage.WorkingRulesIncorporated => "View Incorporated Rules",
+            _ => request is null ? "Start Expansion Request" : "Open Expansion Source"
+        };
         ExpansionRequestStatusText.Text = request is null
             ? latestDecision?.Kind == DevelopmentRecommendationDecisionKind.Accepted ? "Accepted And Ready To Start." : "Accept The Selected Recommendation Before Starting Expansion."
-            : $"Created From Inventory Revision {request.InventoryRevision}. No Canonical Rules Or Content Were Changed.";
+            : DescribeExpansionProgress(request, progress);
     }
+
+    private static string DescribeExpansionProgress(ExpansionRequest request, ExpansionRequestProgress? progress) => progress?.Stage switch
+    {
+        ExpansionProgressStage.ClarificationInProgress => $"Clarification In Progress From Inventory Revision {request.InventoryRevision}.",
+        ExpansionProgressStage.DraftReady => $"Source Draft Ready With {progress.DraftRuleCount} Proposed Rule(s). It Is Not Yet In The Working Rule Set.",
+        ExpansionProgressStage.WorkingRulesIncorporated => $"Incorporated Into Working Rule Set Revision {progress.WorkingRuleSetRevision}: {string.Join(", ", progress.WorkingRuleIds)}.",
+        _ => $"Ready For Clarification From Inventory Revision {request.InventoryRevision}. No Canonical Rules Or Content Were Changed."
+    };
 
     private DevelopmentRecommendationDecision? LatestRecommendationDecision(string planId, string recommendationId) => _developmentRecommendationDecisions
         .Where(item => item.PlanId == planId && item.RecommendationId == recommendationId).OrderByDescending(item => item.CreatedAt).FirstOrDefault();
@@ -2067,6 +2104,7 @@ public partial class MainWindow : Window
         _developmentPlanDecisions.Clear();
         _developmentRecommendationDecisions.Clear();
         _expansionRequests.Clear();
+        _expansionProgress.Clear();
         RefreshPublicationPlanLists();
         RefreshPublicationEditorialView();
         RefreshSelectedPublicationView();
@@ -3848,9 +3886,9 @@ public partial class MainWindow : Window
     {
         public override string ToString() => $"{Recommendation.Priority} — {Recommendation.Title} — {Decision?.ToString() ?? "Undecided"}";
     }
-    private sealed record ExpansionRequestListItem(ExpansionRequest Request)
+    private sealed record ExpansionRequestListItem(ExpansionRequest Request, ExpansionRequestProgress? Progress)
     {
-        public override string ToString() => $"{Request.Title} — Inventory r{Request.InventoryRevision}";
+        public override string ToString() => $"{Request.Title} - {Progress?.Stage.ToString() ?? "Status Unavailable"}";
     }
     private sealed record PublicationEditionListItem(PublicationEdition Edition)
     {
