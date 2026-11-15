@@ -62,6 +62,15 @@ public sealed record ContentExpansionRunProgress(
     public bool IsComplete => Stages.Count > 0 && Stages.All(stage => stage.State == ContentExpansionStageState.Complete);
 }
 
+public sealed record ContentExpansionRunCreationRequest(
+    string Name,
+    IReadOnlyList<ContentExpansionStage> Stages);
+
+public sealed record ContentExpansionRunWorkspaceItem(
+    ContentExpansionRun Run,
+    IReadOnlyList<ContentExpansionProposalLink> ProposalLinks,
+    ContentExpansionRunProgress Progress);
+
 public interface IContentExpansionRunStore
 {
     Task SaveRunAsync(ContentExpansionRun run, CancellationToken cancellationToken = default);
@@ -193,6 +202,18 @@ public static class ContentExpansionRunService
         return new ContentExpansionProposalLink(
             $"content-expansion-link-{run.Id}-{stage.Id}-{ordinal}", run.ProjectId, run.Id, stage.Id, ordinal,
             proposal.Id, proposal.Version, now);
+    }
+
+    public static void ValidateStoredRun(ContentExpansionRun run, ActiveGameSchema activeSchema, string workingRuleSetId, int workingRuleSetRevision)
+    {
+        ArgumentNullException.ThrowIfNull(run);
+        var validated = Create(run.ProjectId, run.Name, activeSchema, workingRuleSetId, workingRuleSetRevision, run.Stages, run.CreatedAt);
+        if (!string.Equals(run.FormatVersion, FormatVersion, StringComparison.Ordinal)
+            || !string.Equals(run.ActiveGameSchemaId, validated.ActiveGameSchemaId, StringComparison.Ordinal)
+            || run.ActiveGameSchemaRevision != validated.ActiveGameSchemaRevision
+            || !string.Equals(run.WorkingRuleSetId, validated.WorkingRuleSetId, StringComparison.Ordinal)
+            || run.WorkingRuleSetRevision != validated.WorkingRuleSetRevision)
+            throw new ArgumentException("The expansion run does not match the current schema and Working Rule Set revisions.", nameof(run));
     }
 
     private static void ValidateStages(ActiveGameSchema schema, IReadOnlyList<ContentExpansionStage> stages)

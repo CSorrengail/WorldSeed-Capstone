@@ -47,6 +47,8 @@ builder.Services.AddSingleton<MongoDevelopmentPlanStore>();
 builder.Services.AddSingleton<IDevelopmentPlanStore>(services => services.GetRequiredService<MongoDevelopmentPlanStore>());
 builder.Services.AddSingleton<MongoExpansionRequestStore>();
 builder.Services.AddSingleton<IExpansionRequestStore>(services => services.GetRequiredService<MongoExpansionRequestStore>());
+builder.Services.AddSingleton<MongoContentExpansionRunStore>();
+builder.Services.AddSingleton<IContentExpansionRunStore>(services => services.GetRequiredService<MongoContentExpansionRunStore>());
 builder.Services.AddSingleton<WorkingRuleSetValidator>();
 builder.Services.AddCors(options => options.AddDefaultPolicy(policy => policy.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()));
 
@@ -69,6 +71,7 @@ using (var scope = app.Services.CreateScope())
     await scope.ServiceProvider.GetRequiredService<MongoProjectInventoryStore>().EnsureIndexesAsync();
     await scope.ServiceProvider.GetRequiredService<MongoDevelopmentPlanStore>().EnsureIndexesAsync();
     await scope.ServiceProvider.GetRequiredService<MongoExpansionRequestStore>().EnsureIndexesAsync();
+    await scope.ServiceProvider.GetRequiredService<MongoContentExpansionRunStore>().EnsureIndexesAsync();
 }
 
 app.MapGet("/health", async (MongoDesignProjectStore store, CancellationToken cancellationToken) =>
@@ -90,8 +93,9 @@ projects.MapPut("/{projectId}", async (string projectId, DesignProject project, 
     await store.SaveAsync(project, cancellationToken);
     return Results.NoContent();
 });
-projects.MapDelete("/{projectId}", async (string projectId, IDesignProjectStore store, IWorkingRuleSetStore ruleSets, IProjectSchemaProposalStore schemaProposals, IProjectSchemaChangeRequestStore schemaChangeRequests, IActiveGameSchemaStore activeSchemas, IProjectGameDataStore gameData, ISchemaTransitionStore schemaTransitions, IContentProposalStore contentProposals, IContentApplicationStore contentApplications, IContentBalanceProfileStore balanceProfiles, IPublicationSnapshotStore publications, IPublicationEditionStore publicationEditions, IPublicationEditorialStore publicationEditorial, IProjectInventoryStore inventories, IDevelopmentPlanStore developmentPlans, IExpansionRequestStore expansionRequests, CancellationToken cancellationToken) =>
+projects.MapDelete("/{projectId}", async (string projectId, IDesignProjectStore store, IWorkingRuleSetStore ruleSets, IProjectSchemaProposalStore schemaProposals, IProjectSchemaChangeRequestStore schemaChangeRequests, IActiveGameSchemaStore activeSchemas, IProjectGameDataStore gameData, ISchemaTransitionStore schemaTransitions, IContentProposalStore contentProposals, IContentApplicationStore contentApplications, IContentBalanceProfileStore balanceProfiles, IPublicationSnapshotStore publications, IPublicationEditionStore publicationEditions, IPublicationEditorialStore publicationEditorial, IProjectInventoryStore inventories, IDevelopmentPlanStore developmentPlans, IExpansionRequestStore expansionRequests, IContentExpansionRunStore contentExpansionRuns, CancellationToken cancellationToken) =>
 {
+    await contentExpansionRuns.DeleteAsync(projectId, cancellationToken);
     await expansionRequests.DeleteAsync(projectId, cancellationToken);
     await developmentPlans.DeleteAsync(projectId, cancellationToken);
     await inventories.DeleteAsync(projectId, cancellationToken);
@@ -269,6 +273,70 @@ projects.MapPost("/{projectId}/inventories", async (
 });
 
 projects.MapGet("/{projectId}/content-proposals", async (string projectId, IContentProposalStore store, IContentApplicationStore applications, CancellationToken cancellationToken) => Results.Ok(new { proposals = await store.ListProposalsAsync(projectId, cancellationToken), decisions = await store.ListDecisionsAsync(projectId, cancellationToken), applications = await applications.ListAsync(projectId, cancellationToken) }));
+projects.MapGet("/{projectId}/content-expansion-runs", async (
+    string projectId,
+    IContentExpansionRunStore runs,
+    IContentProposalStore proposals,
+    IContentApplicationStore applications,
+    CancellationToken cancellationToken) =>
+{
+    var allProposals = await proposals.ListProposalsAsync(projectId, cancellationToken);
+    var allApplications = await applications.ListAsync(projectId, cancellationToken);
+    var result = new List<ContentExpansionRunWorkspaceItem>();
+    foreach (var run in await runs.ListRunsAsync(projectId, cancellationToken))
+    {
+        var links = await runs.ListProposalLinksAsync(projectId, run.Id, cancellationToken);
+        result.Add(new ContentExpansionRunWorkspaceItem(run, links, ContentExpansionRunService.Evaluate(run, links, allProposals, allApplications)));
+    }
+    return Results.Ok(result);
+});
+projects.MapPost("/{projectId}/content-expansion-runs", async (
+    string projectId,
+    ContentExpansionRunCreationRequest request,
+    IDesignProjectStore projectsStore,
+    IActiveGameSchemaStore activeSchemas,
+    IWorkingRuleSetStore ruleSets,
+    IContentExpansionRunStore runs,
+    CancellationToken cancellationToken) =>
+{
+    if (await projectsStore.LoadAsync(projectId, cancellationToken) is null) return Results.NotFound("The project does not exist.");
+    var schema = await activeSchemas.LoadAsync(projectId, cancellationToken);
+    var workingRules = await ruleSets.LoadAsync(projectId, cancellationToken);
+    if (schema is null || workingRules is null) return Results.Conflict("A current active schema and Working Rule Set are required before planning content expansion.");
+    try
+    {
+        var run = ContentExpansionRunService.Create(projectId, request.Name, schema, workingRules.Id, workingRules.Revision, request.Stages, DateTimeOffset.UtcNow);
+        await runs.SaveRunAsync(run, cancellationToken);
+        return Results.Ok(run);
+    }
+    catch (ArgumentException exception) { return Results.BadRequest(exception.Message); }
+});
+projects.MapPost("/{projectId}/content-expansion-runs/{runId}/stages/{stageId}/proposals/{proposalId}", async (
+    string projectId,
+    string runId,
+    string stageId,
+    string proposalId,
+    IContentExpansionRunStore runs,
+    IContentProposalStore proposals,
+    IContentApplicationStore applications,
+    CancellationToken cancellationToken) =>
+{
+    var run = await runs.LoadRunAsync(projectId, runId, cancellationToken);
+    var proposal = await proposals.LoadProposalAsync(projectId, proposalId, cancellationToken);
+    if (run is null || proposal is null) return Results.NotFound("The expansion run or content proposal does not exist.");
+    var links = await runs.ListProposalLinksAsync(projectId, runId, cancellationToken);
+    var existing = links.SingleOrDefault(link => link.ProposalId == proposalId && link.ProposalVersion == proposal.Version);
+    if (existing is not null) return Results.Ok(existing);
+    try
+    {
+        var link = ContentExpansionRunService.LinkProposal(run, stageId, proposal, links,
+            await proposals.ListProposalsAsync(projectId, cancellationToken), await applications.ListAsync(projectId, cancellationToken), DateTimeOffset.UtcNow);
+        await runs.SaveProposalLinkAsync(link, cancellationToken);
+        return Results.Ok(link);
+    }
+    catch (ArgumentException exception) { return Results.BadRequest(exception.Message); }
+    catch (InvalidOperationException exception) { return Results.Conflict(exception.Message); }
+});
 projects.MapPut("/{projectId}/content-proposals/{proposalId}", async (string projectId, string proposalId, ContentProposal proposal, IDesignProjectStore projectsStore, IContentProposalStore store, CancellationToken cancellationToken) =>
 {
     if (!string.Equals(projectId, proposal.ProjectId, StringComparison.Ordinal) || !string.Equals(proposalId, proposal.Id, StringComparison.Ordinal)) return Results.BadRequest("The URL identifiers must match the proposal.");
