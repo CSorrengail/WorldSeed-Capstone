@@ -50,6 +50,34 @@
           <Border Grid.Column="2" Padding="16"><Grid RowDefinitions="Auto,*,Auto,*" RowSpacing="10"><TextBlock Text="Proposal History" FontSize="20"/><ListBox Grid.Row="1" Name="ContentProposalList" SelectionChanged="ContentProposalList_SelectionChanged"/><TextBlock Grid.Row="2" Text="Decisions" FontSize="16"/><TextBox Grid.Row="3" Name="ContentProposalDecisionHistoryText" Text="No decisions recorded." IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Disabled"/></Grid></Border>
         </Grid>
       </TabItem>
+      <TabItem Header="Evaluation Assistance">
+        <Grid ColumnDefinitions="320,320,*" ColumnSpacing="16">
+          <Border Padding="16"><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Spacing="10">
+            <TextBlock Text="Evaluation Proposal Setup" FontSize="20"/>
+            <TextBlock Text="Ask The Local Model To Suggest Game-Specific Mechanical Validation Or Advisory Balance Coverage. Suggestions Never Apply Themselves." TextWrapping="Wrap" Opacity="0.75"/>
+            <TextBlock Text="Content Type"/>
+            <ComboBox Name="EvaluationEntityTypeList"/>
+            <TextBlock Text="Evaluation Category"/>
+            <ComboBox Name="EvaluationKindList" SelectedIndex="0"><ComboBoxItem Content="Mechanical Validation"/><ComboBoxItem Content="Advisory Balance Profile"/></ComboBox>
+            <TextBlock Text="Designer Goal"/>
+            <TextBox Name="EvaluationGoalText" PlaceholderText="Describe The Coverage To Propose" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="100" ScrollViewer.HorizontalScrollBarVisibility="Disabled"/>
+            <Button Name="GenerateEvaluationProposalButton" Content="Generate Evaluation Proposal" Click="GenerateEvaluationProposal_Click" IsEnabled="False"/>
+            <TextBlock Name="EvaluationAssistanceStatusText" Text="Load A Project With An Active Schema And Working Rules." TextWrapping="Wrap"/>
+          </StackPanel></ScrollViewer></Border>
+          <Border Grid.Column="1" Padding="16"><Grid RowDefinitions="Auto,*,Auto" RowSpacing="10">
+            <TextBlock Text="Proposal History" FontSize="20"/>
+            <ListBox Grid.Row="1" Name="EvaluationProposalList" SelectionChanged="EvaluationProposalList_SelectionChanged"/>
+            <Button Grid.Row="2" Content="Refresh Proposals" Click="RefreshEvaluationProposals_Click"/>
+          </Grid></Border>
+          <Border Grid.Column="2" Padding="16"><Grid RowDefinitions="Auto,*,Auto,Auto,Auto" RowSpacing="10">
+            <TextBlock Name="EvaluationProposalHeadingText" Text="Select An Evaluation Proposal." FontSize="20" TextWrapping="Wrap"/>
+            <TextBox Grid.Row="1" Name="EvaluationProposalDetailText" Text="Generated Candidate Details Appear Here." IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Disabled"/>
+            <TextBox Grid.Row="2" Name="EvaluationDecisionNoteText" PlaceholderText="Revision Guidance Is Required; Other Decision Notes Are Optional" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="64" ScrollViewer.HorizontalScrollBarVisibility="Disabled"/>
+            <WrapPanel Grid.Row="3" ItemSpacing="8" LineSpacing="8"><Button Name="ApproveEvaluationProposalButton" Content="Approve" Click="ApproveEvaluationProposal_Click" IsEnabled="False"/><Button Name="RejectEvaluationProposalButton" Content="Reject" Click="RejectEvaluationProposal_Click" IsEnabled="False"/><Button Name="ReviseEvaluationProposalButton" Content="Request Revision" Click="ReviseEvaluationProposal_Click" IsEnabled="False"/></WrapPanel>
+            <Button Grid.Row="4" Name="UseApprovedEvaluationProposalButton" Content="Use Approved Proposal" Click="UseApprovedEvaluationProposal_Click" IsEnabled="False"/>
+          </Grid></Border>
+        </Grid>
+      </TabItem>
       <TabItem Header="Content Expansion">
         <Grid ColumnDefinitions="360,*" ColumnSpacing="16">
           <Border Padding="16">

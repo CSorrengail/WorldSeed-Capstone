@@ -37,6 +37,8 @@ public sealed record EvaluationProposalDecision(
     DateTimeOffset CreatedAt);
 
 public sealed record EvaluationSchemaChangeDraft(string Title, string RuleText);
+public sealed record EvaluationAssistanceWorkspace(IReadOnlyList<EvaluationAssistanceProposal> Proposals, IReadOnlyList<EvaluationProposalDecision> Decisions);
+public sealed record EvaluationProposalDecisionRequest(EvaluationProposalDecisionKind Kind, string? Note);
 
 public interface IEvaluationAssistanceStore
 {

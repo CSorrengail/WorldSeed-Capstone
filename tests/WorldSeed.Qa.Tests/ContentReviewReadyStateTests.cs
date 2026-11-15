@@ -67,6 +67,8 @@ public sealed class ContentReviewReadyStateTests
             var request = window.FindControl<TextBox>("ContentProposalRequestText")!;
             Assert.True(generate.IsEnabled);
             Assert.Single(window.FindControl<ComboBox>("ContentExpansionStageTypeList")!.Items.Cast<object>());
+            Assert.Single(window.FindControl<ComboBox>("EvaluationEntityTypeList")!.Items.Cast<object>());
+            Assert.True(window.FindControl<Button>("GenerateEvaluationProposalButton")!.IsEnabled);
 
             await window.GenerateContentProposalAsync();
             Assert.Equal("Select a local model first.", window.FindControl<TextBlock>("ContentProposalStatusText")!.Text);

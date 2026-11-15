@@ -38,6 +38,7 @@ public partial class MainWindow : Window
     private readonly HttpGameDataWorkspaceClient _gameDataWorkspace;
     private readonly HttpContentProposalClient _contentProposals;
     private readonly HttpContentExpansionRunClient _contentExpansionRunsClient;
+    private readonly HttpEvaluationAssistanceClient _evaluationAssistanceClient;
     private readonly HttpPublicationClient _publications;
     private readonly HttpProjectInventoryClient _projectInventoriesClient;
     private readonly HttpDevelopmentPlanClient _developmentPlansClient;
@@ -58,6 +59,8 @@ public partial class MainWindow : Window
     private readonly List<ContentExpansionQueueItem> _contentExpansionQueue = [];
     private readonly List<ContentExpansionStage> _plannedContentExpansionStages = [];
     private readonly List<ContentExpansionRunWorkspaceItem> _contentExpansionRuns = [];
+    private readonly List<EvaluationAssistanceProposal> _evaluationProposals = [];
+    private readonly List<EvaluationProposalDecision> _evaluationDecisions = [];
     private readonly List<PublicationSnapshot> _publicationSnapshots = [];
     private readonly List<PublicationEdition> _publicationEditions = [];
     private readonly List<PublicationEditorialProposal> _publicationEditorialProposals = [];
@@ -128,6 +131,7 @@ public partial class MainWindow : Window
         _gameDataWorkspace = new HttpGameDataWorkspaceClient(_apiHttp);
         _contentProposals = new HttpContentProposalClient(_apiHttp);
         _contentExpansionRunsClient = new HttpContentExpansionRunClient(_apiHttp);
+        _evaluationAssistanceClient = new HttpEvaluationAssistanceClient(_apiHttp);
         _publications = new HttpPublicationClient(_apiHttp);
         _projectInventoriesClient = new HttpProjectInventoryClient(_apiHttp);
         _developmentPlansClient = new HttpDevelopmentPlanClient(_apiHttp);
@@ -321,6 +325,7 @@ public partial class MainWindow : Window
                 await LoadGameDataWorkspaceAsync(_project.Id);
                 await LoadContentProposalsAsync(_project.Id);
                 await LoadContentExpansionRunsAsync(_project.Id);
+                await LoadEvaluationAssistanceAsync(_project.Id);
                 await LoadPublicationSnapshotsAsync(_project.Id);
                 await LoadProjectInventoriesAsync(_project.Id);
                 await LoadDevelopmentPlansAsync(_project.Id);
@@ -1661,6 +1666,28 @@ public partial class MainWindow : Window
         }
     }
 
+    private async Task LoadEvaluationAssistanceAsync(string projectId)
+    {
+        var selectedId = SelectedEvaluationProposal?.Id;
+        try
+        {
+            var workspace = await _evaluationAssistanceClient.LoadAsync(projectId);
+            _evaluationProposals.Clear();
+            _evaluationProposals.AddRange(workspace.Proposals);
+            _evaluationDecisions.Clear();
+            _evaluationDecisions.AddRange(workspace.Decisions);
+            RefreshEvaluationAssistanceView(selectedId);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("Load evaluation assistance", ex);
+            _evaluationProposals.Clear();
+            _evaluationDecisions.Clear();
+            RefreshEvaluationAssistanceView();
+            EvaluationAssistanceStatusText.Text = "Could Not Load Evaluation Proposals. See The Diagnostic Log.";
+        }
+    }
+
     private async Task LoadProjectInventoriesAsync(string projectId)
     {
         try
@@ -2642,6 +2669,12 @@ public partial class MainWindow : Window
         ContentExpansionStageTypeList.SelectedIndex = expansionTypeId is null
             ? (_gameDataEntityTypes.Count == 0 ? -1 : 0)
             : _gameDataEntityTypes.FindIndex(item => item.Id == expansionTypeId);
+        var evaluationTypeId = EvaluationEntityTypeList.SelectedIndex is var evaluationIndex && evaluationIndex >= 0 && evaluationIndex < _gameDataEntityTypes.Count
+            ? _gameDataEntityTypes[evaluationIndex].Id : null;
+        EvaluationEntityTypeList.ItemsSource = _gameDataEntityTypes.ToArray();
+        EvaluationEntityTypeList.SelectedIndex = evaluationTypeId is null
+            ? (_gameDataEntityTypes.Count == 0 ? -1 : 0)
+            : _gameDataEntityTypes.FindIndex(item => item.Id == evaluationTypeId);
         ContentProposalList.ItemsSource = visibleProposals.Select(item => new ContentProposalListItem(item, ProposalState(item))).ToArray();
         ContentProposalList.SelectedIndex = selectedProposalId is null ? -1 : Array.FindIndex(visibleProposals, item => item.Id == selectedProposalId);
 
@@ -2831,6 +2864,145 @@ public partial class MainWindow : Window
         ContentProposalList.SelectedIndex = -1;
         ContentProposalDecisionNoteText.Text = string.Empty;
         return GenerateContentProposalCoreAsync(forcedInstruction: request, persistedDesignerRequest: request, usePendingRevision: false);
+    }
+
+    private EvaluationAssistanceProposal? SelectedEvaluationProposal => (EvaluationProposalList.SelectedItem as EvaluationProposalListItem)?.Proposal;
+
+    private EvaluationProposalDecision? LatestEvaluationDecision(EvaluationAssistanceProposal proposal) =>
+        _evaluationDecisions.Where(item => item.ProposalId == proposal.Id && item.ProposalVersion == proposal.Version).OrderBy(item => item.CreatedAt).LastOrDefault();
+
+    private void RefreshEvaluationAssistanceView(string? selectedId = null)
+    {
+        selectedId ??= SelectedEvaluationProposal?.Id;
+        var replaced = _evaluationProposals.Where(item => item.ReplacesProposalId is not null).Select(item => item.ReplacesProposalId!).ToHashSet(StringComparer.Ordinal);
+        var current = _evaluationProposals.Where(item => !replaced.Contains(item.Id)).OrderByDescending(item => item.CreatedAt).ToArray();
+        EvaluationProposalList.ItemsSource = current.Select(item => new EvaluationProposalListItem(item, LatestEvaluationDecision(item)?.Kind)).ToArray();
+        EvaluationProposalList.SelectedIndex = selectedId is null ? -1 : Array.FindIndex(current, item => item.Id == selectedId);
+        RefreshSelectedEvaluationProposalView();
+    }
+
+    private void RefreshSelectedEvaluationProposalView()
+    {
+        var proposal = SelectedEvaluationProposal;
+        var ready = _project is not null && _activeGameSchema is not null && _workingRuleSet is { Rules.Count: > 0 } && _gameDataEntityTypes.Count > 0;
+        GenerateEvaluationProposalButton.IsEnabled = ready;
+        if (proposal is null)
+        {
+            EvaluationProposalHeadingText.Text = "Select An Evaluation Proposal.";
+            EvaluationProposalDetailText.Text = "Generated Candidate Details Appear Here.";
+            ApproveEvaluationProposalButton.IsEnabled = false;
+            RejectEvaluationProposalButton.IsEnabled = false;
+            ReviseEvaluationProposalButton.IsEnabled = false;
+            UseApprovedEvaluationProposalButton.IsEnabled = false;
+            return;
+        }
+        var decision = LatestEvaluationDecision(proposal);
+        EvaluationProposalHeadingText.Text = $"{proposal.Summary} — {proposal.Kind}";
+        EvaluationProposalDetailText.Text = $"Sources: {string.Join(", ", proposal.SourceWorkingRuleIds)}\nSchema Revision: {proposal.ActiveGameSchemaRevision}; Working Rules Revision: {proposal.WorkingRuleSetRevision}\nDecision: {decision?.Kind.ToString() ?? "Awaiting Review"}\n\n{PrettyJson(proposal.CandidateJson)}";
+        ApproveEvaluationProposalButton.IsEnabled = true;
+        RejectEvaluationProposalButton.IsEnabled = true;
+        ReviseEvaluationProposalButton.IsEnabled = true;
+        var currentSchema = _activeGameSchema is not null && proposal.ActiveGameSchemaId == _activeGameSchema.Id && proposal.ActiveGameSchemaRevision == _activeGameSchema.Revision;
+        UseApprovedEvaluationProposalButton.Content = proposal.Kind == EvaluationProposalKind.MechanicalValidation ? "Open Approved Draft In Schema" : "Apply Approved Balance Profile";
+        UseApprovedEvaluationProposalButton.IsEnabled = currentSchema && decision?.Kind == EvaluationProposalDecisionKind.Approved;
+    }
+
+    private void EvaluationProposalList_SelectionChanged(object? sender, SelectionChangedEventArgs e) => RefreshSelectedEvaluationProposalView();
+    private async void RefreshEvaluationProposals_Click(object? sender, RoutedEventArgs e) { if (_project is not null) await LoadEvaluationAssistanceAsync(_project.Id); }
+    private async void GenerateEvaluationProposal_Click(object? sender, RoutedEventArgs e) => await GenerateEvaluationProposalAsync();
+
+    internal async Task<bool> GenerateEvaluationProposalAsync()
+    {
+        if (_project is null || _activeGameSchema is null || _workingRuleSet is null) return false;
+        if (ModelSelector.SelectedItem is not string model) { EvaluationAssistanceStatusText.Text = "Select A Local Model In Sources First."; return false; }
+        var typeIndex = EvaluationEntityTypeList.SelectedIndex;
+        if (typeIndex < 0 || typeIndex >= _gameDataEntityTypes.Count) { EvaluationAssistanceStatusText.Text = "Select A Content Type."; return false; }
+        var goal = EvaluationGoalText.Text?.Trim();
+        if (string.IsNullOrWhiteSpace(goal)) { EvaluationAssistanceStatusText.Text = "Describe The Evaluation Coverage To Propose."; return false; }
+        var kind = EvaluationKindList.SelectedIndex == 1 ? EvaluationProposalKind.AdvisoryBalanceProfile : EvaluationProposalKind.MechanicalValidation;
+        var type = _gameDataEntityTypes[typeIndex];
+        var selected = SelectedEvaluationProposal;
+        var priorDecision = selected is null ? null : LatestEvaluationDecision(selected);
+        var replaces = selected is not null && selected.EntityTypeId == type.Id && selected.Kind == kind && priorDecision?.Kind == EvaluationProposalDecisionKind.RevisionRequested
+            ? selected : null;
+        if (replaces is not null) goal += $"\n\nDesigner Revision Guidance: {priorDecision!.Note}";
+        GenerateEvaluationProposalButton.IsEnabled = false;
+        EvaluationAssistanceStatusText.Text = "Generating A Reviewable Evaluation Proposal. Nothing Will Be Applied Automatically.";
+        var capture = new CapturingClient(new OllamaChatClient(_http, OllamaDefaults.CreateProfile("local", "Local", model)));
+        try
+        {
+            var schema = ParseJsonObject(_activeGameSchema.SchemaJson, "The active schema is not valid JSON.");
+            var result = await new EvaluationAssistanceGenerationService(capture).GenerateAsync(new EvaluationAssistanceGenerationRequest(_project.Id, type.Id, kind, schema, _workingRuleSet.Rules, goal));
+            var proposal = EvaluationAssistanceService.Create(_project.Id, type.Id, kind, result.Summary, result.Candidate, result.SourceWorkingRuleIds, _activeGameSchema, _workingRuleSet, DateTimeOffset.UtcNow, replaces);
+            await _evaluationAssistanceClient.SaveProposalAsync(proposal);
+            _evaluationProposals.Insert(0, proposal);
+            RefreshEvaluationAssistanceView(proposal.Id);
+            EvaluationAssistanceStatusText.Text = "Saved The Evaluation Proposal For Designer Review. It Has Not Changed The Schema Or Balance Profile.";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("Generate evaluation proposal", ex);
+            EvaluationAssistanceStatusText.Text = ex is EvaluationAssistanceFormatException or ArgumentException ? $"Format Detail: {ex.Message}\n\nRaw Model Output:\n{Preview(capture.Last?.Content)}" : "Could Not Generate The Evaluation Proposal. See The Diagnostic Log.";
+            return false;
+        }
+        finally { GenerateEvaluationProposalButton.IsEnabled = true; }
+    }
+
+    private async void ApproveEvaluationProposal_Click(object? sender, RoutedEventArgs e) => await DecideEvaluationProposalAsync(EvaluationProposalDecisionKind.Approved);
+    private async void RejectEvaluationProposal_Click(object? sender, RoutedEventArgs e) => await DecideEvaluationProposalAsync(EvaluationProposalDecisionKind.Rejected);
+    private async void ReviseEvaluationProposal_Click(object? sender, RoutedEventArgs e) => await DecideEvaluationProposalAsync(EvaluationProposalDecisionKind.RevisionRequested);
+
+    private async Task<bool> DecideEvaluationProposalAsync(EvaluationProposalDecisionKind kind)
+    {
+        var proposal = SelectedEvaluationProposal;
+        if (_project is null || proposal is null) return false;
+        try
+        {
+            var decision = await _evaluationAssistanceClient.DecideAsync(_project.Id, proposal.Id, new EvaluationProposalDecisionRequest(kind, EvaluationDecisionNoteText.Text));
+            _evaluationDecisions.Add(decision);
+            EvaluationDecisionNoteText.Text = string.Empty;
+            RefreshEvaluationAssistanceView(proposal.Id);
+            EvaluationAssistanceStatusText.Text = $"Recorded {kind}. No Evaluation Setting Was Changed.";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("Decide evaluation proposal", ex);
+            EvaluationAssistanceStatusText.Text = ex is HttpRequestException ? ex.Message : "Could Not Save The Evaluation Decision.";
+            return false;
+        }
+    }
+
+    private async void UseApprovedEvaluationProposal_Click(object? sender, RoutedEventArgs e)
+    {
+        var proposal = SelectedEvaluationProposal;
+        var approval = proposal is null ? null : LatestEvaluationDecision(proposal);
+        if (_project is null || _activeGameSchema is null || proposal is null || approval is null) return;
+        try
+        {
+            if (proposal.Kind == EvaluationProposalKind.MechanicalValidation)
+            {
+                var draft = EvaluationAssistanceService.BuildApprovedSchemaChangeDraft(proposal, approval);
+                SchemaChangeTitleText.Text = draft.Title;
+                SchemaChangeRuleText.Text = draft.RuleText;
+                WorkspaceTabs.SelectedIndex = 2;
+                EvaluationAssistanceStatusText.Text = "Opened The Approved Mechanical Draft In Schema. The Existing Schema Review And Activation Steps Still Apply.";
+                return;
+            }
+            var existing = _contentBalanceProfiles.FirstOrDefault(item => item.ActiveGameSchemaId == _activeGameSchema.Id && item.ActiveGameSchemaRevision == _activeGameSchema.Revision && item.Profile.EntityTypeId == proposal.EntityTypeId);
+            var saved = EvaluationAssistanceService.BuildApprovedBalanceProfile(proposal, approval, DateTimeOffset.UtcNow, existing);
+            await _contentProposals.SaveBalanceProfileAsync(saved);
+            _contentBalanceProfiles.RemoveAll(item => item.Id == existing?.Id);
+            _contentBalanceProfiles.Insert(0, saved);
+            RefreshContentProposalView();
+            EvaluationAssistanceStatusText.Text = $"Applied Approved Balance Profile Revision {saved.Revision}.";
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("Use approved evaluation proposal", ex);
+            EvaluationAssistanceStatusText.Text = ex is ArgumentException or InvalidOperationException ? ex.Message : "Could Not Use The Approved Evaluation Proposal.";
+        }
     }
 
     private void AddContentExpansionStage_Click(object? sender, RoutedEventArgs e)
@@ -3285,6 +3457,7 @@ public partial class MainWindow : Window
         RefreshWorkingRulesView();
         RefreshGameDataView();
         RefreshContentProposalView();
+        RefreshEvaluationAssistanceView();
     }
 
     private async void SaveContentProposalRevision_Click(object? sender, RoutedEventArgs e)
@@ -3965,6 +4138,8 @@ public partial class MainWindow : Window
         _contentExpansionQueue.Clear();
         _plannedContentExpansionStages.Clear();
         _contentExpansionRuns.Clear();
+        _evaluationProposals.Clear();
+        _evaluationDecisions.Clear();
         _contentExpansionGeneration++;
         _contentExpansionRunning = false;
         _stopContentExpansionRequested = false;
@@ -3998,6 +4173,18 @@ public partial class MainWindow : Window
         SavedContentExpansionRunList.ItemsSource = Array.Empty<ContentExpansionRunListItem>();
         ContentExpansionRunDetailText.Text = "Select A Saved Expansion Run To Review Its Stages And Progress.";
         ContentExpansionRunStatusText.Text = "No Multi-Type Expansion Run Is Selected.";
+        EvaluationEntityTypeList.ItemsSource = Array.Empty<GameDataEntityTypeItem>();
+        EvaluationGoalText.Text = string.Empty;
+        EvaluationKindList.SelectedIndex = 0;
+        EvaluationProposalList.ItemsSource = Array.Empty<EvaluationProposalListItem>();
+        EvaluationProposalHeadingText.Text = "Select An Evaluation Proposal.";
+        EvaluationProposalDetailText.Text = "Generated Candidate Details Appear Here.";
+        EvaluationDecisionNoteText.Text = string.Empty;
+        EvaluationAssistanceStatusText.Text = "Load A Project With An Active Schema And Working Rules.";
+        ApproveEvaluationProposalButton.IsEnabled = false;
+        RejectEvaluationProposalButton.IsEnabled = false;
+        ReviseEvaluationProposalButton.IsEnabled = false;
+        UseApprovedEvaluationProposalButton.IsEnabled = false;
         ContentReviewSchemaText.Text = "Load an active schema and Working Rule Set before creating a proposal.";
         ContentProposalStatusText.Text = "No proposal is selected.";
         GenerateContentProposalButton.Content = "Generate Proposal";
@@ -4177,6 +4364,10 @@ public partial class MainWindow : Window
     private sealed record ContentExpansionRunListItem(ContentExpansionRunWorkspaceItem Workspace)
     {
         public override string ToString() => $"{Workspace.Run.Name} — {(Workspace.Progress.IsComplete ? "Complete" : Workspace.Progress.NextStageId is null ? "Awaiting Review" : "Ready")}";
+    }
+    private sealed record EvaluationProposalListItem(EvaluationAssistanceProposal Proposal, EvaluationProposalDecisionKind? Decision)
+    {
+        public override string ToString() => $"{Proposal.Summary} — {Proposal.Kind} — {Decision?.ToString() ?? "Awaiting Review"}";
     }
     private sealed record PublicationSnapshotListItem(PublicationSnapshot Snapshot)
     {
