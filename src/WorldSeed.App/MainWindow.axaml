@@ -104,6 +104,8 @@
             <WrapPanel ItemSpacing="6" LineSpacing="6"><Button Content="Accept" Click="AcceptDevelopmentRecommendation_Click"/><Button Content="Reject" Click="RejectDevelopmentRecommendation_Click"/><Button Content="Defer" Click="DeferDevelopmentRecommendation_Click"/><Button Content="Request Revision" Click="ReviseDevelopmentRecommendation_Click"/></WrapPanel>
             <Button Name="StartExpansionRequestButton" Content="Start Expansion Request" Click="StartExpansionRequest_Click" IsEnabled="False"/>
             <TextBlock Name="ExpansionRequestStatusText" Text="Accept A Recommendation To Start A Traceable Expansion Request." TextWrapping="Wrap" Opacity="0.75"/>
+            <WrapPanel ItemSpacing="6" LineSpacing="6"><Button Name="SendExpansionToSchemaButton" Content="Send Rules To Schema" Click="SendExpansionToSchema_Click" IsEnabled="False"/><Button Name="MarkExpansionNoSchemaButton" Content="No Schema Change Required" Click="MarkExpansionNoSchema_Click" IsEnabled="False"/></WrapPanel>
+            <TextBlock Text="A No-Schema Decision Requires A Rationale In The Guidance Box. Schema Work Remains A Proposal Until You Explicitly Activate It." TextWrapping="Wrap" Opacity="0.65"/>
             <TextBlock Text="Expansion Requests" FontSize="16" Margin="0,8,0,0"/>
             <ListBox Name="ExpansionRequestList" MinHeight="80" MaxHeight="150"/>
             <TextBlock Text="Decision History" FontSize="16" Margin="0,8,0,0"/>

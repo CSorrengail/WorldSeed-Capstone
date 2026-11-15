@@ -13,7 +13,7 @@ internal sealed class HttpDevelopmentPlanClient(HttpClient http)
     {
         using var response = await _http.GetAsync($"api/projects/{Uri.EscapeDataString(projectId)}/development-plans", cancellationToken);
         await EnsureSuccessAsync(response, cancellationToken);
-        return await response.Content.ReadFromJsonAsync<DevelopmentPlanWorkspace>(JsonOptions, cancellationToken) ?? new([], [], [], [], []);
+        return await response.Content.ReadFromJsonAsync<DevelopmentPlanWorkspace>(JsonOptions, cancellationToken) ?? new([], [], [], [], [], []);
     }
 
     public async Task SavePlanAsync(DevelopmentPlanProposal plan, CancellationToken cancellationToken = default)
@@ -43,6 +43,13 @@ internal sealed class HttpDevelopmentPlanClient(HttpClient http)
         return (await response.Content.ReadFromJsonAsync<ExpansionRequest>(JsonOptions, cancellationToken))!;
     }
 
+    public async Task<ExpansionSchemaDecision> DecideExpansionSchemaAsync(string projectId, string requestId, ExpansionSchemaDecisionRequest request, CancellationToken cancellationToken = default)
+    {
+        using var response = await _http.PostAsJsonAsync($"api/projects/{Uri.EscapeDataString(projectId)}/expansion-requests/{Uri.EscapeDataString(requestId)}/schema-decisions", request, JsonOptions, cancellationToken);
+        await EnsureSuccessAsync(response, cancellationToken);
+        return (await response.Content.ReadFromJsonAsync<ExpansionSchemaDecision>(JsonOptions, cancellationToken))!;
+    }
+
     private static async Task EnsureSuccessAsync(HttpResponseMessage response, CancellationToken cancellationToken)
     {
         if (response.IsSuccessStatusCode) return;
@@ -55,4 +62,5 @@ internal sealed record DevelopmentPlanWorkspace(
     IReadOnlyList<DevelopmentPlanDecision> PlanDecisions,
     IReadOnlyList<DevelopmentRecommendationDecision> RecommendationDecisions,
     IReadOnlyList<ExpansionRequest> ExpansionRequests,
-    IReadOnlyList<ExpansionRequestProgress> ExpansionProgress);
+    IReadOnlyList<ExpansionRequestProgress> ExpansionProgress,
+    IReadOnlyList<ExpansionSchemaDecision> ExpansionSchemaDecisions);

@@ -67,6 +67,7 @@ public partial class MainWindow : Window
     private readonly List<DevelopmentRecommendationDecision> _developmentRecommendationDecisions = [];
     private readonly List<ExpansionRequest> _expansionRequests = [];
     private readonly List<ExpansionRequestProgress> _expansionProgress = [];
+    private readonly List<ExpansionSchemaDecision> _expansionSchemaDecisions = [];
     private int _projectLoadGeneration;
     private bool _updatingProjectSelector;
     private string? _pendingDeletionProjectId;
@@ -724,6 +725,7 @@ public partial class MainWindow : Window
             _schemaTransitionReview = null;
             RefreshGameDataView();
             RefreshSchemaView();
+            await LoadDevelopmentPlansAsync(_project.Id);
             var detail = _projectGameData is null ? "No game-data document was returned." : "An empty game-data document is ready for entries.";
             SchemaStatusText.Text = $"Active schema revision {_activeGameSchema.Revision} is ready. {detail}";
             AppLog.Info($"Activated schema revision {_activeGameSchema.Revision} for project '{_project.Id}'.");
@@ -1213,6 +1215,7 @@ public partial class MainWindow : Window
                 _schemaClarifications.ToArray());
             _schemaTransitionReview = null;
             await SchemaProposalStore().SaveAsync(_schemaProposal);
+            await LoadDevelopmentPlansAsync(_project.Id);
             _pendingSchemaQuestion = null;
             SchemaQuestionPanel.IsVisible = false;
             AppLog.Info($"Saved schema proposal addition for project '{_project.Id}' from {rules.Count} Working Rule(s).");
@@ -1758,12 +1761,13 @@ public partial class MainWindow : Window
             _developmentRecommendationDecisions.Clear(); _developmentRecommendationDecisions.AddRange(workspace.RecommendationDecisions);
             _expansionRequests.Clear(); _expansionRequests.AddRange(workspace.ExpansionRequests);
             _expansionProgress.Clear(); _expansionProgress.AddRange(workspace.ExpansionProgress);
+            _expansionSchemaDecisions.Clear(); _expansionSchemaDecisions.AddRange(workspace.ExpansionSchemaDecisions);
             RefreshDevelopmentPlanView();
         }
         catch (Exception ex)
         {
             AppLog.Error("Load development plans", ex);
-            _developmentPlans.Clear(); _developmentPlanDecisions.Clear(); _developmentRecommendationDecisions.Clear(); _expansionRequests.Clear(); _expansionProgress.Clear();
+            _developmentPlans.Clear(); _developmentPlanDecisions.Clear(); _developmentRecommendationDecisions.Clear(); _expansionRequests.Clear(); _expansionProgress.Clear(); _expansionSchemaDecisions.Clear();
             RefreshDevelopmentPlanView();
             DevelopmentPlanStatusText.Text = "Could Not Load Development Plans. See The Diagnostic Log.";
         }
@@ -1844,6 +1848,82 @@ public partial class MainWindow : Window
     private async void DeferDevelopmentRecommendation_Click(object? sender, RoutedEventArgs e) => await DecideDevelopmentRecommendationAsync(DevelopmentRecommendationDecisionKind.Deferred);
     private async void ReviseDevelopmentRecommendation_Click(object? sender, RoutedEventArgs e) => await DecideDevelopmentRecommendationAsync(DevelopmentRecommendationDecisionKind.RevisionRequested);
     private async void StartExpansionRequest_Click(object? sender, RoutedEventArgs e) => await StartExpansionRequestAsync();
+    private async void SendExpansionToSchema_Click(object? sender, RoutedEventArgs e) => await SendExpansionToSchemaAsync();
+    private async void MarkExpansionNoSchema_Click(object? sender, RoutedEventArgs e) => await MarkExpansionNoSchemaAsync();
+
+    internal async Task<bool> SendExpansionToSchemaAsync()
+    {
+        var request = SelectedExpansionRequest();
+        var progress = request is null ? null : _expansionProgress.FirstOrDefault(item => item.RequestId == request.Id);
+        if (_project is null || request is null || progress is null)
+        {
+            DevelopmentPlanStatusText.Text = "Open An Incorporated Expansion Request First.";
+            return false;
+        }
+        if (progress.Stage is ExpansionProgressStage.SchemaProposalReady or ExpansionProgressStage.SchemaActivated)
+        {
+            WorkspaceTabs.SelectedIndex = 2;
+            RefreshSchemaView(preserveStatus: true);
+            SchemaStatusText.Text = progress.Stage == ExpansionProgressStage.SchemaActivated
+                ? "This Expansion's Schema Changes Are Active."
+                : "This Expansion Is Included In The Saved Schema Proposal. Review It Before Activation.";
+            return true;
+        }
+        try
+        {
+            var decision = await _developmentPlansClient.DecideExpansionSchemaAsync(
+                _project.Id, request.Id,
+                new ExpansionSchemaDecisionRequest(ExpansionSchemaDecisionKind.SchemaWorkRequested, DevelopmentPlanGuidanceText.Text));
+            _expansionSchemaDecisions.Add(decision);
+            foreach (var id in decision.WorkingRuleIds.Where(id => _workingRules.Any(rule => rule.Id == id)))
+                if (!_schemaQueueRuleIds.Contains(id, StringComparer.Ordinal)) _schemaQueueRuleIds.Add(id);
+            await LoadDevelopmentPlansAsync(_project.Id);
+            WorkspaceTabs.SelectedIndex = 2;
+            RefreshSchemaView(preserveStatus: true);
+            SchemaStatusText.Text = $"Queued {decision.WorkingRuleIds.Count} Incorporated Working Rule(s) From Expansion '{request.Title}'. Review The Queue, Then Build Structures From Queue.";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("Send expansion to schema", ex);
+            DevelopmentPlanStatusText.Text = ex.Message;
+            return false;
+        }
+    }
+
+    internal async Task<bool> MarkExpansionNoSchemaAsync()
+    {
+        var request = SelectedExpansionRequest();
+        if (_project is null || request is null)
+        {
+            DevelopmentPlanStatusText.Text = "Open An Incorporated Expansion Request First.";
+            return false;
+        }
+        try
+        {
+            var decision = await _developmentPlansClient.DecideExpansionSchemaAsync(
+                _project.Id, request.Id,
+                new ExpansionSchemaDecisionRequest(ExpansionSchemaDecisionKind.NoSchemaChangeRequired, DevelopmentPlanGuidanceText.Text));
+            _expansionSchemaDecisions.Add(decision);
+            await LoadDevelopmentPlansAsync(_project.Id);
+            DevelopmentPlanStatusText.Text = "Recorded That This Expansion Requires No Schema Change. The Rationale Is Preserved.";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("Record no schema change", ex);
+            DevelopmentPlanStatusText.Text = ex.Message;
+            return false;
+        }
+    }
+
+    private ExpansionRequest? SelectedExpansionRequest()
+    {
+        var plan = SelectedDevelopmentPlan;
+        var recommendation = SelectedDevelopmentRecommendation;
+        if (plan is null || recommendation is null) return null;
+        return _expansionRequests.Where(item => item.PlanId == plan.Id && item.RecommendationId == recommendation.Id).OrderByDescending(item => item.CreatedAt).FirstOrDefault();
+    }
 
     internal async Task<bool> StartExpansionRequestAsync()
     {
@@ -1862,7 +1942,7 @@ public partial class MainWindow : Window
             await LoadDevelopmentPlansAsync(_project.Id);
             RefreshNotes();
             var progress = _expansionProgress.FirstOrDefault(item => item.RequestId == request.Id);
-            if (progress?.Stage == ExpansionProgressStage.WorkingRulesIncorporated)
+            if (progress?.Stage is ExpansionProgressStage.WorkingRulesIncorporated or ExpansionProgressStage.SchemaWorkRequested or ExpansionProgressStage.SchemaProposalReady or ExpansionProgressStage.SchemaActivated or ExpansionProgressStage.NoSchemaChangeRequired)
             {
                 WorkspaceTabs.SelectedIndex = 1;
                 var firstRule = progress.WorkingRuleIds.FirstOrDefault();
@@ -1959,7 +2039,9 @@ public partial class MainWindow : Window
         if (recommendations.Length > 0 && DevelopmentRecommendationList.SelectedIndex < 0) DevelopmentRecommendationList.SelectedIndex = 0;
         var planHistory = _developmentPlanDecisions.Where(item => item.PlanId == plan.Id).OrderBy(item => item.CreatedAt).Select(item => $"{item.Kind}: {item.Note ?? "No Note"}");
         var itemHistory = _developmentRecommendationDecisions.Where(item => item.PlanId == plan.Id).OrderBy(item => item.CreatedAt).Select(item => $"{item.RecommendationId} — {item.Kind}: {item.Note ?? "No Note"}");
-        DevelopmentPlanDecisionHistoryText.Text = string.Join("\n", planHistory.Concat(itemHistory).DefaultIfEmpty("No Decisions Recorded."));
+        var requestIds = _expansionRequests.Where(item => item.PlanId == plan.Id).Select(item => item.Id).ToHashSet(StringComparer.Ordinal);
+        var schemaHistory = _expansionSchemaDecisions.Where(item => requestIds.Contains(item.RequestId)).OrderBy(item => item.CreatedAt).Select(item => $"{item.RequestId} - {item.Kind}: {item.Note ?? "No Note"}");
+        DevelopmentPlanDecisionHistoryText.Text = string.Join("\n", planHistory.Concat(itemHistory).Concat(schemaHistory).DefaultIfEmpty("No Decisions Recorded."));
         var needsRevision = _developmentPlanDecisions.Any(item => item.PlanId == plan.Id && item.Kind == DevelopmentPlanDecisionKind.RevisionRequested) || _developmentRecommendationDecisions.Any(item => item.PlanId == plan.Id && item.Kind == DevelopmentRecommendationDecisionKind.RevisionRequested);
         GenerateDevelopmentPlanButton.Content = needsRevision ? "Generate Requested Revision" : "Generate Development Plan";
         RefreshExpansionRequestView();
@@ -1989,9 +2071,18 @@ public partial class MainWindow : Window
         {
             ExpansionProgressStage.ClarificationInProgress => "Continue Clarification",
             ExpansionProgressStage.DraftReady => "Review Source Draft",
-            ExpansionProgressStage.WorkingRulesIncorporated => "View Incorporated Rules",
+            ExpansionProgressStage.WorkingRulesIncorporated or ExpansionProgressStage.SchemaWorkRequested or ExpansionProgressStage.SchemaProposalReady or ExpansionProgressStage.SchemaActivated or ExpansionProgressStage.NoSchemaChangeRequired => "View Incorporated Rules",
             _ => request is null ? "Start Expansion Request" : "Open Expansion Source"
         };
+        SendExpansionToSchemaButton.IsEnabled = progress?.WorkingRuleIds.Count > 0;
+        SendExpansionToSchemaButton.Content = progress?.Stage switch
+        {
+            ExpansionProgressStage.SchemaWorkRequested => "Queue Schema Work Again",
+            ExpansionProgressStage.SchemaProposalReady => "Open Schema Proposal",
+            ExpansionProgressStage.SchemaActivated => "View Active Schema",
+            _ => "Send Rules To Schema"
+        };
+        MarkExpansionNoSchemaButton.IsEnabled = progress?.Stage is ExpansionProgressStage.WorkingRulesIncorporated or ExpansionProgressStage.SchemaWorkRequested or ExpansionProgressStage.NoSchemaChangeRequired;
         ExpansionRequestStatusText.Text = request is null
             ? latestDecision?.Kind == DevelopmentRecommendationDecisionKind.Accepted ? "Accepted And Ready To Start." : "Accept The Selected Recommendation Before Starting Expansion."
             : DescribeExpansionProgress(request, progress);
@@ -2002,6 +2093,10 @@ public partial class MainWindow : Window
         ExpansionProgressStage.ClarificationInProgress => $"Clarification In Progress From Inventory Revision {request.InventoryRevision}.",
         ExpansionProgressStage.DraftReady => $"Source Draft Ready With {progress.DraftRuleCount} Proposed Rule(s). It Is Not Yet In The Working Rule Set.",
         ExpansionProgressStage.WorkingRulesIncorporated => $"Incorporated Into Working Rule Set Revision {progress.WorkingRuleSetRevision}: {string.Join(", ", progress.WorkingRuleIds)}.",
+        ExpansionProgressStage.SchemaWorkRequested => $"Schema Work Requested For Working Rule Set Revision {progress.WorkingRuleSetRevision}. Queue Or Process The Linked Rules On The Schema Tab.",
+        ExpansionProgressStage.SchemaProposalReady => "The Linked Working Rules Are Included In The Saved Schema Proposal. Designer Activation Is Still Required.",
+        ExpansionProgressStage.SchemaActivated => "The Schema Proposal Containing These Working Rules Is Active.",
+        ExpansionProgressStage.NoSchemaChangeRequired => "The Designer Recorded That These Rules Require No Schema Change. The Decision And Rationale Are Preserved.",
         _ => $"Ready For Clarification From Inventory Revision {request.InventoryRevision}. No Canonical Rules Or Content Were Changed."
     };
 
@@ -2105,6 +2200,7 @@ public partial class MainWindow : Window
         _developmentRecommendationDecisions.Clear();
         _expansionRequests.Clear();
         _expansionProgress.Clear();
+        _expansionSchemaDecisions.Clear();
         RefreshPublicationPlanLists();
         RefreshPublicationEditorialView();
         RefreshSelectedPublicationView();
@@ -3733,6 +3829,8 @@ public partial class MainWindow : Window
         ExpansionRequestList.ItemsSource = Array.Empty<ExpansionRequestListItem>();
         ExpansionRequestStatusText.Text = "Accept A Recommendation To Start A Traceable Expansion Request.";
         StartExpansionRequestButton.IsEnabled = false;
+        SendExpansionToSchemaButton.IsEnabled = false;
+        MarkExpansionNoSchemaButton.IsEnabled = false;
         DevelopmentPlanStatusText.Text = "Load A Project And Build An Inventory Before Generating A Development Plan.";
         GenerateDevelopmentPlanButton.IsEnabled = false;
         CreatePublicationSnapshotButton.IsEnabled = false;
