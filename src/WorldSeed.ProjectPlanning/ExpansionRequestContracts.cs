@@ -1,5 +1,7 @@
 using WorldSeed.DesignSessions;
+using WorldSeed.GameData;
 using WorldSeed.RuleDrafting;
+using WorldSeed.SchemaTranslation;
 using WorldSeed.WorkingRules;
 
 namespace WorldSeed.ProjectPlanning;
@@ -36,7 +38,11 @@ public enum ExpansionProgressStage
     ReadyForClarification,
     ClarificationInProgress,
     DraftReady,
-    WorkingRulesIncorporated
+    WorkingRulesIncorporated,
+    SchemaWorkRequested,
+    SchemaProposalReady,
+    SchemaActivated,
+    NoSchemaChangeRequired
 }
 
 public sealed record ExpansionRequestProgress(
@@ -45,7 +51,22 @@ public sealed record ExpansionRequestProgress(
     string? SessionId,
     int DraftRuleCount,
     int? WorkingRuleSetRevision,
-    IReadOnlyList<string> WorkingRuleIds);
+    IReadOnlyList<string> WorkingRuleIds,
+    string? SchemaDecisionId = null);
+
+public enum ExpansionSchemaDecisionKind { SchemaWorkRequested, NoSchemaChangeRequired }
+
+public sealed record ExpansionSchemaDecision(
+    string Id,
+    string ProjectId,
+    string RequestId,
+    ExpansionSchemaDecisionKind Kind,
+    int WorkingRuleSetRevision,
+    IReadOnlyList<string> WorkingRuleIds,
+    string? Note,
+    DateTimeOffset CreatedAt);
+
+public sealed record ExpansionSchemaDecisionRequest(ExpansionSchemaDecisionKind Kind, string? Note);
 
 public interface IExpansionRequestStore
 {
@@ -53,6 +74,8 @@ public interface IExpansionRequestStore
     Task<ExpansionRequest?> LoadAsync(string projectId, string requestId, CancellationToken cancellationToken = default);
     Task<ExpansionRequest?> LoadByAcceptanceDecisionAsync(string projectId, string acceptanceDecisionId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<ExpansionRequest>> ListAsync(string projectId, CancellationToken cancellationToken = default);
+    Task SaveSchemaDecisionAsync(ExpansionSchemaDecision decision, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<ExpansionSchemaDecision>> ListSchemaDecisionsAsync(string projectId, CancellationToken cancellationToken = default);
     Task DeleteAsync(string projectId, CancellationToken cancellationToken = default);
 }
 
@@ -61,7 +84,10 @@ public static class ExpansionRequestService
     public static ExpansionRequestProgress EvaluateProgress(
         ExpansionRequest request,
         DesignProject project,
-        WorkingRuleSet? workingRules)
+        WorkingRuleSet? workingRules,
+        ProjectSchemaProposal? schemaProposal = null,
+        ActiveGameSchema? activeSchema = null,
+        IReadOnlyList<ExpansionSchemaDecision>? schemaDecisions = null)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(project);
@@ -78,7 +104,25 @@ public static class ExpansionRequestService
             .Distinct(StringComparer.Ordinal)
             .ToArray() ?? [];
         var draftRuleCount = session?.LatestTurn?.Draft?.Rules.Count ?? 0;
-        var stage = workingRuleIds.Length > 0
+        var latestSchemaDecision = (schemaDecisions ?? [])
+            .Where(item => item.RequestId == request.Id)
+            .OrderByDescending(item => item.CreatedAt)
+            .FirstOrDefault();
+        var proposalIncludesRules = schemaProposal is not null && workingRuleIds.Length > 0 &&
+            workingRuleIds.All(id => schemaProposal.SelectedWorkingRuleIds.Contains(id, StringComparer.Ordinal));
+        var activeMatchesProposal = proposalIncludesRules && activeSchema is not null && schemaProposal is not null &&
+            activeSchema.SourceSchemaProposalId == schemaProposal.Id &&
+            activeSchema.WorkingRuleSetRevision == schemaProposal.WorkingRuleSetRevision &&
+            string.Equals(activeSchema.SchemaJson, schemaProposal.SchemaJson, StringComparison.Ordinal);
+        var stage = activeMatchesProposal
+            ? ExpansionProgressStage.SchemaActivated
+            : proposalIncludesRules
+                ? ExpansionProgressStage.SchemaProposalReady
+                : latestSchemaDecision?.Kind == ExpansionSchemaDecisionKind.NoSchemaChangeRequired
+                    ? ExpansionProgressStage.NoSchemaChangeRequired
+                    : latestSchemaDecision?.Kind == ExpansionSchemaDecisionKind.SchemaWorkRequested && workingRuleIds.Length > 0
+                        ? ExpansionProgressStage.SchemaWorkRequested
+                        : workingRuleIds.Length > 0
             ? ExpansionProgressStage.WorkingRulesIncorporated
             : session?.LatestTurn?.Action == RuleDraftAction.PresentDraft
                 ? ExpansionProgressStage.DraftReady
@@ -88,7 +132,27 @@ public static class ExpansionRequestService
         return new ExpansionRequestProgress(
             request.Id, stage, session?.Id, draftRuleCount,
             workingRuleIds.Length > 0 ? workingRules?.Revision : null,
-            workingRuleIds);
+            workingRuleIds,
+            latestSchemaDecision?.Id);
+    }
+
+    public static ExpansionSchemaDecision DecideSchema(
+        ExpansionRequest request,
+        ExpansionRequestProgress progress,
+        ExpansionSchemaDecisionKind kind,
+        string? note,
+        DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(progress);
+        if (progress.RequestId != request.Id || progress.WorkingRuleSetRevision is null || progress.WorkingRuleIds.Count == 0)
+            throw new ArgumentException("The expansion must be incorporated into Working Rules before deciding schema work.");
+        if (kind == ExpansionSchemaDecisionKind.NoSchemaChangeRequired && string.IsNullOrWhiteSpace(note))
+            throw new ArgumentException("Explain why these rules require no schema change.", nameof(note));
+        return new ExpansionSchemaDecision(
+            $"expansion-schema-decision-{Guid.NewGuid():N}", request.ProjectId, request.Id, kind,
+            progress.WorkingRuleSetRevision.Value, progress.WorkingRuleIds.ToArray(),
+            string.IsNullOrWhiteSpace(note) ? null : note.Trim(), now);
     }
 
     public static (ExpansionRequest Request, DesignSourceNote SourceNote) Create(

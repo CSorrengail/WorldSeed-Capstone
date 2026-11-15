@@ -1,7 +1,9 @@
 using WorldSeed.DesignSessions;
+using WorldSeed.GameData;
 using WorldSeed.LlmIntegration;
 using WorldSeed.ProjectPlanning;
 using WorldSeed.RuleDrafting;
+using WorldSeed.SchemaTranslation;
 using WorldSeed.WorkingRules;
 
 namespace WorldSeed.ProjectPlanning.Tests;
@@ -132,6 +134,19 @@ public sealed class DevelopmentPlanServiceTests
         Assert.Equal(ExpansionProgressStage.WorkingRulesIncorporated, progress.Stage);
         Assert.Equal(4, progress.WorkingRuleSetRevision);
         Assert.Equal([workingRule.Id], progress.WorkingRuleIds);
+
+        Assert.Throws<ArgumentException>(() => ExpansionRequestService.DecideSchema(request, progress, ExpansionSchemaDecisionKind.NoSchemaChangeRequired, null, Now));
+        var noSchema = ExpansionRequestService.DecideSchema(request, progress, ExpansionSchemaDecisionKind.NoSchemaChangeRequired, "This rule is entirely procedural prose.", Now.AddMinutes(1));
+        Assert.Equal(ExpansionProgressStage.NoSchemaChangeRequired, ExpansionRequestService.EvaluateProgress(request, project, workingRules, schemaDecisions: [noSchema]).Stage);
+
+        var schemaWork = ExpansionRequestService.DecideSchema(request, progress, ExpansionSchemaDecisionKind.SchemaWorkRequested, null, Now.AddMinutes(2));
+        var schemaJson = "{\"id\":\"schema\",\"name\":\"Schema\",\"version\":\"1\",\"entityTypes\":[],\"valueTypes\":[]}";
+        var proposal = new ProjectSchemaProposal("proposal", project.Id, "0.1", "Reaction schema", schemaJson, [], workingRules.Id, workingRules.Revision, [workingRule.Id], Now, Now.AddMinutes(3));
+        progress = ExpansionRequestService.EvaluateProgress(request, project, workingRules, proposal, schemaDecisions: [noSchema, schemaWork]);
+        Assert.Equal(ExpansionProgressStage.SchemaProposalReady, progress.Stage);
+        var active = new ActiveGameSchema("active", project.Id, "0.1", "Schema", schemaJson, proposal.Id, workingRules.Id, workingRules.Revision, 2, Now, Now.AddMinutes(4));
+        progress = ExpansionRequestService.EvaluateProgress(request, project, workingRules, proposal, active, [noSchema, schemaWork]);
+        Assert.Equal(ExpansionProgressStage.SchemaActivated, progress.Stage);
     }
 
     private static ProjectInventory Inventory() => new(

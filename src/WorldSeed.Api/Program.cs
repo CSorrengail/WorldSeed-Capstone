@@ -111,19 +111,23 @@ projects.MapDelete("/{projectId}", async (string projectId, IDesignProjectStore 
     return Results.NoContent();
 });
 
-projects.MapGet("/{projectId}/development-plans", async (string projectId, IDesignProjectStore projectsStore, IWorkingRuleSetStore ruleSets, IDevelopmentPlanStore store, IExpansionRequestStore expansionRequests, CancellationToken cancellationToken) =>
+projects.MapGet("/{projectId}/development-plans", async (string projectId, IDesignProjectStore projectsStore, IWorkingRuleSetStore ruleSets, IProjectSchemaProposalStore schemaProposals, IActiveGameSchemaStore activeSchemas, IDevelopmentPlanStore store, IExpansionRequestStore expansionRequests, CancellationToken cancellationToken) =>
 {
     var project = await projectsStore.LoadAsync(projectId, cancellationToken);
     if (project is null) return Results.NotFound("The project does not exist.");
     var requests = await expansionRequests.ListAsync(projectId, cancellationToken);
     var workingRules = await ruleSets.LoadAsync(projectId, cancellationToken);
+    var schemaProposal = await schemaProposals.LoadAsync(projectId, cancellationToken);
+    var activeSchema = await activeSchemas.LoadAsync(projectId, cancellationToken);
+    var schemaDecisions = await expansionRequests.ListSchemaDecisionsAsync(projectId, cancellationToken);
     return Results.Ok(new
     {
         plans = await store.ListPlansAsync(projectId, cancellationToken),
         planDecisions = await store.ListPlanDecisionsAsync(projectId, cancellationToken),
         recommendationDecisions = await store.ListRecommendationDecisionsAsync(projectId, cancellationToken),
         expansionRequests = requests,
-        expansionProgress = requests.Select(request => ExpansionRequestService.EvaluateProgress(request, project, workingRules)).ToArray()
+        expansionSchemaDecisions = schemaDecisions,
+        expansionProgress = requests.Select(request => ExpansionRequestService.EvaluateProgress(request, project, workingRules, schemaProposal, activeSchema, schemaDecisions)).ToArray()
     });
 });
 projects.MapPut("/{projectId}/development-plans/{planId}", async (string projectId, string planId, DevelopmentPlanProposal plan, IDesignProjectStore projectsStore, IProjectInventoryStore inventories, IDevelopmentPlanStore plans, CancellationToken cancellationToken) =>
@@ -203,6 +207,26 @@ projects.MapPost("/{projectId}/development-plans/{planId}/recommendations/{recom
     }
     await expansionRequests.SaveAsync(request, cancellationToken);
     return Results.Ok(request);
+});
+projects.MapPost("/{projectId}/expansion-requests/{requestId}/schema-decisions", async (
+    string projectId,
+    string requestId,
+    ExpansionSchemaDecisionRequest input,
+    IDesignProjectStore projectsStore,
+    IWorkingRuleSetStore ruleSets,
+    IExpansionRequestStore expansionRequests,
+    CancellationToken cancellationToken) =>
+{
+    var project = await projectsStore.LoadAsync(projectId, cancellationToken);
+    var request = await expansionRequests.LoadAsync(projectId, requestId, cancellationToken);
+    if (project is null || request is null) return Results.NotFound("The project or expansion request does not exist.");
+    var workingRules = await ruleSets.LoadAsync(projectId, cancellationToken);
+    var progress = ExpansionRequestService.EvaluateProgress(request, project, workingRules);
+    ExpansionSchemaDecision decision;
+    try { decision = ExpansionRequestService.DecideSchema(request, progress, input.Kind, input.Note, DateTimeOffset.UtcNow); }
+    catch (ArgumentException exception) { return Results.BadRequest(exception.Message); }
+    await expansionRequests.SaveSchemaDecisionAsync(decision, cancellationToken);
+    return Results.Ok(decision);
 });
 
 projects.MapGet("/{projectId}/inventories", async (string projectId, IProjectInventoryStore store, CancellationToken cancellationToken) =>
