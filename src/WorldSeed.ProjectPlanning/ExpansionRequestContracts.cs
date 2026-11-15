@@ -1,3 +1,5 @@
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using WorldSeed.DesignSessions;
 using WorldSeed.GameData;
 using WorldSeed.RuleDrafting;
@@ -113,7 +115,7 @@ public static class ExpansionRequestService
         var activeMatchesProposal = proposalIncludesRules && activeSchema is not null && schemaProposal is not null &&
             activeSchema.SourceSchemaProposalId == schemaProposal.Id &&
             activeSchema.WorkingRuleSetRevision == schemaProposal.WorkingRuleSetRevision &&
-            string.Equals(activeSchema.SchemaJson, schemaProposal.SchemaJson, StringComparison.Ordinal);
+            SemanticallySameJson(activeSchema.SchemaJson, schemaProposal.SchemaJson);
         var stage = activeMatchesProposal
             ? ExpansionProgressStage.SchemaActivated
             : proposalIncludesRules
@@ -153,6 +155,12 @@ public static class ExpansionRequestService
             $"expansion-schema-decision-{Guid.NewGuid():N}", request.ProjectId, request.Id, kind,
             progress.WorkingRuleSetRevision.Value, progress.WorkingRuleIds.ToArray(),
             string.IsNullOrWhiteSpace(note) ? null : note.Trim(), now);
+    }
+
+    private static bool SemanticallySameJson(string left, string right)
+    {
+        try { return JsonNode.DeepEquals(JsonNode.Parse(left), JsonNode.Parse(right)); }
+        catch (JsonException) { return false; }
     }
 
     public static (ExpansionRequest Request, DesignSourceNote SourceNote) Create(

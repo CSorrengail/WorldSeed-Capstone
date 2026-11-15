@@ -144,7 +144,16 @@ public sealed class DevelopmentPlanServiceTests
         var proposal = new ProjectSchemaProposal("proposal", project.Id, "0.1", "Reaction schema", schemaJson, [], workingRules.Id, workingRules.Revision, [workingRule.Id], Now, Now.AddMinutes(3));
         progress = ExpansionRequestService.EvaluateProgress(request, project, workingRules, proposal, schemaDecisions: [noSchema, schemaWork]);
         Assert.Equal(ExpansionProgressStage.SchemaProposalReady, progress.Stage);
-        var active = new ActiveGameSchema("active", project.Id, "0.1", "Schema", schemaJson, proposal.Id, workingRules.Id, workingRules.Revision, 2, Now, Now.AddMinutes(4));
+        var activeSchemaJson = """
+            {
+              "id": "schema",
+              "name": "Schema",
+              "version": "1",
+              "entityTypes": [],
+              "valueTypes": []
+            }
+            """;
+        var active = new ActiveGameSchema("active", project.Id, "0.1", "Schema", activeSchemaJson, proposal.Id, workingRules.Id, workingRules.Revision, 2, Now, Now.AddMinutes(4));
         progress = ExpansionRequestService.EvaluateProgress(request, project, workingRules, proposal, active, [noSchema, schemaWork]);
         Assert.Equal(ExpansionProgressStage.SchemaActivated, progress.Stage);
     }
