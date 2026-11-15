@@ -50,6 +50,45 @@
           <Border Grid.Column="2" Padding="16"><Grid RowDefinitions="Auto,*,Auto,*" RowSpacing="10"><TextBlock Text="Proposal History" FontSize="20"/><ListBox Grid.Row="1" Name="ContentProposalList" SelectionChanged="ContentProposalList_SelectionChanged"/><TextBlock Grid.Row="2" Text="Decisions" FontSize="16"/><TextBox Grid.Row="3" Name="ContentProposalDecisionHistoryText" Text="No decisions recorded." IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Disabled"/></Grid></Border>
         </Grid>
       </TabItem>
+      <TabItem Header="Content Expansion">
+        <Grid ColumnDefinitions="360,*" ColumnSpacing="16">
+          <Border Padding="16">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+              <StackPanel Spacing="10">
+                <TextBlock Text="Multi-Type Expansion Plan" FontSize="20"/>
+                <TextBlock Text="Plan Several Game-Owned Content Types In Dependency Order. Generated Entries Still Require Individual Review, Approval, And Application In Content Review." TextWrapping="Wrap" Opacity="0.75"/>
+                <TextBox Name="ContentExpansionRunNameText" PlaceholderText="Run Name"/>
+                <TextBlock Text="Content Type"/>
+                <ComboBox Name="ContentExpansionStageTypeList"/>
+                <TextBlock Text="Designer Instruction"/>
+                <TextBox Name="ContentExpansionStageInstructionText" PlaceholderText="Describe What This Stage Should Add" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="80" ScrollViewer.HorizontalScrollBarVisibility="Disabled"/>
+                <TextBlock Text="Quantity"/>
+                <TextBox Name="ContentExpansionStageQuantityText" Text="1" PlaceholderText="1-20"/>
+                <CheckBox Name="ContentExpansionDependsOnEarlierCheck" Content="Require All Earlier Stages First" IsChecked="True"/>
+                <WrapPanel ItemSpacing="8" LineSpacing="8">
+                  <Button Name="AddContentExpansionStageButton" Content="Add Stage" Click="AddContentExpansionStage_Click"/>
+                  <Button Name="ClearContentExpansionPlanButton" Content="Clear Plan" Click="ClearContentExpansionPlan_Click"/>
+                </WrapPanel>
+                <ListBox Name="PlannedContentExpansionStageList" MinHeight="110"/>
+                <Button Name="SaveContentExpansionRunButton" Content="Save Expansion Run" Click="SaveContentExpansionRun_Click"/>
+              </StackPanel>
+            </ScrollViewer>
+          </Border>
+          <Border Grid.Column="1" Padding="16">
+            <Grid RowDefinitions="Auto,Auto,180,Auto,*,Auto" RowSpacing="10">
+              <TextBlock Text="Saved Expansion Runs" FontSize="20"/>
+              <TextBlock Grid.Row="1" Text="WorldSeed Stops At Each Dependency Boundary Until Every Upstream Proposal Is Reviewed, Approved, And Applied." TextWrapping="Wrap" Opacity="0.75"/>
+              <ListBox Grid.Row="2" Name="SavedContentExpansionRunList" SelectionChanged="SavedContentExpansionRunList_SelectionChanged"/>
+              <WrapPanel Grid.Row="3" ItemSpacing="8" LineSpacing="8">
+                <Button Name="GenerateNextExpansionStageButton" Content="Generate Next Ready Stage" Click="GenerateNextExpansionStage_Click" IsEnabled="False"/>
+                <Button Name="RefreshContentExpansionRunsButton" Content="Refresh Runs" Click="RefreshContentExpansionRuns_Click"/>
+              </WrapPanel>
+              <TextBox Grid.Row="4" Name="ContentExpansionRunDetailText" Text="Select A Saved Expansion Run To Review Its Stages And Progress." IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Disabled"/>
+              <TextBlock Grid.Row="5" Name="ContentExpansionRunStatusText" Text="No Multi-Type Expansion Run Is Selected." TextWrapping="Wrap"/>
+            </Grid>
+          </Border>
+        </Grid>
+      </TabItem>
       <TabItem Header="Project Inventory">
         <Grid ColumnDefinitions="280,*,420" ColumnSpacing="16">
           <Border Padding="16">

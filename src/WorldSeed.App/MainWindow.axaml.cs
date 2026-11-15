@@ -37,6 +37,7 @@ public partial class MainWindow : Window
     private readonly IProjectSchemaChangeRequestStore _schemaChangeRequestStore;
     private readonly HttpGameDataWorkspaceClient _gameDataWorkspace;
     private readonly HttpContentProposalClient _contentProposals;
+    private readonly HttpContentExpansionRunClient _contentExpansionRunsClient;
     private readonly HttpPublicationClient _publications;
     private readonly HttpProjectInventoryClient _projectInventoriesClient;
     private readonly HttpDevelopmentPlanClient _developmentPlansClient;
@@ -55,6 +56,8 @@ public partial class MainWindow : Window
     private readonly List<ContentApplication> _contentApplications = [];
     private readonly List<ProjectContentBalanceProfile> _contentBalanceProfiles = [];
     private readonly List<ContentExpansionQueueItem> _contentExpansionQueue = [];
+    private readonly List<ContentExpansionStage> _plannedContentExpansionStages = [];
+    private readonly List<ContentExpansionRunWorkspaceItem> _contentExpansionRuns = [];
     private readonly List<PublicationSnapshot> _publicationSnapshots = [];
     private readonly List<PublicationEdition> _publicationEditions = [];
     private readonly List<PublicationEditorialProposal> _publicationEditorialProposals = [];
@@ -124,6 +127,7 @@ public partial class MainWindow : Window
         _schemaChangeRequestStore = new HttpProjectSchemaChangeRequestStore(_apiHttp);
         _gameDataWorkspace = new HttpGameDataWorkspaceClient(_apiHttp);
         _contentProposals = new HttpContentProposalClient(_apiHttp);
+        _contentExpansionRunsClient = new HttpContentExpansionRunClient(_apiHttp);
         _publications = new HttpPublicationClient(_apiHttp);
         _projectInventoriesClient = new HttpProjectInventoryClient(_apiHttp);
         _developmentPlansClient = new HttpDevelopmentPlanClient(_apiHttp);
@@ -316,6 +320,7 @@ public partial class MainWindow : Window
                 await LoadSchemaChangeRequestsAsync(_project.Id);
                 await LoadGameDataWorkspaceAsync(_project.Id);
                 await LoadContentProposalsAsync(_project.Id);
+                await LoadContentExpansionRunsAsync(_project.Id);
                 await LoadPublicationSnapshotsAsync(_project.Id);
                 await LoadProjectInventoriesAsync(_project.Id);
                 await LoadDevelopmentPlansAsync(_project.Id);
@@ -1634,6 +1639,28 @@ public partial class MainWindow : Window
         RefreshContentProposalView();
     }
 
+    private async Task LoadContentExpansionRunsAsync(string projectId)
+    {
+        var selectedId = (SavedContentExpansionRunList.SelectedItem as ContentExpansionRunListItem)?.Workspace.Run.Id;
+        try
+        {
+            _contentExpansionRuns.Clear();
+            _contentExpansionRuns.AddRange(await _contentExpansionRunsClient.ListAsync(projectId));
+            SavedContentExpansionRunList.ItemsSource = _contentExpansionRuns.Select(item => new ContentExpansionRunListItem(item)).ToArray();
+            SavedContentExpansionRunList.SelectedIndex = selectedId is null
+                ? (_contentExpansionRuns.Count == 0 ? -1 : 0)
+                : _contentExpansionRuns.FindIndex(item => item.Run.Id == selectedId);
+            RefreshSavedContentExpansionRunView();
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("Load content expansion runs", ex);
+            _contentExpansionRuns.Clear();
+            SavedContentExpansionRunList.ItemsSource = Array.Empty<ContentExpansionRunListItem>();
+            ContentExpansionRunStatusText.Text = "Could Not Load Saved Expansion Runs. See The Diagnostic Log.";
+        }
+    }
+
     private async Task LoadProjectInventoriesAsync(string projectId)
     {
         try
@@ -2605,10 +2632,16 @@ public partial class MainWindow : Window
         var selectedProposalId = SelectedContentProposal?.Id;
         var selectedTypeId = ContentProposalEntityTypeList.SelectedIndex is var typeIndex && typeIndex >= 0 && typeIndex < _gameDataEntityTypes.Count
             ? _gameDataEntityTypes[typeIndex].Id : null;
+        var expansionTypeId = ContentExpansionStageTypeList.SelectedIndex is var expansionTypeIndex && expansionTypeIndex >= 0 && expansionTypeIndex < _gameDataEntityTypes.Count
+            ? _gameDataEntityTypes[expansionTypeIndex].Id : null;
         var visibleProposals = CurrentContentProposalTips().ToArray();
 
         ContentProposalEntityTypeList.ItemsSource = _gameDataEntityTypes.ToArray();
         ContentProposalEntityTypeList.SelectedIndex = selectedTypeId is null ? -1 : _gameDataEntityTypes.FindIndex(item => item.Id == selectedTypeId);
+        ContentExpansionStageTypeList.ItemsSource = _gameDataEntityTypes.ToArray();
+        ContentExpansionStageTypeList.SelectedIndex = expansionTypeId is null
+            ? (_gameDataEntityTypes.Count == 0 ? -1 : 0)
+            : _gameDataEntityTypes.FindIndex(item => item.Id == expansionTypeId);
         ContentProposalList.ItemsSource = visibleProposals.Select(item => new ContentProposalListItem(item, ProposalState(item))).ToArray();
         ContentProposalList.SelectedIndex = selectedProposalId is null ? -1 : Array.FindIndex(visibleProposals, item => item.Id == selectedProposalId);
 
@@ -2798,6 +2831,165 @@ public partial class MainWindow : Window
         ContentProposalList.SelectedIndex = -1;
         ContentProposalDecisionNoteText.Text = string.Empty;
         return GenerateContentProposalCoreAsync(forcedInstruction: request, persistedDesignerRequest: request, usePendingRevision: false);
+    }
+
+    private void AddContentExpansionStage_Click(object? sender, RoutedEventArgs e)
+    {
+        var typeIndex = ContentExpansionStageTypeList.SelectedIndex;
+        if (typeIndex < 0 || typeIndex >= _gameDataEntityTypes.Count)
+        {
+            ContentExpansionRunStatusText.Text = "Select A Content Type For The New Stage.";
+            return;
+        }
+        if (!int.TryParse(ContentExpansionStageQuantityText.Text, out var quantity) || quantity is < 1 or > 20)
+        {
+            ContentExpansionRunStatusText.Text = "Stage Quantity Must Be Between 1 And 20.";
+            return;
+        }
+        var instruction = ContentExpansionStageInstructionText.Text?.Trim();
+        if (string.IsNullOrWhiteSpace(instruction))
+        {
+            ContentExpansionRunStatusText.Text = "Describe What This Stage Should Add.";
+            return;
+        }
+        var type = _gameDataEntityTypes[typeIndex];
+        var id = $"stage-{_plannedContentExpansionStages.Count + 1}-{type.Id}";
+        var dependencies = ContentExpansionDependsOnEarlierCheck.IsChecked == true
+            ? _plannedContentExpansionStages.Select(stage => stage.Id).ToArray()
+            : [];
+        _plannedContentExpansionStages.Add(new ContentExpansionStage(id, type.Id, quantity, instruction, dependencies));
+        PlannedContentExpansionStageList.ItemsSource = _plannedContentExpansionStages.Select(stage => new ContentExpansionStageListItem(stage, _gameDataEntityTypes.FirstOrDefault(item => item.Id == stage.EntityTypeId)?.Name ?? stage.EntityTypeId)).ToArray();
+        ContentExpansionStageInstructionText.Text = string.Empty;
+        ContentExpansionStageQuantityText.Text = "1";
+        ContentExpansionRunStatusText.Text = $"Added {type.Name}. Save The Run When The Stage Order Is Ready.";
+    }
+
+    private void ClearContentExpansionPlan_Click(object? sender, RoutedEventArgs e)
+    {
+        _plannedContentExpansionStages.Clear();
+        PlannedContentExpansionStageList.ItemsSource = Array.Empty<ContentExpansionStageListItem>();
+        ContentExpansionRunStatusText.Text = "Cleared The Unsaved Expansion Plan.";
+    }
+
+    private async void SaveContentExpansionRun_Click(object? sender, RoutedEventArgs e) => await SaveContentExpansionRunAsync();
+
+    internal async Task<bool> SaveContentExpansionRunAsync()
+    {
+        if (_project is null) return false;
+        if (_plannedContentExpansionStages.Count == 0)
+        {
+            ContentExpansionRunStatusText.Text = "Add At Least One Stage Before Saving The Run.";
+            return false;
+        }
+        try
+        {
+            var saved = await _contentExpansionRunsClient.CreateAsync(_project.Id, new ContentExpansionRunCreationRequest(ContentExpansionRunNameText.Text ?? string.Empty, _plannedContentExpansionStages.ToArray()));
+            _plannedContentExpansionStages.Clear();
+            PlannedContentExpansionStageList.ItemsSource = Array.Empty<ContentExpansionStageListItem>();
+            await LoadContentExpansionRunsAsync(_project.Id);
+            SavedContentExpansionRunList.SelectedIndex = _contentExpansionRuns.FindIndex(item => item.Run.Id == saved.Id);
+            ContentExpansionRunStatusText.Text = "Saved The Expansion Run. Generate Its Next Ready Stage When You Are Ready To Use The Local Model.";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("Save content expansion run", ex);
+            ContentExpansionRunStatusText.Text = ex is HttpRequestException ? ex.Message : "Could Not Save The Expansion Run. See The Diagnostic Log.";
+            return false;
+        }
+    }
+
+    private async void RefreshContentExpansionRuns_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_project is not null) await LoadContentExpansionRunsAsync(_project.Id);
+    }
+
+    private void SavedContentExpansionRunList_SelectionChanged(object? sender, SelectionChangedEventArgs e) => RefreshSavedContentExpansionRunView();
+
+    private ContentExpansionRunWorkspaceItem? SelectedContentExpansionRun => (SavedContentExpansionRunList.SelectedItem as ContentExpansionRunListItem)?.Workspace;
+
+    private void RefreshSavedContentExpansionRunView()
+    {
+        var workspace = SelectedContentExpansionRun;
+        GenerateNextExpansionStageButton.IsEnabled = workspace?.Progress.NextStageId is not null && !_contentExpansionRunning;
+        if (workspace is null)
+        {
+            ContentExpansionRunDetailText.Text = "Select A Saved Expansion Run To Review Its Stages And Progress.";
+            ContentExpansionRunStatusText.Text = "No Multi-Type Expansion Run Is Selected.";
+            return;
+        }
+        ContentExpansionRunDetailText.Text = string.Join("\n\n", workspace.Progress.Stages.Select(progress =>
+        {
+            var stage = workspace.Run.Stages.Single(item => item.Id == progress.StageId);
+            var typeName = _gameDataEntityTypes.FirstOrDefault(item => item.Id == stage.EntityTypeId)?.Name ?? stage.EntityTypeId;
+            var dependencyText = stage.DependsOnStageIds.Count == 0 ? "None" : string.Join(", ", stage.DependsOnStageIds);
+            return $"{typeName} — {progress.State}\nGenerated: {progress.GeneratedCount}/{progress.Quantity}; Applied: {progress.AppliedCount}/{progress.Quantity}\nDependencies: {dependencyText}\nInstruction: {stage.DesignerInstruction}";
+        }));
+        ContentExpansionRunStatusText.Text = workspace.Progress.IsComplete
+            ? "This Expansion Run Is Complete. Every Planned Proposal Was Applied To Canonical Game Data."
+            : workspace.Progress.NextStageId is not null
+                ? "The Next Stage Is Ready To Generate. Nothing Will Be Approved Or Applied Automatically."
+                : "Review, Approve, And Apply The Generated Proposals In Content Review Before The Next Dependency Stage Can Begin.";
+    }
+
+    private async void GenerateNextExpansionStage_Click(object? sender, RoutedEventArgs e) => await GenerateNextExpansionStageAsync();
+
+    internal async Task<int> GenerateNextExpansionStageAsync()
+    {
+        var workspace = SelectedContentExpansionRun;
+        if (_project is null || workspace?.Progress.NextStageId is null || _contentExpansionRunning) return 0;
+        var stage = workspace.Run.Stages.Single(item => item.Id == workspace.Progress.NextStageId);
+        var progress = workspace.Progress.Stages.Single(item => item.StageId == stage.Id);
+        var typeIndex = _gameDataEntityTypes.FindIndex(item => item.Id == stage.EntityTypeId);
+        if (typeIndex < 0)
+        {
+            ContentExpansionRunStatusText.Text = "This Run Uses A Content Type That Is Not In The Current Active Schema.";
+            return 0;
+        }
+        if (ModelSelector.SelectedItem is not string)
+        {
+            ContentExpansionRunStatusText.Text = "Select A Local Model In Sources Before Generating This Stage.";
+            return 0;
+        }
+
+        ContentProposalEntityTypeList.SelectedIndex = typeIndex;
+        _contentExpansionRunning = true;
+        GenerateNextExpansionStageButton.IsEnabled = false;
+        var generation = ++_contentExpansionGeneration;
+        RefreshContentProposalControls();
+        var generated = 0;
+        try
+        {
+            var previousIds = workspace.ProposalLinks
+                .Select(link => _contentProposalItems.FirstOrDefault(proposal => proposal.Id == link.ProposalId)?.Candidate["id"]?.GetValue<string>())
+                .Where(id => !string.IsNullOrWhiteSpace(id)).Cast<string>().ToList();
+            for (var ordinal = progress.GeneratedCount + 1; ordinal <= stage.Quantity; ordinal++)
+            {
+                ContentExpansionRunStatusText.Text = $"Generating {ordinal} Of {stage.Quantity} For {stage.EntityTypeId}. The Result Will Remain An Unapproved Proposal.";
+                var instruction = BuildContentExpansionInstruction(stage.DesignerInstruction, stage.EntityTypeId, ordinal, stage.Quantity, previousIds);
+                var saved = await GenerateContentProposalCoreAsync(
+                    forcedInstruction: instruction,
+                    persistedDesignerRequest: $"{stage.DesignerInstruction}\n\nExpansion Run: {workspace.Run.Name}; Stage: {stage.Id}; Item {ordinal} Of {stage.Quantity}.",
+                    usePendingRevision: false,
+                    expectedExpansionGeneration: generation);
+                if (!saved || SelectedContentProposal is not { } proposal || generation != _contentExpansionGeneration) break;
+                await _contentExpansionRunsClient.LinkProposalAsync(_project.Id, workspace.Run.Id, stage.Id, proposal.Id);
+                previousIds.Add(proposal.Candidate["id"]?.GetValue<string>() ?? proposal.Id);
+                generated++;
+            }
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("Generate content expansion stage", ex);
+            ContentExpansionRunStatusText.Text = ex is HttpRequestException ? ex.Message : "Could Not Complete The Expansion Stage. See The Diagnostic Log.";
+        }
+        finally
+        {
+            _contentExpansionRunning = false;
+            RefreshContentProposalControls();
+            await LoadContentExpansionRunsAsync(_project.Id);
+        }
+        return generated;
     }
 
     internal async Task<int> GenerateContentExpansionAsync()
@@ -3214,6 +3406,7 @@ public partial class MainWindow : Window
             _pendingContentApplicationProposalId = null;
             RefreshGameDataView();
             RefreshSelectedContentProposalView();
+            await LoadContentExpansionRunsAsync(_project.Id);
             ContentProposalStatusText.Text = $"Applied approved proposal version {proposal.Version} as canonical {applied.EntityInstanceId}. The proposal, approval, and application event remain in history.";
             return true;
         }
@@ -3770,6 +3963,8 @@ public partial class MainWindow : Window
         _pendingContentApplicationProposalId = null;
         _contentBalanceProfiles.Clear();
         _contentExpansionQueue.Clear();
+        _plannedContentExpansionStages.Clear();
+        _contentExpansionRuns.Clear();
         _contentExpansionGeneration++;
         _contentExpansionRunning = false;
         _stopContentExpansionRequested = false;
@@ -3795,6 +3990,14 @@ public partial class MainWindow : Window
         ContentExpansionQueueList.ItemsSource = Array.Empty<ContentExpansionQueueItem>();
         ContentExpansionStatusText.Text = "No Expansion Queue Is Running.";
         ContentExpansionCountList.SelectedIndex = 1;
+        ContentExpansionStageTypeList.ItemsSource = Array.Empty<GameDataEntityTypeItem>();
+        ContentExpansionStageInstructionText.Text = string.Empty;
+        ContentExpansionStageQuantityText.Text = "1";
+        ContentExpansionRunNameText.Text = string.Empty;
+        PlannedContentExpansionStageList.ItemsSource = Array.Empty<ContentExpansionStageListItem>();
+        SavedContentExpansionRunList.ItemsSource = Array.Empty<ContentExpansionRunListItem>();
+        ContentExpansionRunDetailText.Text = "Select A Saved Expansion Run To Review Its Stages And Progress.";
+        ContentExpansionRunStatusText.Text = "No Multi-Type Expansion Run Is Selected.";
         ContentReviewSchemaText.Text = "Load an active schema and Working Rule Set before creating a proposal.";
         ContentProposalStatusText.Text = "No proposal is selected.";
         GenerateContentProposalButton.Content = "Generate Proposal";
@@ -3966,6 +4169,14 @@ public partial class MainWindow : Window
         public string Status { get; set; } = "Waiting";
         public string? ProposalId { get; set; }
         public override string ToString() => $"{Index}. {Status}";
+    }
+    private sealed record ContentExpansionStageListItem(ContentExpansionStage Stage, string TypeName)
+    {
+        public override string ToString() => $"{TypeName} × {Stage.Quantity} — Depends On: {(Stage.DependsOnStageIds.Count == 0 ? "None" : string.Join(", ", Stage.DependsOnStageIds))}";
+    }
+    private sealed record ContentExpansionRunListItem(ContentExpansionRunWorkspaceItem Workspace)
+    {
+        public override string ToString() => $"{Workspace.Run.Name} — {(Workspace.Progress.IsComplete ? "Complete" : Workspace.Progress.NextStageId is null ? "Awaiting Review" : "Ready")}";
     }
     private sealed record PublicationSnapshotListItem(PublicationSnapshot Snapshot)
     {

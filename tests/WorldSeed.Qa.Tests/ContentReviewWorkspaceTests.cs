@@ -23,6 +23,11 @@ public sealed class ContentReviewWorkspaceTests
             Assert.NotNull(window.FindControl<ComboBox>("ContentExpansionCountList"));
             Assert.NotNull(window.FindControl<ListBox>("ContentExpansionQueueList"));
             Assert.False(window.FindControl<Button>("StartContentExpansionButton")!.IsEnabled);
+            Assert.NotNull(window.FindControl<ComboBox>("ContentExpansionStageTypeList"));
+            Assert.NotNull(window.FindControl<ListBox>("PlannedContentExpansionStageList"));
+            Assert.NotNull(window.FindControl<ListBox>("SavedContentExpansionRunList"));
+            Assert.NotNull(window.FindControl<TextBox>("ContentExpansionRunDetailText"));
+            Assert.False(window.FindControl<Button>("GenerateNextExpansionStageButton")!.IsEnabled);
             Assert.NotNull(window.FindControl<ListBox>("ContentProposalList"));
             Assert.False(window.FindControl<Button>("GenerateContentProposalButton")!.IsEnabled);
             Assert.False(window.FindControl<Button>("SaveContentBalanceProfileButton")!.IsEnabled);
