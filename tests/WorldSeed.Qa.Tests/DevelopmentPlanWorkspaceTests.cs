@@ -9,6 +9,7 @@ using Avalonia.Headless.XUnit;
 using WorldSeed.App;
 using WorldSeed.DesignSessions;
 using WorldSeed.ProjectPlanning;
+using WorldSeed.WorkingRules;
 
 namespace WorldSeed.Qa.Tests;
 
@@ -104,6 +105,31 @@ public sealed class DevelopmentPlanWorkspaceTests
             Assert.Equal("View Incorporated Rules", window.FindControl<Button>("StartExpansionRequestButton")!.Content);
             Assert.Contains("Working Rule Set Revision 4", window.FindControl<TextBlock>("ExpansionRequestStatusText")!.Text);
             Assert.Single(apiHandler.ExpansionRequests);
+
+            var workingRules = (List<WorkingRule>)typeof(MainWindow).GetField("_workingRules", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window)!;
+            workingRules.Add(new WorkingRule("reaction-rule", "Reaction Rule", WorkingRuleKind.Rule, "Reactions resolve immediately.", [], [], [], [], null, [], []));
+            window.FindControl<TextBox>("DevelopmentPlanGuidanceText")!.Text = string.Empty;
+            Assert.False(await window.MarkExpansionNoSchemaAsync());
+            Assert.Contains("Explain why", window.FindControl<TextBlock>("DevelopmentPlanStatusText")!.Text);
+            window.FindControl<TextBox>("DevelopmentPlanGuidanceText")!.Text = "This procedure has no persistent structured data.";
+            Assert.True(await window.MarkExpansionNoSchemaAsync());
+            Assert.Equal(ExpansionProgressStage.NoSchemaChangeRequired, apiHandler.ProgressStage);
+            Assert.Contains("No Schema Change", window.FindControl<TextBlock>("ExpansionRequestStatusText")!.Text);
+
+            Assert.True(await window.SendExpansionToSchemaAsync());
+            Assert.Equal(2, window.FindControl<TabControl>("WorkspaceTabs")!.SelectedIndex);
+            Assert.Contains("1 Rule(s) Queued", window.FindControl<TextBlock>("SchemaQueueText")!.Text);
+            Assert.Equal(ExpansionSchemaDecisionKind.SchemaWorkRequested, apiHandler.SchemaDecisions.Last().Kind);
+
+            apiHandler.ProgressStage = ExpansionProgressStage.SchemaProposalReady;
+            Assert.True(await window.StartExpansionRequestAsync());
+            Assert.Equal("Open Schema Proposal", window.FindControl<Button>("SendExpansionToSchemaButton")!.Content);
+            Assert.True(await window.SendExpansionToSchemaAsync());
+            Assert.Contains("Included In The Saved Schema Proposal", window.FindControl<TextBlock>("ExpansionRequestStatusText")!.Text);
+
+            apiHandler.ProgressStage = ExpansionProgressStage.SchemaActivated;
+            Assert.True(await window.StartExpansionRequestAsync());
+            Assert.Equal("View Active Schema", window.FindControl<Button>("SendExpansionToSchemaButton")!.Content);
         }
         finally { window.Close(); }
     }
@@ -182,6 +208,7 @@ public sealed class DevelopmentPlanWorkspaceTests
         public List<DevelopmentPlanDecision> PlanDecisions { get; } = [];
         public List<DevelopmentRecommendationDecision> RecommendationDecisions { get; } = [];
         public List<ExpansionRequest> ExpansionRequests { get; } = [];
+        public List<ExpansionSchemaDecision> SchemaDecisions { get; } = [];
         public ExpansionProgressStage ProgressStage { get; set; } = ExpansionProgressStage.ReadyForClarification;
         private DesignProject Project { get; set; } = DesignProjectService.Create(inventory.ProjectId, "Planning Project");
 
@@ -192,16 +219,18 @@ public sealed class DevelopmentPlanWorkspaceTests
                 return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(Project, options: Options) };
             if (request.Method == HttpMethod.Get && path.EndsWith("/development-plans", StringComparison.Ordinal))
             {
+                var hasWorkingRules = ProgressStage is ExpansionProgressStage.WorkingRulesIncorporated or ExpansionProgressStage.SchemaWorkRequested or ExpansionProgressStage.SchemaProposalReady or ExpansionProgressStage.SchemaActivated or ExpansionProgressStage.NoSchemaChangeRequired;
                 var progress = ExpansionRequests.Select(item => new ExpansionRequestProgress(
                     item.Id,
                     ProgressStage,
                     ProgressStage == ExpansionProgressStage.ReadyForClarification ? null : "session-expansion",
-                    ProgressStage is ExpansionProgressStage.DraftReady or ExpansionProgressStage.WorkingRulesIncorporated ? 1 : 0,
-                    ProgressStage == ExpansionProgressStage.WorkingRulesIncorporated ? 4 : null,
-                    ProgressStage == ExpansionProgressStage.WorkingRulesIncorporated ? ["reaction-rule"] : [])).ToArray();
+                    ProgressStage == ExpansionProgressStage.ReadyForClarification || ProgressStage == ExpansionProgressStage.ClarificationInProgress ? 0 : 1,
+                    hasWorkingRules ? 4 : null,
+                    hasWorkingRules ? ["reaction-rule"] : [],
+                    SchemaDecisions.LastOrDefault()?.Id)).ToArray();
                 return new HttpResponseMessage(HttpStatusCode.OK)
                 {
-                    Content = JsonContent.Create(new DevelopmentPlanWorkspace(SavedPlans, PlanDecisions, RecommendationDecisions, ExpansionRequests, progress), options: Options)
+                    Content = JsonContent.Create(new DevelopmentPlanWorkspace(SavedPlans, PlanDecisions, RecommendationDecisions, ExpansionRequests, progress, SchemaDecisions), options: Options)
                 };
             }
             if (request.Method == HttpMethod.Put && path.Contains("/development-plans/", StringComparison.Ordinal))
@@ -220,6 +249,20 @@ public sealed class DevelopmentPlanWorkspaceTests
                 ExpansionRequests.Add(expansion);
                 Project = DesignProjectService.AddSources(Project, [source]);
                 return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(expansion, options: Options) };
+            }
+            if (request.Method == HttpMethod.Post && path.Contains("/expansion-requests/", StringComparison.Ordinal) && path.EndsWith("/schema-decisions", StringComparison.Ordinal))
+            {
+                var input = (await request.Content!.ReadFromJsonAsync<ExpansionSchemaDecisionRequest>(Options, cancellationToken))!;
+                if (input.Kind == ExpansionSchemaDecisionKind.NoSchemaChangeRequired && string.IsNullOrWhiteSpace(input.Note))
+                    return new HttpResponseMessage(HttpStatusCode.BadRequest) { Content = new StringContent("Explain why these rules require no schema change.") };
+                var expansion = ExpansionRequests.Single();
+                var progress = new ExpansionRequestProgress(expansion.Id, ProgressStage, "session-expansion", 1, 4, ["reaction-rule"]);
+                var decision = ExpansionRequestService.DecideSchema(expansion, progress, input.Kind, input.Note, inventory.CapturedAt.AddMinutes(3 + SchemaDecisions.Count));
+                SchemaDecisions.Add(decision);
+                ProgressStage = input.Kind == ExpansionSchemaDecisionKind.NoSchemaChangeRequired
+                    ? ExpansionProgressStage.NoSchemaChangeRequired
+                    : ExpansionProgressStage.SchemaWorkRequested;
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(decision, options: Options) };
             }
             if (request.Method == HttpMethod.Post && path.Contains("/recommendations/", StringComparison.Ordinal) && path.EndsWith("/decisions", StringComparison.Ordinal))
             {
