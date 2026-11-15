@@ -17,10 +17,86 @@ preserved at `backup/main-before-test-doc-squash-20261107`.
 
 ## Current Development Task
 
-The active task is milestone 1 of the complete-game MVP: project-wide planning
-and gap analysis. The first implementation cycle should produce a persisted,
-designer-reviewable assessment of the project's rules, schema, canonical
-content, decisions, and publication coverage without changing any of them.
+Milestones 1 through 3 are complete. The latest three-iteration cycle added the
+persisted, designer-reviewable multi-type expansion run at revision `73f8f68`
+(`584b70d`, `c178ca8`, `73f8f68`). Runs select arbitrary active-schema-owned
+content types, quantities, and explicit earlier-stage dependencies while binding
+the exact active-schema and Working Rule Set revisions. Each generated item
+remains an independent proposal. A downstream stage cannot generate until every
+upstream slot has been explicitly approved and applied to canonical Game Data.
+No run operation approves or applies content automatically.
+
+Independent QA passed 21 Content tests, 8 focused Avalonia headless tests, both
+Release builds, static genericity/authority review, and an isolated tmpfs
+Mongo/random-port API lifecycle with 8/8 checks. It proved persistence, reload,
+idempotent linkage, pre-application dependency refusal, post-application release,
+and project-delete cleanup. Evidence:
+`artifacts/qa/20261115-multitype-expansion-cycle/report.md`. The milestone advisor
+assessed the result GREEN and authorized progression to Milestone 4 Evaluation
+Assistance without a new owner design decision.
+
+The inventory cycle used four implementation iterations followed by one
+consolidated QA pass. QA passed 45 focused/regression tests, Release API/App
+builds, static ownership/no-model inspection, and an isolated tmpfs Mongo/API
+lifecycle proving immutable r1/r2 history, latest selection, factual observation
+changes, reload, and project-delete cleanup. Evidence:
+`artifacts/qa/20261113-project-inventory/report.md`.
+
+The Development Plan cycle used five implementation iterations followed by one
+consolidated QA pass. QA passed 6 planning tests, 4 focused headless Avalonia
+tests, both Release builds, static boundary review, and an isolated tmpfs
+Mongo/API lifecycle proving immutable plan v1/v2 lineage, separate plan/item
+decisions, reload, and project-delete cleanup. Evidence:
+`artifacts/qa/20261113-development-plan-cycle/report.md`. The milestone advisor
+assessed the result GREEN and recommended Accepted Recommendation -> Expansion
+Request as the next implementation priority; no owner decision is currently
+required.
+
+The three-iteration Expansion Request cycle is complete and independently
+verified at revision `9b7c159` (core boundary `7aac7d9`, desktop handoff
+`4c52321`). An accepted
+recommendation can now become one immutable Expansion Request bound to the exact
+inventory, plan, recommendation, and acceptance decision. The API refuses stale
+inventory/plan lineage, rejected or revision-pending plans, and any recommendation
+whose latest decision is not Accepted. It creates a traceable project source note
+that explicitly treats the inventory as planning evidence rather than approved
+mechanics. The desktop exposes Start/Open Expansion only after acceptance, opens
+the generated traceable source on the Sources tab, and the drafting pipeline
+supplies an expansion-specific instruction while deterministically refusing any
+first-turn rule draft instead of clarification. QA passed 8 ProjectPlanning
+tests, 6 DesignSessions tests, 3 focused headless Avalonia tests, both Release
+builds, and an isolated tmpfs Mongo/API lifecycle covering acceptance gating,
+idempotency, provenance/source reload, stale/rejected/nonaccepted refusal paths,
+and project-delete cleanup. Evidence:
+`artifacts/qa/20261113-expansion-request-handoff/report.md`.
+
+A subsequent three-iteration progress cycle is verified at revision `d1f9127`
+(`2a55859`, `a7adb15`, `d1f9127`). Expansion state is derived from persisted
+sessions and Working Rule provenance as Ready For Clarification, Clarification
+In Progress, Draft Ready, or Working Rules Incorporated; the desktop refreshes
+and navigates accordingly. QA passed 18 focused tests, both Release builds, and
+an isolated tmpfs Mongo/API Ready -> Clarification -> Draft -> Incorporated
+lifecycle with exact session, draft, Working Rule revision/ID evidence and
+cleanup. Evidence: `artifacts/qa/20261114-expansion-progress/report.md`.
+The milestone advisor assessed this checkpoint GREEN, with a YELLOW requirement
+gap: expansion still needs an explicit designer-controlled handoff from its
+incorporated Working Rules into schema proposal/review/activation, including a
+valid "no schema change required" outcome, before milestone 3 becomes primary.
+
+The four-iteration Expansion-to-Schema cycle is complete at revision `ad30f40`
+(`087cc42`, `e428996`, `018a240`, `ad30f40`). Designers can send the exact
+expansion-derived Working Rules into the existing Schema queue without manually
+regrouping them, or record a rationale-backed No Schema Change Required decision.
+Schema proposal and activation remain separate designer actions, and progress is
+derived through Schema Work Requested, Proposal Ready, and Activated. QA's first
+isolated lifecycle found formatting-sensitive schema comparison defect ES-001;
+the semantic-JSON correction passed 9 regressions, a clean API build, and 8/8
+isolated API/Mongo lifecycle checks including actual activation and mismatch
+refusal. Evidence: `artifacts/qa/20261115-expansion-schema-handoff/report.md` and
+`artifacts/qa/20261115-expansion-schema-handoff-es001-retest/report.md`.
+The advisor assessed milestone 2 GREEN and complete. A later Sword of Truth live
+model/owner demonstration remains milestone 6 evidence, not a blocker to
+multi-type content expansion.
 
 The previously described post-creature work is now recognized as foundation for
 the expanded MVP. Its first complete sequence is independently verified: bounded context-backed content
@@ -640,6 +716,10 @@ remains available for any later owner-action stop.
 ## Open Defects And Technical Limits
 
 - No confirmed product defect is currently open.
+- Owner-operated manual testing of the Project Inventory, Development Plan,
+  coordinated expansion, and schema-handoff screens is deferred to the testing
+  backlog. These areas retain automated evidence but must not be described as
+  owner-verified until that later hands-on pass is completed.
 - The environment still cannot retrieve authoritative Codex allowance
   percentages automatically. The owner explicitly reported that both the
   five-hour and weekly allowances reset on 2026-11-11 and authorized continued
@@ -736,10 +816,6 @@ of Truth demonstration.
 
 ## Remaining Authorized Work
 
-- Build persisted project-wide planning and gap analysis with designer decisions.
-- Turn approved plan items into coordinated rule and system expansion.
-- Scale reviewed generation across arbitrary game-owned content types and their
-  dependencies.
 - Assist designers in establishing game-specific validation and balance coverage.
 - Produce a coherent complete-game publication rather than isolated snapshots.
 - Run the substantial Sword of Truth demonstration and a smaller mechanically
@@ -749,6 +825,11 @@ of Truth demonstration.
 
 ## Next Action Required
 
-Begin one bounded multi-iteration development cycle for persisted project-wide
-planning and gap analysis, followed by one consolidated QA pass. No owner
-decision or confirmed defect currently blocks this cycle.
+Begin Milestone 4 Evaluation Assistance. Use only project-owned accepted rules,
+the active schema, canonical examples, and explicit reference values to propose
+missing deterministic validation or advisory balance-profile coverage. Keep the
+two categories visibly separate, require designer review before any proposal can
+affect the project, and never invent a universal balance formula. Owner-operated
+manual testing of the recent planning/expansion screens remains on the backlog.
+Obtain refreshed Codex five-hour and weekly remaining percentages before that
+new cycle because no supported non-UI source is available to the coordinator.
