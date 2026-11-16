@@ -54,11 +54,27 @@ public static class DevelopmentPlanService
                 throw new ArgumentException($"Recommendation '{recommendation.Id}' is incomplete.", nameof(recommendations));
             if (recommendation.EvidenceObservationIds.Count == 0 || recommendation.EvidenceObservationIds.Any(id => !observationIds.Contains(id)))
                 throw new ArgumentException($"Recommendation '{recommendation.Id}' must cite existing inventory observations.", nameof(recommendations));
+            var evidence = inventory.Observations.Where(observation => recommendation.EvidenceObservationIds.Contains(observation.Id, StringComparer.Ordinal)).ToArray();
+            if (evidence.Any(observation => !Supports(recommendation.Category, observation.Kind)))
+                throw new ArgumentException($"Recommendation '{recommendation.Id}' cites an inventory observation that does not support its category.", nameof(recommendations));
             if (recommendation.DependsOnRecommendationIds.Any(id => id == recommendation.Id || !recommendationIds.Contains(id, StringComparer.Ordinal)))
                 throw new ArgumentException($"Recommendation '{recommendation.Id}' has an invalid dependency.", nameof(recommendations));
         }
         EnsureAcyclic(recommendations);
     }
+
+    private static bool Supports(DevelopmentRecommendationCategory category, InventoryObservationKind observation) => category switch
+    {
+        DevelopmentRecommendationCategory.ResolveSourceOrRule => observation is InventoryObservationKind.MissingFoundation
+            or InventoryObservationKind.UnresolvedQuestion or InventoryObservationKind.Conflict or InventoryObservationKind.MissingSourceTrace,
+        DevelopmentRecommendationCategory.ExpandRuleSystem => observation is InventoryObservationKind.MissingFoundation
+            or InventoryObservationKind.UnresolvedQuestion or InventoryObservationKind.Conflict,
+        DevelopmentRecommendationCategory.ExpandContent => observation is InventoryObservationKind.EmptyContentType
+            or InventoryObservationKind.MissingFoundation,
+        DevelopmentRecommendationCategory.AddEvaluationCoverage => observation == InventoryObservationKind.MissingEvaluationCoverage,
+        DevelopmentRecommendationCategory.ImprovePublication => observation == InventoryObservationKind.UnpublishedChanges,
+        _ => false
+    };
 
     public static DevelopmentPlanDecision DecidePlan(DevelopmentPlanProposal plan, DevelopmentPlanDecisionKind kind, string? note, DateTimeOffset now, DevelopmentPlanProposal? replacement = null)
     {

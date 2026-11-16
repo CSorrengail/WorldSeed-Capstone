@@ -39,6 +39,24 @@ public sealed class DevelopmentPlanServiceTests
         Assert.NotNull(model.LastRequest!.ResponseSchema);
         Assert.Contains("observation-question", model.LastRequest.ResponseSchema!.ToJsonString());
         Assert.Contains("Prioritize visible weapon content", model.LastRequest.Messages[1].Content);
+        Assert.Contains("ExpandContent may cite EmptyContentType", model.LastRequest.Messages[0].Content);
+    }
+
+    [Fact]
+    public void Rejects_a_recommendation_category_not_supported_by_its_observation()
+    {
+        var inventory = InventoryWithObservation(new InventoryObservation(
+            "empty-weapon", InventoryObservationKind.EmptyContentType, "weapon", "Weapon has no canonical entries.", []));
+        var unsupported = Recommendation() with
+        {
+            Id = "resolve-conflicts",
+            Category = DevelopmentRecommendationCategory.ResolveSourceOrRule,
+            EvidenceObservationIds = ["empty-weapon"]
+        };
+
+        var exception = Assert.Throws<ArgumentException>(() => DevelopmentPlanService.Create(inventory, "Plan", [], [unsupported], null, Now));
+
+        Assert.Contains("does not support its category", exception.Message);
     }
 
     [Fact]
@@ -166,6 +184,8 @@ public sealed class DevelopmentPlanServiceTests
         new InventorySchemaCoverage(new Dictionary<string, int>(), [], 0, false),
         new InventoryPublicationCoverage(0, null, null, 0),
         [new InventoryObservation("observation-question", InventoryObservationKind.UnresolvedQuestion, "question-1", "How are reactions resolved?", [])]);
+
+    private static ProjectInventory InventoryWithObservation(InventoryObservation observation) => Inventory() with { Observations = [observation] };
 
     private static DevelopmentRecommendation Recommendation() => new(
         "resolve-reactions", "Resolve Reactions", DevelopmentRecommendationCategory.ResolveSourceOrRule,
