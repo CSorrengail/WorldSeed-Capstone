@@ -7,6 +7,18 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using WorldSeed.Content;
 using WorldSeed.GameData;
+using WorldSeed.ProjectPlanning;
+
+var planProjectOption = Array.FindIndex(args, argument => string.Equals(argument, "--generate-development-plan", StringComparison.OrdinalIgnoreCase));
+if (planProjectOption >= 0)
+{
+    if (planProjectOption + 2 >= args.Length || !Uri.TryCreate(args[planProjectOption + 1], UriKind.Absolute, out var planApiUri))
+        throw new ArgumentException("--generate-development-plan requires an absolute API URI and project id, followed optionally by a local model name.");
+    var planProjectId = args[planProjectOption + 2];
+    var planModel = planProjectOption + 3 < args.Length ? args[planProjectOption + 3] : "gemma3:12b";
+    await DevelopmentPlanIntegrationCommand.RunAsync(planApiUri, planProjectId, planModel);
+    return;
+}
 
 var contentGenerationOption = Array.FindIndex(args, argument => string.Equals(argument, "--verify-content-generation", StringComparison.OrdinalIgnoreCase));
 if (contentGenerationOption >= 0)
@@ -152,6 +164,37 @@ file sealed class RecordingLanguageModelClient(ILanguageModelClient inner) : ILa
     {
         LastResponse = await inner.CompleteAsync(request, cancellationToken);
         return LastResponse;
+    }
+}
+
+file static class DevelopmentPlanIntegrationCommand
+{
+    public static async Task RunAsync(Uri apiBaseUri, string projectId, string model)
+    {
+        if (!apiBaseUri.IsLoopback) throw new ArgumentException("The development-plan command accepts only a loopback WorldSeed API.", nameof(apiBaseUri));
+        if (string.IsNullOrWhiteSpace(projectId) || string.IsNullOrWhiteSpace(model))
+            throw new ArgumentException("A project id and local model name are required.");
+
+        var baseUri = apiBaseUri.AbsoluteUri.EndsWith("/", StringComparison.Ordinal) ? apiBaseUri : new Uri(apiBaseUri.AbsoluteUri + "/");
+        using var api = new HttpClient { BaseAddress = baseUri, Timeout = TimeSpan.FromSeconds(30) };
+        var inventory = await api.GetFromJsonAsync<ProjectInventory>($"api/projects/{Uri.EscapeDataString(projectId)}/inventories/latest")
+            ?? throw new InvalidOperationException("The project has no inventory. Create or refresh its inventory before generating a plan.");
+
+        using var modelHttp = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
+        var client = new OllamaChatClient(modelHttp, OllamaDefaults.CreateProfile("development-plan-check", "Development Plan Check", model));
+        var plan = await new DevelopmentPlanGenerationService(client).CreateAsync(
+            inventory,
+            "Prioritize a cohesive, substantially fleshed-out game. Preserve designer authority, address dependencies before dependent content, and keep evaluation game-specific.");
+
+        using var response = await api.PutAsJsonAsync($"api/projects/{Uri.EscapeDataString(projectId)}/development-plans/{Uri.EscapeDataString(plan.Id)}", plan);
+        if (!response.IsSuccessStatusCode)
+            throw new HttpRequestException($"WorldSeed refused the generated development plan: {(int)response.StatusCode} {await response.Content.ReadAsStringAsync()}");
+
+        Console.WriteLine($"Saved development plan version {plan.Version} for project '{projectId}' using local model '{model}'.");
+        Console.WriteLine(plan.Summary);
+        foreach (var recommendation in plan.Recommendations)
+            Console.WriteLine($"- [{recommendation.Priority}] {recommendation.Title}: {recommendation.Goal}");
+        Console.WriteLine("No recommendation was accepted and no work was executed. Review the proposal in WorldSeed before making designer decisions.");
     }
 }
 
