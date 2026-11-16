@@ -9,6 +9,7 @@ public sealed class DevelopmentPlanFormatException(string message) : Exception(m
 public sealed class DevelopmentPlanGenerationService(ILanguageModelClient client)
 {
     private const int MaxOutputTokens = 3600;
+    private const int MaxCorrectiveRetries = 2;
     private const string SystemPrompt = """
         You are a TTRPG project planning assistant. Produce a development plan from the supplied immutable WorldSeed inventory. Return JSON only and follow the supplied response schema.
         The inventory describes facts; it does not authorize you to invent canonical rules or content. Recommend between one and ten bounded next steps. Every recommendation must cite one or more supplied observation ids. Do not cite ids that were not supplied.
@@ -29,12 +30,28 @@ public sealed class DevelopmentPlanGenerationService(ILanguageModelClient client
             priorPlan = replaces is null ? null : new { replaces.Id, replaces.Version, replaces.Summary, recommendations = replaces.Recommendations.Select(item => new { item.Id, item.Title, category = item.Category.ToString(), item.Goal }) },
             revisionGuidance = string.IsNullOrWhiteSpace(revisionGuidance) ? null : revisionGuidance.Trim()
         };
-        var request = new LlmChatRequest(
-            [new(LlmMessageRole.System, SystemPrompt), new(LlmMessageRole.User, JsonSerializer.Serialize(input))],
-            Temperature: 0.2, MaxOutputTokens: MaxOutputTokens, RequireJsonObject: true,
-            ResponseSchema: ResponseSchema(inventory.Observations.Select(item => item.Id).ToArray()));
-        var response = await client.CompleteAsync(request, cancellationToken);
-        return Parse(inventory, response.Content, designerDirection, replaces);
+        var messages = new List<LlmMessage>
+        {
+            new(LlmMessageRole.System, SystemPrompt),
+            new(LlmMessageRole.User, JsonSerializer.Serialize(input))
+        };
+        var responseSchema = ResponseSchema(inventory.Observations.Select(item => item.Id).ToArray());
+        for (var retryCount = 0; ; retryCount++)
+        {
+            var request = new LlmChatRequest(messages.ToArray(), Temperature: 0.2, MaxOutputTokens: MaxOutputTokens, RequireJsonObject: true, ResponseSchema: responseSchema);
+            var response = await client.CompleteAsync(request, cancellationToken);
+            try { return Parse(inventory, response.Content, designerDirection, replaces); }
+            catch (DevelopmentPlanFormatException exception) when (retryCount < MaxCorrectiveRetries)
+            {
+                messages.Add(new(LlmMessageRole.Assistant, response.Content));
+                messages.Add(new(LlmMessageRole.System,
+                    $"WorldSeed rejected that response: {exception.Message} Return the complete corrected JSON plan. Do not preserve an unsupported recommendation merely by changing its wording; remove it or cite only compatible factual observations using the required category mapping."));
+            }
+            catch (DevelopmentPlanFormatException exception)
+            {
+                throw new DevelopmentPlanFormatException($"The model's initial plan was invalid; WorldSeed retried {MaxCorrectiveRetries} times, but the final retry also failed: {exception.Message}");
+            }
+        }
     }
 
     internal static DevelopmentPlanProposal Parse(ProjectInventory inventory, string content, string? designerDirection, DevelopmentPlanProposal? replaces, DateTimeOffset? now = null)

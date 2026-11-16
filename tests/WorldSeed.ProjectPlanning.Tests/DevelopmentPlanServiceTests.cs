@@ -67,7 +67,24 @@ public sealed class DevelopmentPlanServiceTests
         var exception = await Assert.ThrowsAsync<DevelopmentPlanFormatException>(() =>
             new DevelopmentPlanGenerationService(new CapturingModel(content)).CreateAsync(Inventory(), null, cancellationToken: TestContext.Current.CancellationToken));
 
+        Assert.Contains("retried 2 times", exception.Message);
         Assert.Contains("existing inventory observations", exception.Message);
+    }
+
+    [Fact]
+    public async Task Corrects_an_unsupported_recommendation_category_before_saving_a_plan()
+    {
+        var inventory = InventoryWithObservation(new InventoryObservation(
+            "empty-weapon", InventoryObservationKind.EmptyContentType, "weapon", "Weapon has no canonical entries.", []));
+        var invalid = """{"summary":"Plan","overallTradeoffs":[],"recommendations":[{"id":"weapons","title":"Weapons","category":"ResolveSourceOrRule","priority":"Now","goal":"Add weapons.","rationale":"Weapons are empty.","expectedOutcome":"Weapon entries.","evidenceObservationIds":["empty-weapon"],"dependsOnRecommendationIds":[],"tradeoffs":[],"alternativeApproach":null,"differenceOfOpinion":null,"designerDecisionNeeded":null}]}""";
+        var corrected = invalid.Replace("ResolveSourceOrRule", "ExpandContent", StringComparison.Ordinal);
+        var model = new SequencedModel(invalid, corrected);
+
+        var plan = await new DevelopmentPlanGenerationService(model).CreateAsync(inventory, null, cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(DevelopmentRecommendationCategory.ExpandContent, Assert.Single(plan.Recommendations).Category);
+        Assert.Equal(2, model.Requests.Count);
+        Assert.Contains("does not support its category", model.Requests[1].Messages[^1].Content);
     }
 
     [Fact]
@@ -199,6 +216,18 @@ public sealed class DevelopmentPlanServiceTests
         {
             LastRequest = request;
             return Task.FromResult(new LlmChatResponse(content, "test-model", null));
+        }
+    }
+
+    private sealed class SequencedModel(params string[] responses) : ILanguageModelClient
+    {
+        private int _index;
+        public List<LlmChatRequest> Requests { get; } = [];
+        public Task<LlmChatResponse> CompleteAsync(LlmChatRequest request, CancellationToken cancellationToken = default)
+        {
+            Requests.Add(request);
+            var response = responses[Math.Min(_index++, responses.Length - 1)];
+            return Task.FromResult(new LlmChatResponse(response, "test-model", null));
         }
     }
 }
