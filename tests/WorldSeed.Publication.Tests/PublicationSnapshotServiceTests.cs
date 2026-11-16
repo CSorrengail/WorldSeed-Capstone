@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using WorldSeed.GameData;
+using WorldSeed.Content;
 using WorldSeed.Publication;
 using WorldSeed.WorkingRules;
 using WorldSeed.LlmIntegration;
@@ -52,13 +53,50 @@ public sealed class PublicationSnapshotServiceTests
     }
 
     [Fact]
+    public void Includes_only_current_game_specific_evaluation_context_with_reader_safe_output_and_provenance()
+    {
+        var (rules, schema, data) = Fixture();
+        var signal = new BalanceSignal("role-count", "role", BalanceMeasure.CollectionCount, 1, 3, "Keep role coverage intentional.", [new("baseline", "Core Roster", 2, "The established roster uses two roles.")]);
+        var profile = new ContentBalanceProfile("creature-balance", "creature", ["rule-1"], [signal]);
+        var current = new ProjectContentBalanceProfile("stored-current", "project", schema.Id, schema.Revision, profile, 2, Now, Now);
+        var superseded = current with { Id = "stored-superseded", Revision = 1, UpdatedAt = Now.AddMinutes(-1) };
+        var stale = current with { Id = "stored-stale", ActiveGameSchemaRevision = schema.Revision - 1 };
+
+        var snapshot = PublicationSnapshotService.Create("Test Game", rules, schema, data, Now, [stale, superseded, current]);
+
+        Assert.Equal(["stored-current"], snapshot.EvaluationProfileIds);
+        Assert.Contains("## Game-Specific Evaluation Reference", snapshot.Markdown);
+        Assert.Contains("Keep role coverage intentional.", snapshot.Markdown);
+        var evaluation = Assert.Single(snapshot.Units!, unit => unit.Kind == PublicationUnitKind.EvaluationReference);
+        Assert.Contains(new PublicationUnitSource("balance-profile", "stored-current"), evaluation.Sources);
+        Assert.Contains(new PublicationUnitSource("working-rule", "rule-1"), evaluation.Sources);
+        var edition = PublicationEditionService.CreateInitial(snapshot, Now);
+        Assert.Contains("Core Roster: 2 — The established roster uses two roles.", edition.Markdown);
+        Assert.DoesNotContain("stored-current", edition.Markdown);
+        Assert.DoesNotContain("role-count", edition.Markdown);
+        var manifest = JsonNode.Parse(snapshot.ManifestJson)!.AsObject();
+        Assert.Equal("stored-current", manifest["evaluationProfiles"]![0]!["storedProfileId"]!.GetValue<string>());
+        Assert.Equal("rule-1", manifest["evaluationProfiles"]![0]!["sourceWorkingRuleIds"]![0]!.GetValue<string>());
+    }
+
+    [Fact]
+    public void Refuses_current_evaluation_context_with_broken_provenance()
+    {
+        var (rules, schema, data) = Fixture();
+        var profile = new ContentBalanceProfile("broken", "creature", ["invented-rule"], [new("signal", "role", BalanceMeasure.NumericValue, null, 3, "Reference", [])]);
+        var stored = new ProjectContentBalanceProfile("stored", "project", schema.Id, schema.Revision, profile, 1, Now, Now);
+
+        Assert.Contains("does not cite only Working Rules", Assert.Throws<InvalidOperationException>(() => PublicationSnapshotService.Create("Test Game", rules, schema, data, Now, [stored])).Message);
+    }
+
+    [Fact]
     public void Creates_revisioned_designer_edition_without_changing_snapshot_mechanics()
     {
         var (rules, schema, data) = Fixture();
         var snapshot = PublicationSnapshotService.Create("Test Game", rules, schema, data, Now);
         var draft = PublicationEditionService.CreateInitial(snapshot, Now);
         var descriptors = PublicationEditionService.DescribeSections(snapshot);
-        Assert.Equal(["rules", "categories-and-value-types", "game-content", "relationships", "entity-creatures"], descriptors.Select(section => section.Id));
+        Assert.Equal(["rules", "categories-and-value-types", "game-content", "relationships", "game-specific-evaluation-reference", "entity-creatures"], descriptors.Select(section => section.Id));
         var entityIds = descriptors.Where(section => section.IsEntityType).Select(section => section.Id).ToArray();
         var topIds = descriptors.Where(section => !section.IsEntityType).Select(section => section.Id).Reverse().ToArray();
         var relationshipId = descriptors.Single(section => section.Title == "Relationships").Id;

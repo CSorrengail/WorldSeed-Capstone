@@ -3,12 +3,13 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using WorldSeed.Content;
 using WorldSeed.GameData;
 using WorldSeed.WorkingRules;
 
 namespace WorldSeed.Publication;
 
-public enum PublicationUnitKind { Rule, ValueType, ContentType, ContentEntry, Relationship }
+public enum PublicationUnitKind { Rule, ValueType, ContentType, ContentEntry, Relationship, EvaluationReference }
 
 public sealed record PublicationUnitSource(string SourceType, string SourceId);
 
@@ -35,7 +36,8 @@ public sealed record PublicationSnapshot(
     DateTimeOffset CreatedAt,
     string Markdown,
     string ManifestJson,
-    IReadOnlyList<PublicationUnit>? Units = null);
+    IReadOnlyList<PublicationUnit>? Units = null,
+    IReadOnlyList<string>? EvaluationProfileIds = null);
 
 public interface IPublicationSnapshotStore
 {
@@ -47,7 +49,13 @@ public interface IPublicationSnapshotStore
 
 public static class PublicationSnapshotService
 {
-    public static PublicationSnapshot Create(string projectName, WorkingRuleSet ruleSet, ActiveGameSchema activeSchema, ProjectGameData gameData, DateTimeOffset now)
+    public static PublicationSnapshot Create(
+        string projectName,
+        WorkingRuleSet ruleSet,
+        ActiveGameSchema activeSchema,
+        ProjectGameData gameData,
+        DateTimeOffset now,
+        IReadOnlyList<ProjectContentBalanceProfile>? balanceProfiles = null)
     {
         if (string.IsNullOrWhiteSpace(projectName)) throw new ArgumentException("A project name is required.", nameof(projectName));
         ArgumentNullException.ThrowIfNull(ruleSet);
@@ -70,10 +78,20 @@ public static class PublicationSnapshotService
         var includedIds = entries.Select(entry => entry["id"]?.GetValue<string>()).Where(id => !string.IsNullOrWhiteSpace(id)).Cast<string>().ToArray();
         var fingerprint = Fingerprint(gameData.DataJson);
         var snapshotId = "publication-" + Guid.NewGuid().ToString("N");
-        var units = BuildUnits(ruleSet, schema, entries, data);
-        var manifest = BuildManifest(snapshotId, projectName.Trim(), ruleSet, activeSchema, gameData, fingerprint, includedIds, units, now);
+        var evaluationProfiles = (balanceProfiles ?? [])
+            .Where(profile => string.Equals(profile.ProjectId, activeSchema.ProjectId, StringComparison.Ordinal)
+                && string.Equals(profile.ActiveGameSchemaId, activeSchema.Id, StringComparison.Ordinal)
+                && profile.ActiveGameSchemaRevision == activeSchema.Revision)
+            .GroupBy(profile => profile.Profile.Id, StringComparer.Ordinal)
+            .Select(group => group.OrderByDescending(profile => profile.Revision).ThenByDescending(profile => profile.UpdatedAt).First())
+            .OrderBy(profile => profile.Profile.EntityTypeId, StringComparer.Ordinal)
+            .ThenBy(profile => profile.Profile.Id, StringComparer.Ordinal)
+            .ToArray();
+        ValidateEvaluationProfiles(ruleSet, schema, evaluationProfiles);
+        var units = BuildUnits(ruleSet, schema, entries, data, evaluationProfiles);
+        var manifest = BuildManifest(snapshotId, projectName.Trim(), ruleSet, activeSchema, gameData, fingerprint, includedIds, units, evaluationProfiles, now);
         var markdown = RenderMarkdown(projectName.Trim(), ruleSet, activeSchema, units, fingerprint, now);
-        return new PublicationSnapshot(snapshotId, activeSchema.ProjectId, projectName.Trim(), ruleSet.Id, ruleSet.Revision, activeSchema.Id, activeSchema.Revision, gameData.Id, fingerprint, includedIds, now, markdown, manifest.ToJsonString(new JsonSerializerOptions { WriteIndented = true }), units);
+        return new PublicationSnapshot(snapshotId, activeSchema.ProjectId, projectName.Trim(), ruleSet.Id, ruleSet.Revision, activeSchema.Id, activeSchema.Revision, gameData.Id, fingerprint, includedIds, now, markdown, manifest.ToJsonString(new JsonSerializerOptions { WriteIndented = true }), units, evaluationProfiles.Select(profile => profile.Id).ToArray());
     }
 
     private static string RenderMarkdown(string projectName, WorkingRuleSet ruleSet, ActiveGameSchema activeSchema, IReadOnlyList<PublicationUnit> units, string fingerprint, DateTimeOffset now)
@@ -117,10 +135,15 @@ public static class PublicationSnapshotService
         var relationships = units.Where(unit => unit.Kind == PublicationUnitKind.Relationship).ToArray();
         foreach (var relationship in relationships) builder.AppendLine(relationship.MarkdownBody.Trim()).AppendLine();
         if (relationships.Length == 0) builder.AppendLine("_No canonical relationships._").AppendLine();
+
+        builder.AppendLine("## Game-Specific Evaluation Reference").AppendLine();
+        var evaluationReferences = units.Where(unit => unit.Kind == PublicationUnitKind.EvaluationReference).ToArray();
+        foreach (var evaluationReference in evaluationReferences) RenderUnit(builder, "###", evaluationReference);
+        if (evaluationReferences.Length == 0) builder.AppendLine("_No approved evaluation reference is configured for this schema revision._").AppendLine();
         return builder.ToString().TrimEnd() + Environment.NewLine;
     }
 
-    private static IReadOnlyList<PublicationUnit> BuildUnits(WorkingRuleSet ruleSet, JsonObject schema, IReadOnlyList<JsonObject> entries, JsonObject data)
+    private static IReadOnlyList<PublicationUnit> BuildUnits(WorkingRuleSet ruleSet, JsonObject schema, IReadOnlyList<JsonObject> entries, JsonObject data, IReadOnlyList<ProjectContentBalanceProfile> evaluationProfiles)
     {
         var units = new List<PublicationUnit>();
         var valueTypeDefinitions = (schema["valueTypes"] as JsonArray)?.OfType<JsonObject>()
@@ -178,12 +201,41 @@ public static class PublicationSnapshotService
             var relationshipId = relationship["id"]?.GetValue<string>() ?? "unknown";
             units.Add(new PublicationUnit($"relationship:{relationshipId}", PublicationUnitKind.Relationship, relationshipId, null, [new("game-data-relationship", relationshipId)], $"- `{Escape(relationshipId)}`: {RenderValue(relationship)}"));
         }
+
+        var entityNames = entityTypes.ToDictionary(entity => DefinitionId(entity)!, DisplayName, StringComparer.Ordinal);
+        foreach (var storedProfile in evaluationProfiles)
+        {
+            var profile = storedProfile.Profile;
+            var typeName = entityNames.GetValueOrDefault(profile.EntityTypeId, profile.EntityTypeId);
+            var technical = new StringBuilder();
+            var reader = new StringBuilder();
+            foreach (var signal in profile.Signals.OrderBy(signal => signal.Id, StringComparer.Ordinal))
+            {
+                technical.AppendLine($"- **{Escape(signal.Message)}** (`{Escape(signal.PropertyId)}`)");
+                reader.AppendLine($"- **{Escape(signal.Message)}**");
+                var range = DescribeRange(signal.MinimumReferenceValue, signal.MaximumReferenceValue);
+                if (range is not null)
+                {
+                    technical.AppendLine($"  - Reference range: {range}");
+                    reader.AppendLine($"  - Reference range: {range}");
+                }
+                foreach (var reference in signal.References.OrderBy(reference => reference.Label, StringComparer.Ordinal))
+                {
+                    technical.AppendLine($"  - {Escape(reference.Label)}: {reference.Value.ToString(CultureInfo.InvariantCulture)}{Rationale(reference.Rationale)}");
+                    reader.AppendLine($"  - {Escape(reference.Label)}: {reference.Value.ToString(CultureInfo.InvariantCulture)}{Rationale(reference.Rationale)}");
+                }
+            }
+            var sources = new List<PublicationUnitSource> { new("balance-profile", storedProfile.Id) };
+            sources.AddRange(profile.SourceWorkingRuleIds.Select(id => new PublicationUnitSource("working-rule", id)));
+            units.Add(new PublicationUnit($"evaluation-profile:{storedProfile.Id}", PublicationUnitKind.EvaluationReference,
+                $"{typeName} Balance Reference", null, sources, technical.ToString().TrimEnd(), reader.ToString().TrimEnd()));
+        }
         return units;
     }
 
     private static void RenderUnit(StringBuilder builder, string heading, PublicationUnit unit) => builder.AppendLine($"{heading} {Escape(unit.Title)}").AppendLine().AppendLine(unit.MarkdownBody.Trim()).AppendLine();
 
-    private static JsonObject BuildManifest(string snapshotId, string projectName, WorkingRuleSet ruleSet, ActiveGameSchema activeSchema, ProjectGameData gameData, string fingerprint, IReadOnlyList<string> includedIds, IReadOnlyList<PublicationUnit> units, DateTimeOffset now) => new()
+    private static JsonObject BuildManifest(string snapshotId, string projectName, WorkingRuleSet ruleSet, ActiveGameSchema activeSchema, ProjectGameData gameData, string fingerprint, IReadOnlyList<string> includedIds, IReadOnlyList<PublicationUnit> units, IReadOnlyList<ProjectContentBalanceProfile> evaluationProfiles, DateTimeOffset now) => new()
     {
         ["formatVersion"] = "0.1",
         ["snapshotId"] = snapshotId,
@@ -197,6 +249,15 @@ public static class PublicationSnapshotService
         ["gameDataId"] = gameData.Id,
         ["gameDataFingerprint"] = fingerprint,
         ["includedEntityIds"] = new JsonArray(includedIds.Select(id => (JsonNode?)JsonValue.Create(id)).ToArray()),
+        ["evaluationProfiles"] = new JsonArray(evaluationProfiles.Select(profile => (JsonNode?)new JsonObject
+        {
+            ["storedProfileId"] = profile.Id,
+            ["profileId"] = profile.Profile.Id,
+            ["profileRevision"] = profile.Revision,
+            ["entityTypeId"] = profile.Profile.EntityTypeId,
+            ["sourceWorkingRuleIds"] = new JsonArray(profile.Profile.SourceWorkingRuleIds.Select(id => (JsonNode?)JsonValue.Create(id)).ToArray()),
+            ["signalIds"] = new JsonArray(profile.Profile.Signals.Select(signal => (JsonNode?)JsonValue.Create(signal.Id)).ToArray())
+        }).ToArray()),
         ["publicationUnits"] = new JsonArray(units.Select(unit => (JsonNode?)new JsonObject
         {
             ["id"] = unit.Id,
@@ -205,6 +266,35 @@ public static class PublicationSnapshotService
             ["sources"] = new JsonArray(unit.Sources.Select(source => (JsonNode?)new JsonObject { ["sourceType"] = source.SourceType, ["sourceId"] = source.SourceId }).ToArray())
         }).ToArray())
     };
+
+    private static string? DescribeRange(decimal? minimum, decimal? maximum) => (minimum, maximum) switch
+    {
+        (null, null) => null,
+        ({ } min, null) => $"at least {min.ToString(CultureInfo.InvariantCulture)}",
+        (null, { } max) => $"at most {max.ToString(CultureInfo.InvariantCulture)}",
+        ({ } min, { } max) => $"{min.ToString(CultureInfo.InvariantCulture)} to {max.ToString(CultureInfo.InvariantCulture)}",
+    };
+
+    private static string Rationale(string? rationale) => string.IsNullOrWhiteSpace(rationale) ? string.Empty : $" — {Escape(rationale.Trim())}";
+
+    private static void ValidateEvaluationProfiles(WorkingRuleSet ruleSet, JsonObject schema, IReadOnlyList<ProjectContentBalanceProfile> profiles)
+    {
+        var ruleIds = ruleSet.Rules.Select(rule => rule.Id).ToHashSet(StringComparer.Ordinal);
+        var entities = (schema["entityTypes"] as JsonArray)?.OfType<JsonObject>()
+            .Where(entity => DefinitionId(entity) is not null)
+            .ToDictionary(entity => DefinitionId(entity)!, StringComparer.Ordinal) ?? [];
+        foreach (var storedProfile in profiles)
+        {
+            var profile = storedProfile.Profile;
+            if (profile.SourceWorkingRuleIds.Count == 0 || profile.SourceWorkingRuleIds.Any(id => !ruleIds.Contains(id)))
+                throw new InvalidOperationException($"Evaluation profile '{profile.Id}' does not cite only Working Rules in this publication revision.");
+            if (!entities.TryGetValue(profile.EntityTypeId, out var entity))
+                throw new InvalidOperationException($"Evaluation profile '{profile.Id}' targets a content type that is not in this publication schema.");
+            var properties = EffectiveProperties(schema, entity).Select(DefinitionId).Where(id => id is not null).Cast<string>().ToHashSet(StringComparer.Ordinal);
+            if (profile.Signals.Any(signal => !properties.Contains(signal.PropertyId)))
+                throw new InvalidOperationException($"Evaluation profile '{profile.Id}' targets a property that is not in this publication schema.");
+        }
+    }
 
     private static IEnumerable<JsonObject> EffectiveProperties(JsonObject schema, JsonObject entity)
     {

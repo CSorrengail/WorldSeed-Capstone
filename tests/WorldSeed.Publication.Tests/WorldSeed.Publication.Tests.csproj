@@ -13,6 +13,7 @@
   </ItemGroup>
   <ItemGroup>
     <Using Include="Xunit" />
+    <ProjectReference Include="..\..\src\WorldSeed.Content\WorldSeed.Content.csproj" />
     <ProjectReference Include="..\..\src\WorldSeed.Publication\WorldSeed.Publication.csproj" />
   </ItemGroup>
 </Project>

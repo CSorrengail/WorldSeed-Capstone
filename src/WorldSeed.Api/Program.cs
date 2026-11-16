@@ -429,7 +429,7 @@ projects.MapPost("/{projectId}/content-proposals/{proposalId}/apply", async (str
 });
 projects.MapGet("/{projectId}/publications", async (string projectId, IPublicationSnapshotStore publications, CancellationToken cancellationToken) =>
     Results.Ok(await publications.ListAsync(projectId, cancellationToken)));
-projects.MapPost("/{projectId}/publications", async (string projectId, IDesignProjectStore projectsStore, IWorkingRuleSetStore ruleSets, IActiveGameSchemaStore activeSchemas, IProjectGameDataStore gameData, IPublicationSnapshotStore publications, CancellationToken cancellationToken) =>
+projects.MapPost("/{projectId}/publications", async (string projectId, IDesignProjectStore projectsStore, IWorkingRuleSetStore ruleSets, IActiveGameSchemaStore activeSchemas, IProjectGameDataStore gameData, IContentBalanceProfileStore balanceProfiles, IPublicationSnapshotStore publications, CancellationToken cancellationToken) =>
 {
     var project = await projectsStore.LoadAsync(projectId, cancellationToken);
     if (project is null) return Results.NotFound("The project does not exist.");
@@ -439,7 +439,7 @@ projects.MapPost("/{projectId}/publications", async (string projectId, IDesignPr
     if (rules is null || schema is null || data is null) return Results.Conflict("Publication requires a Working Rule Set, active schema, and canonical Game Data.");
     try
     {
-        var snapshot = PublicationSnapshotService.Create(project.Name, rules, schema, data, DateTimeOffset.UtcNow);
+        var snapshot = PublicationSnapshotService.Create(project.Name, rules, schema, data, DateTimeOffset.UtcNow, await balanceProfiles.ListAsync(projectId, cancellationToken));
         await publications.SaveAsync(snapshot, cancellationToken);
         return Results.Ok(snapshot);
     }

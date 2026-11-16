@@ -204,12 +204,15 @@ public static class PublicationEditionService
 
     private static ParsedSnapshot ParseUnits(IReadOnlyList<PublicationUnit> units)
     {
+        var evaluationBody = RenderUnits(units.Where(unit => unit.Kind == PublicationUnitKind.EvaluationReference), "###", readerFacing: true);
+        if (string.IsNullOrWhiteSpace(evaluationBody)) evaluationBody = "_No approved evaluation reference is configured for this schema revision._";
         var top = new List<SourceSection>
         {
             new("rules", "Rules", RenderUnits(units.Where(unit => unit.Kind == PublicationUnitKind.Rule), "###", readerFacing: true), false, "rules"),
             new("categories-and-value-types", "Categories And Value Types", RenderUnits(units.Where(unit => unit.Kind == PublicationUnitKind.ValueType), "###", readerFacing: true), false, "categories-and-value-types"),
             new(GameContentSectionId, "Game Content", string.Empty, false, GameContentSectionId),
-            new("relationships", "Relationships", RenderRelationships(units.Where(unit => unit.Kind == PublicationUnitKind.Relationship), readerFacing: true), false, "relationships")
+            new("relationships", "Relationships", RenderRelationships(units.Where(unit => unit.Kind == PublicationUnitKind.Relationship), readerFacing: true), false, "relationships"),
+            new("game-specific-evaluation-reference", "Game-Specific Evaluation Reference", evaluationBody, false, "game-specific-evaluation-reference")
         };
         var usedIds = top.Select(section => section.Id).ToHashSet(StringComparer.Ordinal);
         var entities = units.Where(unit => unit.Kind == PublicationUnitKind.ContentType).Select(contentType =>
