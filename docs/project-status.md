@@ -17,7 +17,7 @@ preserved at `backup/main-before-test-doc-squash-20261107`.
 
 ## Current Development Task
 
-Milestones 1 through 3 are complete. The latest three-iteration cycle added the
+Milestones 1 through 5 are complete. The three-iteration Milestone 3 cycle added the
 persisted, designer-reviewable multi-type expansion run at revision `73f8f68`
 (`584b70d`, `c178ca8`, `73f8f68`). Runs select arbitrary active-schema-owned
 content types, quantities, and explicit earlier-stage dependencies while binding
@@ -34,6 +34,33 @@ and project-delete cleanup. Evidence:
 `artifacts/qa/20261115-multitype-expansion-cycle/report.md`. The milestone advisor
 assessed the result GREEN and authorized progression to Milestone 4 Evaluation
 Assistance without a new owner design decision.
+
+The two-iteration Evaluation Assistance cycle is independently verified at
+revision `d0ab3f3` (`cb6edde`, `d0ab3f3`). Local models can propose either
+game-specific deterministic validation or advisory balance-profile coverage,
+but every proposal must cite existing Working Rules and real properties from the
+exact active schema/rule revisions. Proposals and decisions persist separately;
+creation changes nothing. Only the exact approved version can prefill the existing
+Schema workflow or save a versioned, project/schema-specific balance profile.
+QA passed 24 Content tests, 8 focused Avalonia headless tests, both Release builds,
+static authority/genericity review, and 9/9 isolated API/Mongo lifecycle checks.
+Evidence: `artifacts/qa/20261115-evaluation-assistance/report.md`. The milestone
+advisor assessed the result GREEN and authorized progression to Complete Game
+Publication. Live Sword of Truth proposal quality remains final-demonstration
+evidence rather than a blocker.
+
+The one-iteration Complete Game Publication cycle is independently verified at
+revision `89fefcd`. Immutable snapshots now incorporate only the latest approved
+game-specific balance profile for the exact active-schema revision. Broken rule,
+content-type, or property provenance is refused. Ready editions show friendly
+messages, ranges, named references, and rationales without internal IDs, while
+the snapshot and edition manifests retain exact profile, signal, and Working
+Rule provenance. Projects without evaluation profiles remain supported. QA
+passed 13 Publication tests, 4 focused Avalonia headless tests, and both Release
+builds. Evidence: `artifacts/qa/20261115-evaluation-publications/report.md`.
+The milestone advisor assessed the result GREEN and directed work to Milestone 6
+Full Demonstration And Stabilization. The lack of a separate live API/Mongo run
+for this newest wiring is final-demonstration coverage, not missing functionality.
 
 The inventory cycle used four implementation iterations followed by one
 consolidated QA pass. QA passed 45 focused/regression tests, Release API/App
@@ -713,6 +740,18 @@ remains available for any later owner-action stop.
   intentionally not exercised by isolated QA; final demonstration evidence must
   cover observable exported artifacts.
 
+## Latest Verified Complete Publication Layer
+
+- **Revision:** `89fefcd` — Include evaluation context in publications.
+- **QA result:** PASS on the exact revision: 13 Publication tests, 4 focused
+  Avalonia headless Publication tests, and API/App Release builds.
+- **Scope:** immutable snapshots combine canonical Working Rules, the active
+  schema, applied Game Data, and current game-specific evaluation references.
+  Ready Markdown remains reader-facing; manifests preserve technical provenance.
+- **Evidence:** `artifacts/qa/20261115-evaluation-publications/report.md`.
+- **Advisor:** GREEN. Milestone 5 is functionally complete; proceed to the final
+  connected demonstrations rather than adding another publication subsystem.
+
 ## Open Defects And Technical Limits
 
 - No confirmed product defect is currently open.
@@ -721,10 +760,9 @@ remains available for any later owner-action stop.
   backlog. These areas retain automated evidence but must not be described as
   owner-verified until that later hands-on pass is completed.
 - The environment still cannot retrieve authoritative Codex allowance
-  percentages automatically. The owner explicitly reported that both the
-  five-hour and weekly allowances reset on 2026-11-11 and authorized continued
-  work. A later autonomous session still requires a supported reading or a new
-  explicit owner report before starting another iteration.
+  percentages automatically. The owner reported 100% five-hour and 35% weekly
+  remaining before the `89fefcd` cycle on 2026-11-16. A later autonomous
+  iteration requires a supported reading or a new explicit owner report.
 - QA observed 47 residual `dotnet` processes that predated the latest bounded
   test run. Current low-worker commands did not increase the count. Their command
   lines could not be read without elevated Windows process inspection, so they
@@ -816,8 +854,6 @@ of Truth demonstration.
 
 ## Remaining Authorized Work
 
-- Assist designers in establishing game-specific validation and balance coverage.
-- Produce a coherent complete-game publication rather than isolated snapshots.
 - Run the substantial Sword of Truth demonstration and a smaller mechanically
   different genericity check.
 - Preserve the optional future retrieval seam; semantic embeddings remain
@@ -825,11 +861,13 @@ of Truth demonstration.
 
 ## Next Action Required
 
-Begin Milestone 4 Evaluation Assistance. Use only project-owned accepted rules,
-the active schema, canonical examples, and explicit reference values to propose
-missing deterministic validation or advisory balance-profile coverage. Keep the
-two categories visibly separate, require designer review before any proposal can
-affect the project, and never invent a universal balance formula. Owner-operated
-manual testing of the recent planning/expansion screens remains on the backlog.
+Begin Milestone 6 Full Demonstration And Stabilization. Exercise one substantial
+Sword of Truth project through inventory, designer-controlled plan, rule/system
+expansion, schema evolution, multi-type content generation and application,
+game-specific evaluation, and Ready human-readable publication without
+undocumented data repair. Then run a smaller mechanically different project to
+confirm that the architecture remains game-generic. Owner-operated manual
+testing of recent planning, expansion, evaluation, and publication screens is
+part of this final observable demonstration backlog.
 Obtain refreshed Codex five-hour and weekly remaining percentages before that
 new cycle because no supported non-UI source is available to the coordinator.
