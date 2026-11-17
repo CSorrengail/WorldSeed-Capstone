@@ -17,6 +17,52 @@ preserved at `backup/main-before-test-doc-squash-20261107`.
 
 ## Current Development Task
 
+The owner approved generic source/rule/schema coverage work, superseding the
+SOT-specific Skill-first checkpoint. Revision `ffa6ea5` adds advisory inventory
+observations for uncited complete source passages, current draft rules without
+Working Rule citations, and unresolved current content-proposal schema gaps.
+The planner can recommend review of these observations. Fully cited narrative
+rules require no schema definition. Existing persisted observation enum values
+are preserved. Developer tests passed 16/16, including armor and roleplay prose.
+The updated local SOT inventory surfaced 59 uncited passages and 7 reported
+schema gaps, including the original Armor Set/Armor Value source statement.
+Advisor review is GREEN with a nonblocking observation-volume risk.
+Independent QA passed the exact `ffa6ea5` revision with 16 ProjectPlanning tests,
+5 headless Inventory/Planning tests, and clean API/App Release builds. Evidence:
+`artifacts/qa/20261117-generic-coverage/report.md`.
+
+Owner clarification: SOT is a development stop-gap, not the final presentation
+project. The final comparison demonstration will use existing TTRPG sample
+documents supplied separately by the owner. Do not create additional SRD copies.
+The deadline is Week 9; prioritize functional completion before polish.
+
+The owner authorized the proposed SOT plan revision and feature-focused work,
+superseding the earlier requirement to stop this cycle for refreshed usage.
+Revision `df1ad32` added a linked-plan revision command; `e15c420` added a
+reviewable existing-project content command. The local model saved plan version 2
+with canonical content before evaluation. It remains unapproved. Two generated
+unapproved samples exposed a concrete project-schema coverage gap: Armor Class
+represents only weight category, and Skill only cooldown duration. Chainmail
+reported missing protection/description; Guard Break reported missing AP cost,
+activation requirement, and effect description. No sample became canonical.
+These are partial candidates, not evidence of a complete game.
+Plan v2 was generated as a linked replacement after recording the owner's
+revision guidance. Its content recommendations include Action Point, Armor Class,
+and Skill. The Action Point modeling choice still needs designer review.
+The source audit found that Working Rules b003-r002/b003-r003/b004-r002 support
+skill AP cost and activation requirements, but armor protection details in the
+imported Armor source are absent from the current Working Rules. Recover that
+source coverage before proposing protection fields. Advisor: YELLOW; prepare
+rule-backed project schema enrichment, with explicit review/activation.
+QA passed at `e15c420`: 24 Content tests, 11 ProjectPlanning tests, 3 headless
+Development Plan tests, and the EndToEnd Release build. Static checks confirmed
+both commands preserve proposal-only authority. Evidence:
+`artifacts/qa/20261116-plan-demo-revision/report.md`.
+Owner review checkpoint: approve the revised content-first direction while
+deferring Action Point catalog generation. Recommend Skill as the first useful
+content slice, with rule-backed schema enrichment before canonical application;
+Armor needs source-to-Working-Rule coverage recovery first.
+
 Milestones 1 through 5 are complete. The three-iteration Milestone 3 cycle added the
 persisted, designer-reviewable multi-type expansion run at revision `73f8f68`
 (`584b70d`, `c178ca8`, `73f8f68`). Runs select arbitrary active-schema-owned
@@ -48,6 +94,23 @@ Evidence: `artifacts/qa/20261115-evaluation-assistance/report.md`. The milestone
 advisor assessed the result GREEN and authorized progression to Complete Game
 Publication. Live Sword of Truth proposal quality remains final-demonstration
 evidence rather than a blocker.
+
+Milestone 6 is active. A three-iteration stabilization cycle at `fed57c9`
+(`fd7a8ae`, `8eed959`, `fed57c9`) added a loopback-only existing-project plan
+demonstration command, required every recommendation category to be supported by
+the kind of inventory observation it cites, and added at most two corrective
+local-model retries with the exact validation error. QA passed 11 ProjectPlanning
+tests, 3 focused headless Development Plan tests, and EndToEnd/API/App Release
+builds. Evidence: `artifacts/qa/20261116-development-plan-evidence/report.md`.
+
+The real SOT inventory now records 6 source documents, 32 Working Rules, 6
+active-schema content types, 0 canonical entries, and 12 observations covering
+empty content and missing evaluation. The post-fix local `gemma3:12b` plan is
+factually supported but proposes only evaluation work despite acknowledging the
+empty types. It remains unapproved and executed nothing. The advisor assessed
+this YELLOW and recommends that the owner request revision before any expansion
+is authorized. The older pre-fix plan also remains unapproved immutable history;
+it must not be treated as current or executable.
 
 The one-iteration Complete Game Publication cycle is independently verified at
 revision `89fefcd`. Immutable snapshots now incorporate only the latest approved
@@ -854,20 +917,17 @@ of Truth demonstration.
 
 ## Remaining Authorized Work
 
-- Run the substantial Sword of Truth demonstration and a smaller mechanically
-  different genericity check.
+- Continue SOT development checks, then demonstrate the complete workflow using
+  owner-supplied existing-TTRPG sample documents and a mechanically different
+  genericity check. SOT is excluded from the final presentation.
 - Preserve the optional future retrieval seam; semantic embeddings remain
   unnecessary while the structured project context is sufficient.
 
 ## Next Action Required
 
-Begin Milestone 6 Full Demonstration And Stabilization. Exercise one substantial
-Sword of Truth project through inventory, designer-controlled plan, rule/system
-expansion, schema evolution, multi-type content generation and application,
-game-specific evaluation, and Ready human-readable publication without
-undocumented data repair. Then run a smaller mechanically different project to
-confirm that the architecture remains game-generic. Owner-operated manual
-testing of recent planning, expansion, evaluation, and publication screens is
-part of this final observable demonstration backlog.
-Obtain refreshed Codex five-hour and weekly remaining percentages before that
-new cycle because no supported non-UI source is available to the coordinator.
+Use the new inventory observations to guide source/rule coverage recovery and
+rule-backed schema proposals through existing designer review controls. Preserve
+authoritative narrative rules without requiring structured fields. Then resume
+multi-type content generation, evaluation, and publication. The owner authorized
+feature-focused continuation beyond the earlier usage estimate. No new owner
+product-scope decision is pending for the generic coverage checks.
