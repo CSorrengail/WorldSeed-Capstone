@@ -66,9 +66,10 @@ public static class DevelopmentPlanService
     private static bool Supports(DevelopmentRecommendationCategory category, InventoryObservationKind observation) => category switch
     {
         DevelopmentRecommendationCategory.ResolveSourceOrRule => observation is InventoryObservationKind.MissingFoundation
-            or InventoryObservationKind.UnresolvedQuestion or InventoryObservationKind.Conflict or InventoryObservationKind.MissingSourceTrace,
+            or InventoryObservationKind.UnresolvedQuestion or InventoryObservationKind.Conflict or InventoryObservationKind.MissingSourceTrace
+            or InventoryObservationKind.UncitedSourcePassage or InventoryObservationKind.UnincorporatedDraftRule,
         DevelopmentRecommendationCategory.ExpandRuleSystem => observation is InventoryObservationKind.MissingFoundation
-            or InventoryObservationKind.UnresolvedQuestion or InventoryObservationKind.Conflict,
+            or InventoryObservationKind.UnresolvedQuestion or InventoryObservationKind.Conflict or InventoryObservationKind.ReportedSchemaGap,
         DevelopmentRecommendationCategory.ExpandContent => observation is InventoryObservationKind.EmptyContentType
             or InventoryObservationKind.MissingFoundation,
         DevelopmentRecommendationCategory.AddEvaluationCoverage => observation == InventoryObservationKind.MissingEvaluationCoverage,

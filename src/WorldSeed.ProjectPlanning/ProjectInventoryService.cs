@@ -103,10 +103,55 @@ public static class ProjectInventoryService
         foreach (var type in schema.ContentTypes.Where(type => !type.HasCurrentBalanceProfile)) Add(InventoryObservationKind.MissingEvaluationCoverage, type.Id, $"Content type '{type.Name}' has no balance profile for the active schema revision.", type.Id);
         if (schema.ProposalDiffersFromActive) Add(InventoryObservationKind.UnpublishedChanges, "schema-proposal", "The saved schema proposal differs from the active schema.", input.SchemaProposal!.Id);
         if (input.GameData is not null && (publication.LatestSnapshotAt is null || publication.LatestSnapshotAt < input.GameData.UpdatedAt)) Add(InventoryObservationKind.UnpublishedChanges, "publication", "Canonical Game Data is newer than the latest publication snapshot.", input.GameData.Id);
+        AddCoverageObservations(input, items);
         return items;
 
         void Add(InventoryObservationKind kind, string subjectId, string description, params string[] evidenceIds) =>
             items.Add(new InventoryObservation($"inventory-observation-{items.Count + 1:D3}", kind, subjectId, description, evidenceIds));
+    }
+
+    private static void AddCoverageObservations(ProjectInventoryInput input, List<InventoryObservation> items)
+    {
+        var rules = input.WorkingRules?.Rules ?? [];
+        var evidence = rules.SelectMany(rule => rule.Evidence).Concat(input.WorkingRules?.Concepts.SelectMany(concept => concept.Evidence) ?? []).ToArray();
+        var passages = SourcePassageCatalog.Create(input.Project.SourceNotes.ToDictionary(source => source.Id, source => source.OriginalText, StringComparer.Ordinal));
+        foreach (var passage in passages)
+        {
+            var cited = evidence.Any(citation => citation.SourceNoteId == passage.SourceNoteId &&
+                (citation.PassageId == passage.Id || citation.Excerpt.Contains(passage.Text, StringComparison.Ordinal)));
+            if (!cited)
+                Add(InventoryObservationKind.UncitedSourcePassage, passage.Id,
+                    $"No current Working Rule or concept cites this complete source passage. Review for omitted details or intentional exclusion: {passage.Text}", passage.SourceNoteId, passage.Id);
+        }
+
+        var incorporated = rules.SelectMany(rule => rule.SourceDraftRules).Select(reference => (reference.SessionId, reference.RuleId)).ToHashSet();
+        // Only the latest completed interpretation of each source represents current draft work.
+        var sessions = input.Project.Sessions.Where(session => session.LatestTurn?.Draft is not null)
+            .OrderByDescending(session => session.UpdatedAt);
+        var reviewedSources = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var session in sessions)
+        {
+            if (!session.SourceNotes.Any(source => !reviewedSources.Contains(source.Id))) continue;
+            reviewedSources.UnionWith(session.SourceNotes.Select(source => source.Id));
+            foreach (var draft in session.LatestTurn!.Draft!.Rules.Where(draft => !incorporated.Contains((session.Id, draft.Id))))
+                Add(InventoryObservationKind.UnincorporatedDraftRule, $"{session.Id}/{draft.Id}",
+                    $"Draft rule '{draft.Name}' has no current Working Rule citation. Review whether to incorporate or exclude it.", session.Id, draft.Id);
+        }
+
+        if (input.ActiveSchema is null) return;
+        var replacedIds = input.ContentProposals.Select(proposal => proposal.ReplacesProposalId).Where(id => id is not null).ToHashSet(StringComparer.Ordinal);
+        foreach (var proposal in input.ContentProposals.OrderBy(proposal => proposal.Id, StringComparer.Ordinal))
+        {
+            if (proposal.ActiveGameSchemaId != input.ActiveSchema.Id || proposal.ActiveGameSchemaRevision != input.ActiveSchema.Revision || replacedIds.Contains(proposal.Id)) continue;
+            var latestDecision = input.ContentDecisions.Where(decision => decision.ProposalId == proposal.Id && decision.ProposalVersion == proposal.Version).OrderByDescending(decision => decision.CreatedAt).FirstOrDefault();
+            if (latestDecision?.Kind == ContentProposalDecisionKind.Rejected) continue;
+            foreach (var gap in proposal.SchemaGaps ?? [])
+                Add(InventoryObservationKind.ReportedSchemaGap, proposal.EntityTypeId,
+                    $"Content proposal reports an unrepresented concept '{gap.RequestedConcept}': {gap.Reason} Review against the game's rules before changing its schema.", proposal.Id);
+        }
+
+        void Add(InventoryObservationKind kind, string subject, string description, params string[] ids) =>
+            items.Add(new InventoryObservation($"inventory-observation-{items.Count + 1:D3}", kind, subject, description, ids));
     }
 
     private static void EnsureProjectOwnership(ProjectInventoryInput input)

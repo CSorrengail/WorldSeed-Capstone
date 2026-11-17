@@ -66,7 +66,10 @@ public enum InventoryObservationKind
     MissingSourceTrace,
     EmptyContentType,
     MissingEvaluationCoverage,
-    UnpublishedChanges
+    UnpublishedChanges,
+    UncitedSourcePassage,
+    UnincorporatedDraftRule,
+    ReportedSchemaGap
 }
 
 public sealed record InventoryObservation(

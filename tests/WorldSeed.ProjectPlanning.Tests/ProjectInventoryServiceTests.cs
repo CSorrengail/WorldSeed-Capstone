@@ -59,6 +59,84 @@ public sealed class ProjectInventoryServiceTests
         Assert.Equal(first.Binding, second.Binding);
     }
 
+    [Theory]
+    [InlineData("Armor sets have a protection value.", "A full set grants its listed protection.")]
+    [InlineData("Promises connect two participants.", "A broken promise changes their relationship.")]
+    public void Reports_uncited_details_even_when_another_passage_in_the_source_is_cited(string first, string second)
+    {
+        var input = CreateInput();
+        var source = new DesignSourceNote("source-used", first + " " + second, Now);
+        var rule = input.WorkingRules!.Rules[0] with { Evidence = [new("source-used", "source-used:p001", first)] };
+        input = input with { Project = input.Project with { SourceNotes = [source] }, WorkingRules = input.WorkingRules with { Rules = [rule] } };
+
+        var inventory = ProjectInventoryService.Create(input, null, Now);
+
+        Assert.Empty(inventory.Sources.UnreferencedSourceIds);
+        var gap = Assert.Single(inventory.Observations, item => item.Kind == InventoryObservationKind.UncitedSourcePassage);
+        Assert.Equal("source-used:p002", gap.SubjectId);
+        Assert.Contains(second, gap.Description);
+        Assert.Contains("intentional exclusion", gap.Description);
+    }
+
+    [Fact]
+    public void Fully_cited_roleplay_prose_requires_no_content_type_or_schema_definition()
+    {
+        var input = CreateInput();
+        const string text = "The facilitator interprets a promise's consequence in the story.";
+        var rule = input.WorkingRules!.Rules[0] with { AuthoritativeText = text, Evidence = [new("promise", null, text)], SchemaHints = [] };
+        input = input with
+        {
+            Project = input.Project with { SourceNotes = [new("promise", text, Now)], Sessions = [] },
+            WorkingRules = input.WorkingRules with { Rules = [rule], OpenQuestions = [] },
+            ActiveSchema = input.ActiveSchema! with { SchemaJson = "{\"entityTypes\":[]}" },
+            SchemaProposal = null, BalanceProfiles = []
+        };
+
+        var inventory = ProjectInventoryService.Create(input, null, Now);
+
+        Assert.Empty(inventory.Schema.ContentTypes);
+        Assert.DoesNotContain(inventory.Observations, item => item.Kind is InventoryObservationKind.UncitedSourcePassage
+            or InventoryObservationKind.ReportedSchemaGap or InventoryObservationKind.MissingEvaluationCoverage);
+    }
+
+    [Fact]
+    public void Reports_current_content_schema_gaps_but_ignores_rejected_and_stale_candidates()
+    {
+        var input = CreateInput();
+        var candidate = JsonNode.Parse("{\"id\":\"sample\",\"entityTypeId\":\"weapon\",\"values\":{}}")!.AsObject();
+        var proposal = ContentProposalLifecycleService.Create(input.Project.Id, "weapon", candidate,
+            input.ActiveSchema!.Id, input.ActiveSchema.Revision, input.WorkingRules!.Id, input.WorkingRules.Revision, Now,
+            schemaGaps: [new("relationship", "The requested relationship has no representation.", null)]);
+        input = input with { ContentProposals = [proposal, proposal with { Id = "stale", ActiveGameSchemaRevision = 1 }] };
+        var inventory = ProjectInventoryService.Create(input, null, Now);
+        Assert.Single(inventory.Observations, item => item.Kind == InventoryObservationKind.ReportedSchemaGap);
+
+        var rejected = ContentProposalLifecycleService.Decide(proposal, ContentProposalDecisionKind.Rejected, null, Now);
+        inventory = ProjectInventoryService.Create(input with { ContentDecisions = [rejected] }, null, Now);
+        Assert.DoesNotContain(inventory.Observations, item => item.Kind == InventoryObservationKind.ReportedSchemaGap);
+    }
+
+    [Fact]
+    public void Reports_unincorporated_draft_rules_using_session_scoped_ids()
+    {
+        var input = CreateInput();
+        var source = new DesignSourceNote("promise", "Promises connect participants.", Now);
+        var draft = new WorldSeed.RuleDrafting.RuleStatement("rule-1", "Promise", WorldSeed.RuleDrafting.RuleStatementKind.Rule,
+            source.OriginalText, [source.Id], [new(source.Id, source.OriginalText)]);
+        var turn = new WorldSeed.RuleDrafting.RuleDraftTurn(WorldSeed.RuleDrafting.RuleDraftAction.PresentDraft, null, [],
+            new("Promises", "Describe relationships.", [draft], [], [], [], []));
+        var session = new DesignSession("current", input.Project.Id, "local", Now, Now, [source], [], turn);
+        var rule = input.WorkingRules!.Rules[0] with { SourceDraftRules = [new("old", "rule-1")] };
+        input = input with { Project = input.Project with { SourceNotes = [source], Sessions = [session] }, WorkingRules = input.WorkingRules with { Rules = [rule] } };
+
+        var inventory = ProjectInventoryService.Create(input, null, Now);
+        Assert.Equal("current/rule-1", Assert.Single(inventory.Observations, item => item.Kind == InventoryObservationKind.UnincorporatedDraftRule).SubjectId);
+
+        input = input with { WorkingRules = input.WorkingRules with { Rules = [rule with { SourceDraftRules = [new("current", "rule-1")] }] } };
+        inventory = ProjectInventoryService.Create(input, null, Now);
+        Assert.DoesNotContain(inventory.Observations, item => item.Kind == InventoryObservationKind.UnincorporatedDraftRule);
+    }
+
     private static ProjectInventoryInput CreateInput()
     {
         var project = DesignProjectService.Create("project", "Project", timeProvider: new FixedTimeProvider(Now)) with
