@@ -134,10 +134,14 @@
             </Grid>
           </Border>
           <Border Grid.Column="2" Padding="16">
-            <Grid RowDefinitions="Auto,Auto,*" RowSpacing="10">
+            <Grid RowDefinitions="Auto,Auto,*,Auto,Auto,*,Auto" RowSpacing="10">
               <TextBlock Text="Factual Observations" FontSize="20"/>
               <TextBlock Grid.Row="1" Text="Facts Are Grouped By Category To Keep Repeated Coverage Gaps Readable. AI Recommendations And Designer Decisions Will Be Added In The Development Plan Stage." TextWrapping="Wrap" Opacity="0.75"/>
               <ListBox Grid.Row="2" Name="ProjectInventoryObservationList"/>
+              <TextBlock Grid.Row="3" Text="Review Coverage Gap"/>
+              <ComboBox Grid.Row="4" Name="InventoryCoverageList" HorizontalAlignment="Stretch" SelectionChanged="InventoryCoverageList_SelectionChanged"/>
+              <TextBox Grid.Row="5" Name="InventoryCoverageDetailText" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Disabled"/>
+              <Button Grid.Row="6" Name="OpenInventoryEvidenceButton" Content="Open Evidence" Click="OpenInventoryEvidence_Click" IsEnabled="False"/>
             </Grid>
           </Border>
         </Grid>

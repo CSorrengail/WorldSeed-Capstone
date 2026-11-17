@@ -50,6 +50,84 @@ public sealed class ProjectInventoryWorkspaceTests
         finally { window.Close(); }
     }
 
+    [AvaloniaFact]
+    public async Task Opens_roleplay_coverage_evidence_without_starting_a_session_or_changing_the_project()
+    {
+        var project = DesignProjectService.Create("roleplay", "Promises") with
+        {
+            SourceNotes = [new("promise-source", "A promise connects two participants. Breaking it changes their relationship.", DateTimeOffset.UtcNow)]
+        };
+        var observation = new InventoryObservation("gap", InventoryObservationKind.UncitedSourcePassage,
+            "promise-source:p002", "Review the consequence of a broken promise.", ["promise-source", "promise-source:p002"]);
+        var inventory = CreateInventory(project.Id) with { Observations = [observation] };
+        var handler = new InventoryHandler(inventory);
+        using var api = new HttpClient(handler) { BaseAddress = new Uri("http://qa.invalid/") };
+        var window = new MainWindow(new HttpClient(), api);
+        try
+        {
+            SetField(window, "_project", project);
+            Assert.True(await window.CreateProjectInventoryAsync());
+            var selector = window.FindControl<ComboBox>("InventoryCoverageList")!;
+            Assert.Equal(-1, selector.SelectedIndex);
+            selector.SelectedIndex = 0;
+            Assert.Contains("broken promise", window.FindControl<TextBox>("InventoryCoverageDetailText")!.Text);
+            Assert.True(window.OpenInventoryEvidence());
+            Assert.Equal(0, window.FindControl<TabControl>("WorkspaceTabs")!.SelectedIndex);
+            Assert.Contains(project.SourceNotes[0].OriginalText, window.FindControl<TextBlock>("SourceText")!.Text);
+            Assert.Empty(project.Sessions);
+            Assert.Equal(1, handler.CreateRequests);
+        }
+        finally { window.Close(); }
+    }
+
+    [AvaloniaFact]
+    public async Task Historical_evidence_missing_from_project_has_a_clear_recovery_message()
+    {
+        var project = DesignProjectService.Create("history", "History");
+        var inventory = CreateInventory(project.Id) with
+        {
+            Observations = [new("gap", InventoryObservationKind.UncitedSourcePassage, "removed:p001", "Historical passage.", ["removed"])]
+        };
+        using var api = new HttpClient(new InventoryHandler(inventory)) { BaseAddress = new Uri("http://qa.invalid/") };
+        var window = new MainWindow(new HttpClient(), api);
+        try
+        {
+            SetField(window, "_project", project);
+            Assert.True(await window.CreateProjectInventoryAsync());
+            window.FindControl<ComboBox>("InventoryCoverageList")!.SelectedIndex = 0;
+            Assert.False(window.OpenInventoryEvidence());
+            Assert.Contains("Rebuild The Inventory", window.FindControl<TextBox>("InventoryCoverageDetailText")!.Text);
+        }
+        finally { window.Close(); }
+    }
+
+    [AvaloniaFact]
+    public async Task Opens_the_exact_content_proposal_for_a_reported_schema_gap()
+    {
+        var project = DesignProjectService.Create("social-game", "Social Game");
+        var proposal = WorldSeed.Content.ContentProposalLifecycleService.Create(project.Id, "promise",
+            System.Text.Json.Nodes.JsonNode.Parse("{\"id\":\"promise\",\"entityTypeId\":\"promise\",\"values\":{}}")!.AsObject(),
+            "active", 3, "rules", 2, DateTimeOffset.UtcNow);
+        var inventory = CreateInventory(project.Id) with
+        {
+            Observations = [new("gap", InventoryObservationKind.ReportedSchemaGap, "promise", "Relationship has no representation.", [proposal.Id])]
+        };
+        using var api = new HttpClient(new InventoryHandler(inventory)) { BaseAddress = new Uri("http://qa.invalid/") };
+        var window = new MainWindow(new HttpClient(), api);
+        try
+        {
+            SetField(window, "_project", project);
+            var proposals = (List<WorldSeed.Content.ContentProposal>)typeof(MainWindow).GetField("_contentProposalItems", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window)!;
+            proposals.Add(proposal);
+            Assert.True(await window.CreateProjectInventoryAsync());
+            window.FindControl<ComboBox>("InventoryCoverageList")!.SelectedIndex = 0;
+            Assert.True(window.OpenInventoryEvidence());
+            Assert.Equal(4, window.FindControl<TabControl>("WorkspaceTabs")!.SelectedIndex);
+            Assert.Equal(0, window.FindControl<ListBox>("ContentProposalList")!.SelectedIndex);
+        }
+        finally { window.Close(); }
+    }
+
     private static ProjectInventory CreateInventory(string projectId)
     {
         var now = DateTimeOffset.Parse("2026-11-13T18:00:00Z");

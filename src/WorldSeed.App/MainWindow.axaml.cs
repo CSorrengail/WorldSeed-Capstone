@@ -1752,6 +1752,8 @@ public partial class MainWindow : Window
             ProjectInventoryStatusText.Text = _project is null ? "Load A Project To Build An Inventory." : "No Inventory Has Been Built For This Project.";
             ProjectInventorySummaryText.Text = "Build An Inventory To Inspect The Current Rules, Schema, Content, Evaluation, And Publication Coverage.";
             ProjectInventoryObservationList.ItemsSource = Array.Empty<string>();
+            InventoryCoverageList.ItemsSource = Array.Empty<InventoryCoverageItem>();
+            RefreshInventoryCoverageDetails();
         }
         else RefreshProjectInventoryDetails();
     }
@@ -1779,6 +1781,68 @@ public partial class MainWindow : Window
                 string.Join("\n", group.OrderBy(item => item.SubjectId, StringComparer.Ordinal).Select(item =>
                     $"- {item.Description} [{(item.EvidenceIds.Count == 0 ? "Project State" : string.Join(", ", item.EvidenceIds))}]")))
             .ToArray();
+        InventoryCoverageList.ItemsSource = inventory.Observations
+            .Where(item => item.Kind is InventoryObservationKind.UncitedSourcePassage or InventoryObservationKind.UnincorporatedDraftRule or InventoryObservationKind.ReportedSchemaGap)
+            .Select(item => new InventoryCoverageItem(item)).ToArray();
+        InventoryCoverageList.SelectedIndex = -1;
+        RefreshInventoryCoverageDetails();
+    }
+
+    private sealed record InventoryCoverageItem(InventoryObservation Observation)
+    {
+        public override string ToString() => $"{ObservationLabel(Observation.Kind)} — {Observation.SubjectId}";
+    }
+
+    private void InventoryCoverageList_SelectionChanged(object? sender, SelectionChangedEventArgs e) => RefreshInventoryCoverageDetails();
+
+    private void RefreshInventoryCoverageDetails()
+    {
+        var observation = (InventoryCoverageList.SelectedItem as InventoryCoverageItem)?.Observation;
+        InventoryCoverageDetailText.Text = observation is null ? "Select A Coverage Gap To Inspect Its Evidence."
+            : $"{observation.Description}\n\nEvidence\n{string.Join("\n", observation.EvidenceIds)}";
+        OpenInventoryEvidenceButton.IsEnabled = _project is not null && observation is not null;
+    }
+
+    private void OpenInventoryEvidence_Click(object? sender, RoutedEventArgs e) => OpenInventoryEvidence();
+
+    internal bool OpenInventoryEvidence()
+    {
+        var observation = (InventoryCoverageList.SelectedItem as InventoryCoverageItem)?.Observation;
+        if (_project is null || observation is null) return false;
+        if (observation.Kind == InventoryObservationKind.ReportedSchemaGap)
+        {
+            var proposal = _contentProposalItems.FirstOrDefault(item => observation.EvidenceIds.Contains(item.Id, StringComparer.Ordinal));
+            if (proposal is not null)
+            {
+                WorkspaceTabs.SelectedIndex = 4;
+                RefreshContentProposalView();
+                SelectContentProposal(proposal.Id);
+                if (SelectedContentProposal?.Id == proposal.Id) return true;
+            }
+        }
+        else
+        {
+            var session = _project.Sessions.FirstOrDefault(item => observation.EvidenceIds.Contains(item.Id, StringComparer.Ordinal));
+            var source = _project.SourceNotes.FirstOrDefault(item => observation.EvidenceIds.Contains(item.Id, StringComparer.Ordinal))
+                ?? session?.SourceNotes.FirstOrDefault();
+            if (source is not null)
+            {
+                RefreshNotes();
+                SourceNotesList.SelectedIndex = _project.SourceNotes.ToList().FindIndex(item => item.Id == source.Id);
+                if (SourceNotesList.SelectedIndex >= 0)
+                {
+                    WorkspaceTabs.SelectedIndex = 0;
+                    ShowSelectedSource();
+                    if (session is not null)
+                        RuleList.SelectedIndex = _projectRules.FindIndex(item => item.SessionId == session.Id && observation.EvidenceIds.Contains(item.Rule.Id, StringComparer.Ordinal));
+                    SourceText.Text = $"Coverage Review\n{observation.Description}\n\nOriginal Source\n{source.OriginalText}";
+                    StatusText.Text = "Review The Source And Draft Before Incorporating Any Missing Rules.";
+                    return true;
+                }
+            }
+        }
+        InventoryCoverageDetailText.Text = "The Historical Evidence Is Unavailable In The Current Project. Rebuild The Inventory To Inspect Current Coverage.";
+        return false;
     }
 
     private static string ObservationLabel(InventoryObservationKind kind) => kind switch
@@ -1790,6 +1854,9 @@ public partial class MainWindow : Window
         InventoryObservationKind.EmptyContentType => "Empty Content Type",
         InventoryObservationKind.MissingEvaluationCoverage => "Missing Evaluation Coverage",
         InventoryObservationKind.UnpublishedChanges => "Unpublished Changes",
+        InventoryObservationKind.UncitedSourcePassage => "Uncited Source Passage",
+        InventoryObservationKind.UnincorporatedDraftRule => "Unincorporated Draft Rule",
+        InventoryObservationKind.ReportedSchemaGap => "Reported Schema Gap",
         _ => kind.ToString()
     };
 
@@ -4206,6 +4273,8 @@ public partial class MainWindow : Window
         PublicationStatusText.Text = "Load A Project To Build Or Review Publication Snapshots.";
         ProjectInventoryList.ItemsSource = Array.Empty<ProjectInventoryListItem>();
         ProjectInventoryObservationList.ItemsSource = Array.Empty<string>();
+        InventoryCoverageList.ItemsSource = Array.Empty<InventoryCoverageItem>();
+        RefreshInventoryCoverageDetails();
         ProjectInventoryStatusText.Text = "Load A Project To Build An Inventory.";
         ProjectInventorySummaryText.Text = "Build An Inventory To Inspect The Current Rules, Schema, Content, Evaluation, And Publication Coverage.";
         CreateProjectInventoryButton.IsEnabled = false;
