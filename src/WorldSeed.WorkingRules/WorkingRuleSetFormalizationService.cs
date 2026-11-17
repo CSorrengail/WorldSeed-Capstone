@@ -33,12 +33,19 @@ public sealed class WorkingRuleSetFormalizationService
         _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
-    public async Task<WorkingRuleSetFormalizationResult> CreateProposalAsync(DesignProject project, WorkingRuleSet? currentRuleSet = null, CancellationToken cancellationToken = default)
+    public async Task<WorkingRuleSetFormalizationResult> CreateProposalAsync(DesignProject project, WorkingRuleSet? currentRuleSet = null, CancellationToken cancellationToken = default, bool addMissingOnly = false)
     {
         ArgumentNullException.ThrowIfNull(project);
         var sourceDrafts = CompletedDraftCatalog.Create(project);
         if (sourceDrafts.Count == 0) throw new ArgumentException("At least one completed source draft is required before creating project rules.", nameof(project));
         if (currentRuleSet is not null && !string.Equals(currentRuleSet.ProjectId, project.Id, StringComparison.Ordinal)) throw new ArgumentException("The current working rule set belongs to a different project.", nameof(currentRuleSet));
+
+        if (addMissingOnly && currentRuleSet is not null)
+        {
+            var incorporated = currentRuleSet.Rules.SelectMany(rule => rule.SourceDraftRules).ToHashSet();
+            sourceDrafts = sourceDrafts.Where(draft => !incorporated.Contains(draft.Reference)).ToArray();
+            if (sourceDrafts.Count == 0) return new WorkingRuleSetFormalizationResult(currentRuleSet, string.Empty, 0);
+        }
 
         var citations = DraftCitationCatalog.Create(sourceDrafts);
         var parsedBatches = new List<WorkingRuleSet>();
@@ -46,7 +53,7 @@ public sealed class WorkingRuleSetFormalizationService
         foreach (var batch in citations.Chunk(MaxCitationsPerBatch))
             parsedBatches.AddRange(await FormalizeBatchAsync(project, batch, rawResponses, cancellationToken));
 
-        var ruleSet = CombineBatches(project, currentRuleSet, parsedBatches, _timeProvider.GetUtcNow());
+        var ruleSet = CombineBatches(project, currentRuleSet, parsedBatches, _timeProvider.GetUtcNow(), addMissingOnly);
         var validation = _validator.Validate(ruleSet, project);
         if (!validation.IsValid) throw new WorkingRuleSetFormatException(string.Join(" ", validation.Issues.Select(issue => issue.Message)));
         return new WorkingRuleSetFormalizationResult(ruleSet, string.Join("\n\n", rawResponses), parsedBatches.Count);
@@ -77,18 +84,29 @@ public sealed class WorkingRuleSetFormalizationService
         }
     }
 
-    private static WorkingRuleSet CombineBatches(DesignProject project, WorkingRuleSet? currentRuleSet, IReadOnlyList<WorkingRuleSet> batches, DateTimeOffset timestamp)
+    private static WorkingRuleSet CombineBatches(DesignProject project, WorkingRuleSet? currentRuleSet, IReadOnlyList<WorkingRuleSet> batches, DateTimeOffset timestamp, bool addMissingOnly)
     {
         var rules = new List<WorkingRule>();
         var concepts = new List<WorkingRuleConcept>();
         var openQuestions = new List<string>();
         var exclusions = new List<string>();
         var conflicts = new List<string>();
+        if (addMissingOnly && currentRuleSet is not null)
+        {
+            rules.AddRange(currentRuleSet.Rules);
+            concepts.AddRange(currentRuleSet.Concepts);
+            openQuestions.AddRange(currentRuleSet.OpenQuestions);
+            exclusions.AddRange(currentRuleSet.Exclusions);
+            conflicts.AddRange(currentRuleSet.Conflicts);
+        }
 
+        var nextPrefix = 1;
         for (var batchIndex = 0; batchIndex < batches.Count; batchIndex++)
         {
             var batch = batches[batchIndex];
-            var prefix = $"b{batchIndex + 1:D3}-";
+            string prefix;
+            do { prefix = $"b{nextPrefix++:D3}-"; }
+            while (rules.Any(rule => rule.Id.StartsWith(prefix, StringComparison.Ordinal)) || concepts.Any(concept => concept.Id.StartsWith(prefix, StringComparison.Ordinal)));
             var ruleIds = batch.Rules.ToDictionary(rule => rule.Id, rule => prefix + rule.Id, StringComparer.Ordinal);
             var conceptIds = batch.Concepts.ToDictionary(concept => concept.Id, concept => prefix + concept.Id, StringComparer.Ordinal);
             concepts.AddRange(batch.Concepts.Select(concept => concept with { Id = conceptIds[concept.Id] }));

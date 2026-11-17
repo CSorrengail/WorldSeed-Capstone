@@ -128,6 +128,41 @@ public sealed class ProjectInventoryWorkspaceTests
         finally { window.Close(); }
     }
 
+    [AvaloniaFact]
+    public async Task Add_missing_rules_skips_saving_and_preserves_schema_when_all_drafts_are_cited()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var source = new DesignSourceNote("promise", "Promises connect participants.", now);
+        var draftRule = new WorldSeed.RuleDrafting.RuleStatement("draft", "Promise", WorldSeed.RuleDrafting.RuleStatementKind.Rule,
+            source.OriginalText, [source.Id], [new(source.Id, source.OriginalText)]);
+        var draft = new WorldSeed.RuleDrafting.StructuredRuleDraft("Promises", "Describe promises.", [draftRule], [], [], [], []);
+        var session = new DesignSession("session", "roleplay", "local", now, now, [source], [],
+            new(WorldSeed.RuleDrafting.RuleDraftAction.PresentDraft, null, [], draft));
+        var project = DesignProjectService.Create("roleplay", "Promises") with { SourceNotes = [source], Sessions = [session] };
+        var rule = new WorldSeed.WorkingRules.WorkingRule("stable-id", "Promise", WorldSeed.WorkingRules.WorkingRuleKind.Rule,
+            source.OriginalText, [new(source.Id, null, source.OriginalText)], [new(session.Id, draftRule.Id)], [], [], null, [], []);
+        var rules = new WorldSeed.WorkingRules.WorkingRuleSet("rules", project.Id, "0.1", "Rules", null, 2, now, now, [rule], [], [], [], []);
+        var schema = new WorldSeed.SchemaTranslation.ProjectSchemaProposal("proposal", project.Id, "0.1", "Schema", "{}", [], rules.Id, rules.Revision, [], now, now);
+        using var api = new HttpClient(new InventoryHandler(CreateInventory(project.Id))) { BaseAddress = new Uri("http://qa.invalid/") };
+        var window = new MainWindow(new HttpClient(), api);
+        try
+        {
+            SetField(window, "_project", project);
+            SetField(window, "_workingRuleSet", rules);
+            SetField(window, "_schemaProposal", schema);
+            var model = window.FindControl<ComboBox>("ModelSelector")!;
+            model.ItemsSource = new[] { "qa-local" };
+            model.SelectedIndex = 0;
+
+            await window.BuildWorkingRulesAsync(true);
+
+            Assert.Contains("No Changes Were Needed", window.FindControl<TextBlock>("WorkingRulesStatusText")!.Text);
+            Assert.Same(schema, typeof(MainWindow).GetField("_schemaProposal", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window));
+            Assert.True(window.FindControl<Button>("AddMissingWorkingRulesButton")!.IsEnabled);
+        }
+        finally { window.Close(); }
+    }
+
     private static ProjectInventory CreateInventory(string projectId)
     {
         var now = DateTimeOffset.Parse("2026-11-13T18:00:00Z");

@@ -572,7 +572,10 @@ public partial class MainWindow : Window
         RuleList.SelectedIndex = selectedRule is null ? -1 : _projectRules.FindIndex(item => item.SessionId == selectedRule.SessionId && item.Rule.Id == selectedRule.Rule.Id);
     }
 
-    private async void BuildWorkingRules_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    private async void BuildWorkingRules_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => await BuildWorkingRulesAsync(false);
+    private async void AddMissingWorkingRules_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => await BuildWorkingRulesAsync(true);
+
+    internal async Task BuildWorkingRulesAsync(bool addMissingOnly)
     {
         if (_project is null || ModelSelector.SelectedItem is not string model)
         {
@@ -580,11 +583,17 @@ public partial class MainWindow : Window
             return;
         }
         BuildWorkingRulesButton.IsEnabled = false;
+        AddMissingWorkingRulesButton.IsEnabled = false;
         WorkingRulesStatusText.Text = $"Building bounded working-rule batches with {model}. Each batch is validated before it is combined...";
         var capture = new CapturingClient(new OllamaChatClient(_http, OllamaDefaults.CreateProfile("local", "Local", model)));
         try
         {
-            var result = await new WorkingRuleSetFormalizationService(capture).CreateProposalAsync(_project, _workingRuleSet);
+            var result = await new WorkingRuleSetFormalizationService(capture).CreateProposalAsync(_project, _workingRuleSet, addMissingOnly: addMissingOnly);
+            if (result.BatchCount == 0)
+            {
+                WorkingRulesStatusText.Text = "All Completed Draft Rules Already Have Working Rule Citations. No Changes Were Needed.";
+                return;
+            }
             await WorkingRuleStore().SaveAsync(result.RuleSet);
             _workingRuleSet = result.RuleSet;
             await LoadDevelopmentPlansAsync(_project.Id);
@@ -624,7 +633,7 @@ public partial class MainWindow : Window
             WorkingRulesStatusText.Text = "Working-rule formalization failed before a usable proposal was produced.";
             WorkingRuleText.Text = $"{ex.GetType().Name}: {ex.Message}\n\nDiagnostic log: {AppLog.CurrentPath}";
         }
-        finally { BuildWorkingRulesButton.IsEnabled = true; }
+        finally { BuildWorkingRulesButton.IsEnabled = true; AddMissingWorkingRulesButton.IsEnabled = true; }
     }
 
     private async void ReloadWorkingRules_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)

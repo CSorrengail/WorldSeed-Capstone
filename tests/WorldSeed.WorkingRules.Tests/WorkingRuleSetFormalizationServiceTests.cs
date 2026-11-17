@@ -109,6 +109,45 @@ public class WorkingRuleSetFormalizationServiceTests
         Assert.Contains("completed source draft", error.Message);
     }
 
+    [Fact]
+    public async Task Incremental_recovery_preserves_existing_rules_and_avoids_id_collisions()
+    {
+        var project = CreateProjectWithCompletedDrafts(2);
+        var original = await new WorkingRuleSetFormalizationService(new CapturingModel(ResponseFor("d001"))).CreateProposalAsync(project with { Sessions = [project.Sessions[0]] });
+        var edited = original.RuleSet with
+        {
+            Rules = [original.RuleSet.Rules[0] with { AuthoritativeText = "Designer-reviewed wording." }],
+            OpenQuestions = ["What happens next?"], Exclusions = ["No fixed effect."], Conflicts = ["Review timing."]
+        };
+        var model = new CapturingModel(ResponseFor("d001"));
+
+        var recovered = await new WorkingRuleSetFormalizationService(model).CreateProposalAsync(project, edited, addMissingOnly: true);
+
+        Assert.Equal(2, recovered.RuleSet.Rules.Count);
+        Assert.Equal(edited.Rules[0], recovered.RuleSet.Rules[0]);
+        Assert.NotEqual(recovered.RuleSet.Rules[0].Id, recovered.RuleSet.Rules[1].Id);
+        Assert.Equal("session-2", Assert.Single(recovered.RuleSet.Rules[1].SourceDraftRules).SessionId);
+        Assert.Equal(edited.Revision + 1, recovered.RuleSet.Revision);
+        Assert.Equal(edited.OpenQuestions, recovered.RuleSet.OpenQuestions);
+        Assert.Equal(edited.Exclusions, recovered.RuleSet.Exclusions);
+        Assert.Equal(edited.Conflicts, recovered.RuleSet.Conflicts);
+        Assert.DoesNotContain("Source rule 1", model.Request!.Messages[1].Content);
+    }
+
+    [Fact]
+    public async Task Incremental_recovery_with_nothing_missing_skips_model_and_revision()
+    {
+        var project = CreateProject();
+        var existing = await new WorkingRuleSetFormalizationService(new CapturingModel(ValidResponse)).CreateProposalAsync(project);
+        var model = new CapturingModel("must not be called");
+
+        var result = await new WorkingRuleSetFormalizationService(model).CreateProposalAsync(project, existing.RuleSet, addMissingOnly: true);
+
+        Assert.Same(existing.RuleSet, result.RuleSet);
+        Assert.Equal(0, result.BatchCount);
+        Assert.Null(model.Request);
+    }
+
     private const string ValidResponse = """
     {"name":"Combat Rules","description":null,"rules":[{"id":"combat-turn-order","name":"Combat Turn Order","kind":"procedure","authoritativeText":"At the beginning of combat, the combatant with the lowest initiative takes a turn.","sourceDraftIds":["d001"],"conceptIds":[],"schemaHints":[],"openQuestions":[],"exclusions":[]}],"concepts":[],"openQuestions":[],"exclusions":[],"conflicts":[]}
     """;
