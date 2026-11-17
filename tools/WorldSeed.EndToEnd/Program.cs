@@ -9,6 +9,33 @@ using WorldSeed.Content;
 using WorldSeed.GameData;
 using WorldSeed.ProjectPlanning;
 
+if (args.Length >= 5 && args[0] == "--generate-project-content")
+{
+    if (!Uri.TryCreate(args[1], UriKind.Absolute, out var uri) || !uri.IsLoopback)
+        throw new ArgumentException("A loopback API URI is required.");
+    var request = Environment.GetEnvironmentVariable("WORLDSEED_CONTENT_REQUEST");
+    if (string.IsNullOrWhiteSpace(request)) throw new ArgumentException("Set WORLDSEED_CONTENT_REQUEST to the designer request.");
+    using var api = new HttpClient { BaseAddress = new Uri(uri.AbsoluteUri.TrimEnd('/') + "/"), Timeout = TimeSpan.FromSeconds(30) };
+    var route = $"api/projects/{Uri.EscapeDataString(args[2])}";
+    var active = await api.GetFromJsonAsync<ActiveGameSchema>(route + "/active-schema") ?? throw new InvalidOperationException("An active schema is required.");
+    var rules = await api.GetFromJsonAsync<WorkingRuleSet>(route + "/working-rules") ?? throw new InvalidOperationException("Working Rules are required.");
+    if (active.WorkingRuleSetId != rules.Id || active.WorkingRuleSetRevision != rules.Revision)
+        throw new InvalidOperationException("The active schema and Working Rules revisions must match.");
+    using var modelHttp = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
+    var client = new OllamaChatClient(modelHttp, OllamaDefaults.CreateProfile("project-content-demo", "Project Content Demo", args[4]));
+    var data = await api.GetFromJsonAsync<ProjectGameData>(route + "/game-data");
+    var entries = data is null ? Array.Empty<JsonObject>() : JsonNode.Parse(data.DataJson)!["entityInstances"]!.AsArray().OfType<JsonObject>()
+        .Where(entry => entry["entityTypeId"]?.GetValue<string>() == args[3]).Take(ContentProposalGenerationService.MaximumCanonicalEntries).ToArray();
+    var generated = await new ContentProposalGenerationService(client).GenerateAsync(new(args[2], args[3], JsonNode.Parse(active.SchemaJson)!.AsObject(), rules.Rules, request, entries));
+    var proposal = ContentProposalLifecycleService.Create(args[2], args[3], generated.Candidate, active.Id, active.Revision, rules.Id, rules.Revision, DateTimeOffset.UtcNow,
+        schemaGaps: generated.SchemaGaps, designerRequest: request, generationContext: generated.GenerationContext, similarityWarnings: generated.SimilarityWarnings);
+    using var saved = await api.PutAsJsonAsync(route + "/content-proposals/" + Uri.EscapeDataString(proposal.Id), proposal);
+    saved.EnsureSuccessStatusCode();
+    Console.WriteLine($"Saved unapproved proposal {proposal.Id}. No canonical content was changed.");
+    Console.WriteLine(JsonSerializer.Serialize(proposal, new JsonSerializerOptions { WriteIndented = true }));
+    return;
+}
+
 var planProjectOption = Array.FindIndex(args, argument => string.Equals(argument, "--generate-development-plan", StringComparison.OrdinalIgnoreCase));
 if (planProjectOption >= 0)
 {
