@@ -17,10 +17,21 @@ public sealed record DraftCitation(string Id, CompletedDraftRule Draft);
 
 internal static class CompletedDraftCatalog
 {
-    public static IReadOnlyList<CompletedDraftRule> Create(DesignProject project) => project.Sessions
-        .Where(session => session.LatestTurn is { Action: RuleDrafting.RuleDraftAction.PresentDraft, Draft: not null })
-        .SelectMany(session => session.LatestTurn!.Draft!.Rules.Select(rule => new CompletedDraftRule(new DraftRuleReference(session.Id, rule.Id), rule)))
-        .ToArray();
+    public static IReadOnlyList<CompletedDraftRule> Create(DesignProject project, bool latestOnly = false)
+    {
+        var sessions = project.Sessions.Where(session => session.LatestTurn is { Action: RuleDrafting.RuleDraftAction.PresentDraft, Draft: not null });
+        if (latestOnly)
+        {
+            var seenSources = new HashSet<string>(StringComparer.Ordinal);
+            sessions = sessions.OrderByDescending(session => session.UpdatedAt).Where(session =>
+            {
+                var unseen = session.SourceNotes.Any(source => !seenSources.Contains(source.Id));
+                seenSources.UnionWith(session.SourceNotes.Select(source => source.Id));
+                return unseen;
+            });
+        }
+        return sessions.SelectMany(session => session.LatestTurn!.Draft!.Rules.Select(rule => new CompletedDraftRule(new DraftRuleReference(session.Id, rule.Id), rule))).ToArray();
+    }
 }
 
 internal static class DraftCitationCatalog

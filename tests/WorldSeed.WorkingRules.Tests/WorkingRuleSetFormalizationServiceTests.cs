@@ -148,6 +148,20 @@ public class WorkingRuleSetFormalizationServiceTests
         Assert.Null(model.Request);
     }
 
+    [Fact]
+    public async Task Incremental_recovery_uses_latest_completed_session_for_each_source()
+    {
+        var project = CreateProject();
+        var old = project.Sessions[0];
+        var latest = old with { Id = "latest-session", UpdatedAt = old.UpdatedAt.AddMinutes(1) };
+        project = project with { Sessions = [old, latest] };
+        var model = new CapturingModel(ValidResponse);
+
+        var result = await new WorkingRuleSetFormalizationService(model).CreateProposalAsync(project, addMissingOnly: true);
+
+        Assert.Equal("latest-session", Assert.Single(Assert.Single(result.RuleSet.Rules).SourceDraftRules).SessionId);
+    }
+
     private const string ValidResponse = """
     {"name":"Combat Rules","description":null,"rules":[{"id":"combat-turn-order","name":"Combat Turn Order","kind":"procedure","authoritativeText":"At the beginning of combat, the combatant with the lowest initiative takes a turn.","sourceDraftIds":["d001"],"conceptIds":[],"schemaHints":[],"openQuestions":[],"exclusions":[]}],"concepts":[],"openQuestions":[],"exclusions":[],"conflicts":[]}
     """;

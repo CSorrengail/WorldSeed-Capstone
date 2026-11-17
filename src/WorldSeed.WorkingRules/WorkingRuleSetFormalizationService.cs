@@ -36,7 +36,7 @@ public sealed class WorkingRuleSetFormalizationService
     public async Task<WorkingRuleSetFormalizationResult> CreateProposalAsync(DesignProject project, WorkingRuleSet? currentRuleSet = null, CancellationToken cancellationToken = default, bool addMissingOnly = false)
     {
         ArgumentNullException.ThrowIfNull(project);
-        var sourceDrafts = CompletedDraftCatalog.Create(project);
+        var sourceDrafts = CompletedDraftCatalog.Create(project, latestOnly: addMissingOnly);
         if (sourceDrafts.Count == 0) throw new ArgumentException("At least one completed source draft is required before creating project rules.", nameof(project));
         if (currentRuleSet is not null && !string.Equals(currentRuleSet.ProjectId, project.Id, StringComparison.Ordinal)) throw new ArgumentException("The current working rule set belongs to a different project.", nameof(currentRuleSet));
 
