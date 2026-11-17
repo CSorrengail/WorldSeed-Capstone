@@ -141,7 +141,7 @@
               <TextBlock Grid.Row="3" Text="Review Coverage Gap"/>
               <ComboBox Grid.Row="4" Name="InventoryCoverageList" HorizontalAlignment="Stretch" SelectionChanged="InventoryCoverageList_SelectionChanged"/>
               <TextBox Grid.Row="5" Name="InventoryCoverageDetailText" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Disabled"/>
-              <Button Grid.Row="6" Name="OpenInventoryEvidenceButton" Content="Open Evidence" Click="OpenInventoryEvidence_Click" IsEnabled="False"/>
+              <WrapPanel Grid.Row="6" ItemSpacing="8" LineSpacing="8"><Button Name="OpenInventoryEvidenceButton" Content="Open Evidence" Click="OpenInventoryEvidence_Click" IsEnabled="False"/><Button Name="DraftInventoryPassageButton" Content="Draft Selected Passage" Click="DraftInventoryPassage_Click" IsEnabled="False"/></WrapPanel>
             </Grid>
           </Border>
         </Grid>

@@ -21,6 +21,13 @@ public static class ProjectInventoryService
         var proposalSchema = ParseObject(input.SchemaProposal?.SchemaJson);
         var latestPublication = input.PublicationSnapshots.OrderByDescending(item => item.CreatedAt).FirstOrDefault();
         var citedSourceIds = input.WorkingRules?.Rules.SelectMany(rule => rule.Evidence).Select(evidence => evidence.SourceNoteId).ToHashSet(StringComparer.Ordinal) ?? [];
+        foreach (var recovery in input.Project.SourceNotes.Where(source => citedSourceIds.Contains(source.Id) && source.Origin?.ParentSourceNoteId is not null))
+        {
+            var parent = input.Project.SourceNotes.FirstOrDefault(source => source.Id == recovery.Origin!.ParentSourceNoteId);
+            if (parent is not null && SourcePassageCatalog.Create(new Dictionary<string, string> { [parent.Id] = parent.OriginalText })
+                .Any(passage => passage.Id == recovery.Origin!.ParentPassageId && passage.Text == recovery.OriginalText))
+                citedSourceIds.Add(parent.Id);
+        }
         var completedDraftCount = input.Project.Sessions.Count(session => session.LatestTurn is { Action: RuleDraftAction.PresentDraft, Draft: not null });
 
         var sources = new InventorySourceCoverage(
@@ -115,11 +122,21 @@ public static class ProjectInventoryService
         var rules = input.WorkingRules?.Rules ?? [];
         var evidence = rules.SelectMany(rule => rule.Evidence).Concat(input.WorkingRules?.Concepts.SelectMany(concept => concept.Evidence) ?? []).ToArray();
         var passages = SourcePassageCatalog.Create(input.Project.SourceNotes.ToDictionary(source => source.Id, source => source.OriginalText, StringComparer.Ordinal));
+        var recoveredPassages = new HashSet<string>(StringComparer.Ordinal);
+        var recoverySourceIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var recovery in input.Project.SourceNotes.Where(source => source.Origin?.ParentPassageId is not null))
+        {
+            var parent = passages.FirstOrDefault(passage => passage.Id == recovery.Origin!.ParentPassageId && passage.SourceNoteId == recovery.Origin.ParentSourceNoteId);
+            if (parent is null || parent.Text != recovery.OriginalText) continue;
+            recoverySourceIds.Add(recovery.Id);
+            if (evidence.Any(citation => citation.SourceNoteId == recovery.Id && citation.Excerpt.Contains(recovery.OriginalText, StringComparison.Ordinal))) recoveredPassages.Add(parent.Id);
+        }
         foreach (var passage in passages)
         {
+            if (recoverySourceIds.Contains(passage.SourceNoteId)) continue;
             var cited = evidence.Any(citation => citation.SourceNoteId == passage.SourceNoteId &&
                 (citation.PassageId == passage.Id || citation.Excerpt.Contains(passage.Text, StringComparison.Ordinal)));
-            if (!cited)
+            if (!cited && !recoveredPassages.Contains(passage.Id))
                 Add(InventoryObservationKind.UncitedSourcePassage, passage.Id,
                     $"No current Working Rule or concept cites this complete source passage. Review for omitted details or intentional exclusion: {passage.Text}", passage.SourceNoteId, passage.Id);
         }

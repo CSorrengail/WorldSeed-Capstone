@@ -137,6 +137,49 @@ public sealed class ProjectInventoryServiceTests
         Assert.DoesNotContain(inventory.Observations, item => item.Kind == InventoryObservationKind.UnincorporatedDraftRule);
     }
 
+    [Fact]
+    public async Task Recovers_a_roleplay_passage_through_draft_working_rules_and_schema_proposal()
+    {
+        var input = CreateInput();
+        var source = new DesignSourceNote("promise", "Promises connect participants. Each promise has a written commitment.", Now);
+        var project = input.Project with { SourceNotes = [source], Sessions = [] };
+        var recovery = SourceCoverageRecoveryService.CreateSource(project, source.Id, "promise:p002", Now);
+        Assert.Equal("Each promise has a written commitment.", recovery.OriginalText);
+        Assert.Equal(source.Id, recovery.Origin!.ParentSourceNoteId);
+        Assert.Equal(recovery.Id, SourceCoverageRecoveryService.CreateSource(project, source.Id, "promise:p002", Now.AddMinutes(1)).Id);
+        Assert.Throws<ArgumentException>(() => SourceCoverageRecoveryService.CreateSource(project, source.Id, "promise:p999", Now));
+        project = DesignProjectService.AddSources(project, [recovery]);
+        var draftJson = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            action = "presentDraft", draft = new
+            {
+                title = "Promises", intent = "Represent a commitment.",
+                rules = new[] { new { id = "commitment", name = "Commitment", kind = "definition", text = recovery.OriginalText,
+                    sourceNoteIds = new[] { recovery.Id }, sourceSupport = new[] { new { sourceNoteId = recovery.Id, passageIds = new[] { recovery.Id + ":p001" } } } } },
+                concepts = Array.Empty<object>(), assumptions = Array.Empty<string>(), openQuestions = Array.Empty<string>(), exclusions = Array.Empty<string>()
+            }
+        });
+        var sessions = new DesignSessionService(new WorldSeed.RuleDrafting.RuleDraftingService(new RecoveryModel(draftJson)));
+        var session = await sessions.AdvanceAsync(sessions.Start("recovery-session", project.Id, "local", recovery), TestContext.Current.CancellationToken);
+        project = DesignProjectService.SaveSession(project, session);
+        var workingJson = """{"name":"Promises","rules":[{"id":"commitment","name":"Commitment","kind":"definition","authoritativeText":"Each promise has a written commitment.","sourceDraftIds":["d001"],"conceptIds":[],"schemaHints":[],"openQuestions":[],"exclusions":[]}],"concepts":[],"openQuestions":[],"exclusions":[],"conflicts":[]}""";
+        var formalized = await new WorkingRuleSetFormalizationService(new RecoveryModel(workingJson)).CreateProposalAsync(project, cancellationToken: TestContext.Current.CancellationToken, addMissingOnly: true);
+        var inventory = ProjectInventoryService.Create(input with { Project = project, WorkingRules = formalized.RuleSet }, null, Now);
+        Assert.DoesNotContain(inventory.Observations, item => item.Kind == InventoryObservationKind.UncitedSourcePassage && item.SubjectId == "promise:p002");
+        Assert.DoesNotContain(source.Id, inventory.Sources.UnreferencedSourceIds);
+        Assert.Contains(inventory.Observations, item => item.Kind == InventoryObservationKind.UncitedSourcePassage && item.SubjectId == "promise:p001");
+        var schemaJson = """{"action":"presentProposal","proposal":{"summary":"Promise commitments","schema":{"id":"promise-schema","name":"Promises","version":"1","entityTypes":[{"metadata":{"id":"promise","name":"Promise"},"properties":[{"metadata":{"id":"commitment","name":"Commitment"},"valueType":{"kind":"primitive","name":"string"},"required":true,"nullable":false}]}]},"definitionSources":[{"definitionId":"promise","workingRuleIds":["b001-commitment"]}]}}""";
+        var proposal = await new SchemaTranslationService(new RecoveryModel(schemaJson)).TranslateAsync(new(formalized.RuleSet), TestContext.Current.CancellationToken);
+        Assert.Equal(SchemaTranslationAction.PresentProposal, proposal.Action);
+        Assert.Equal("b001-commitment", Assert.Single(Assert.Single(proposal.Proposal!.DefinitionSources).WorkingRuleIds));
+    }
+
+    private sealed class RecoveryModel(string response) : WorldSeed.LlmIntegration.ILanguageModelClient
+    {
+        public Task<WorldSeed.LlmIntegration.LlmChatResponse> CompleteAsync(WorldSeed.LlmIntegration.LlmChatRequest request, CancellationToken cancellationToken = default) =>
+            Task.FromResult(new WorldSeed.LlmIntegration.LlmChatResponse(response, "test", null));
+    }
+
     private static ProjectInventoryInput CreateInput()
     {
         var project = DesignProjectService.Create("project", "Project", timeProvider: new FixedTimeProvider(Now)) with

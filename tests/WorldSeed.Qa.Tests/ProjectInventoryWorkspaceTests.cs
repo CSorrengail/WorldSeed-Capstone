@@ -71,6 +71,9 @@ public sealed class ProjectInventoryWorkspaceTests
             Assert.Equal(-1, selector.SelectedIndex);
             selector.SelectedIndex = 0;
             Assert.Contains("broken promise", window.FindControl<TextBox>("InventoryCoverageDetailText")!.Text);
+            Assert.False(await window.DraftInventoryPassageAsync());
+            Assert.Contains("Local Model", window.FindControl<TextBox>("InventoryCoverageDetailText")!.Text);
+            Assert.Single(project.SourceNotes);
             Assert.True(window.OpenInventoryEvidence());
             Assert.Equal(0, window.FindControl<TabControl>("WorkspaceTabs")!.SelectedIndex);
             Assert.Contains(project.SourceNotes[0].OriginalText, window.FindControl<TextBlock>("SourceText")!.Text);

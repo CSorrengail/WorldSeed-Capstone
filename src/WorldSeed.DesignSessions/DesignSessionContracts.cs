@@ -5,7 +5,7 @@ namespace WorldSeed.DesignSessions;
 
 /// <summary>Original user wording retained during the exploratory design conversation.</summary>
 /// <summary>Portable origin metadata; never stores an absolute local path.</summary>
-public sealed record SourceNoteOrigin(string DisplayName, int? SegmentNumber = null);
+public sealed record SourceNoteOrigin(string DisplayName, int? SegmentNumber = null, string? ParentSourceNoteId = null, string? ParentPassageId = null);
 
 public sealed record DesignSourceNote(string Id, string OriginalText, DateTimeOffset CapturedAt, SourceNoteOrigin? Origin = null);
 

@@ -519,7 +519,7 @@ public partial class MainWindow : Window
                 session,
                 isExpansion ? ExpansionRequestService.ClarificationInstruction : null,
                 requireClarificationOnFirstTurn: isExpansion);
-            if (_project is null) throw new InvalidOperationException("No project is selected.");
+            if (_project is null || _project.Id != result.ProjectId) throw new InvalidOperationException("The selected project changed while drafting. Return to the original project before retrying.");
             _project = DesignProjectService.SaveSession(_project, result); await ProjectStore().SaveAsync(_project); await RefreshProjectsAsync(); RefreshNotes(); ShowSelectedSource();
             await LoadDevelopmentPlansAsync(_project.Id);
             StatusText.Text = result.LatestTurn!.Action == RuleDraftAction.PresentDraft ? "Validated draft saved in this project. Review each rule and its exact source excerpt." : "Clarification needed; the project was saved locally. Answer the questions in the Conversation panel.";
@@ -1810,6 +1810,49 @@ public partial class MainWindow : Window
         InventoryCoverageDetailText.Text = observation is null ? "Select A Coverage Gap To Inspect Its Evidence."
             : $"{observation.Description}\n\nEvidence\n{string.Join("\n", observation.EvidenceIds)}";
         OpenInventoryEvidenceButton.IsEnabled = _project is not null && observation is not null;
+        DraftInventoryPassageButton.IsEnabled = _project is not null && observation?.Kind == InventoryObservationKind.UncitedSourcePassage;
+    }
+
+    private async void DraftInventoryPassage_Click(object? sender, RoutedEventArgs e) => await DraftInventoryPassageAsync();
+
+    internal async Task<bool> DraftInventoryPassageAsync()
+    {
+        var observation = (InventoryCoverageList.SelectedItem as InventoryCoverageItem)?.Observation;
+        if (_project is null || observation?.Kind != InventoryObservationKind.UncitedSourcePassage || ModelSelector.SelectedItem is not string model)
+        {
+            InventoryCoverageDetailText.Text = "Select An Uncited Passage And A Local Model First.";
+            return false;
+        }
+        DraftInventoryPassageButton.IsEnabled = false;
+        try
+        {
+            var parentId = observation.EvidenceIds.FirstOrDefault() ?? throw new ArgumentException("Source evidence is missing.");
+            var recovery = SourceCoverageRecoveryService.CreateSource(_project, parentId, observation.SubjectId, DateTimeOffset.UtcNow);
+            var existing = _project.SourceNotes.FirstOrDefault(source => source.Id == recovery.Id);
+            if (existing is null)
+            {
+                var updated = DesignProjectService.AddSources(_project, [recovery]);
+                await ProjectStore().SaveAsync(updated);
+                if (_project?.Id != updated.Id) return false;
+                _project = updated;
+            }
+            else recovery = existing;
+            RefreshNotes();
+            SourceNotesList.SelectedIndex = _project.SourceNotes.ToList().FindIndex(source => source.Id == recovery.Id);
+            WorkspaceTabs.SelectedIndex = 0;
+            ShowSelectedSource();
+            if (SessionFor(recovery) is not null) return true;
+            var service = CreateService(model, out var capture);
+            await AdvanceAndSaveAsync(recovery, service.Start($"session-{Guid.NewGuid():N}", _project.Id, "local", recovery), service, capture, model);
+            return SessionFor(recovery) is not null;
+        }
+        catch (Exception exception)
+        {
+            AppLog.Error("Recover source coverage", exception);
+            InventoryCoverageDetailText.Text = exception.Message;
+            return false;
+        }
+        finally { DraftInventoryPassageButton.IsEnabled = _project is not null && (InventoryCoverageList.SelectedItem as InventoryCoverageItem)?.Observation.Kind == InventoryObservationKind.UncitedSourcePassage; }
     }
 
     private void OpenInventoryEvidence_Click(object? sender, RoutedEventArgs e) => OpenInventoryEvidence();
