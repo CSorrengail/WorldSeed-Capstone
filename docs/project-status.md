@@ -17,6 +17,55 @@ preserved at `backup/main-before-test-doc-squash-20261107`.
 
 ## Current Development Task
 
+The tight cycle authorized after the five-hour reset (17% weekly remaining)
+implements omitted-passage recovery at `b039d12`. Project Inventory offers Draft
+Selected Passage. It creates or reuses an exact linked review source, retaining
+parent source/passage IDs in optional portable origin metadata, then uses normal
+drafting/clarification. Working Rule incorporation and schema review remain
+separate actions. Inventory follows validated literal parent evidence to mark
+the original passage covered after incorporation, while retaining sibling gaps.
+A roleplay integration test exercises source -> draft -> incremental Working
+Rules -> schema proposal. Developer ProjectPlanning 17/17 and focused inventory
+UI 6/6 passed. Advisor review is GREEN. Coverage findings remain selective review
+opportunities, especially for deliberately incomplete demo inputs. Zero findings
+is not an acceptance target. Final QA passed `b039d12` with ProjectPlanning
+17/17, DesignSessions 6/6, WorkingRules 14/14, Inventory headless 6/6, and clean
+App/API Release builds. Evidence:
+`artifacts/qa/20261117-source-coverage-recovery/report.md`. Local update-only
+deployment succeeded. One implementation iteration. The connected integration
+uses deterministic model responses; live local-model recovery and owner visual
+testing remain demonstration evidence to collect later.
+
+Revision `fd5b046` adds generic incremental draft-rule recovery. In Rules,
+Add Missing Draft Rules formalizes only draft citations not yet incorporated,
+preserving existing rule IDs/text, concepts, questions, exclusions, and conflicts.
+It validates the full combined result before saving. If all drafts are covered,
+it skips both the model and persistence, retaining the current schema proposal.
+The full rebuild remains an explicit separate action. Developer Working Rules
+tests passed 13/13. This is one implementation iteration using the owner's
+reported 48% five-hour/18% weekly allowance. Revision `cf5ecf8` adds a second
+iteration covering history: incremental mode considers only the latest completed
+session per source, avoiding reintroduction of superseded drafts. Full rebuild
+retains its existing behavior. Independent QA passed the final `cf5ecf8`
+revision with 14 WorkingRules tests, 9 focused headless GUI tests, and clean
+App/API Release builds. Evidence:
+`artifacts/qa/20261117-incremental-draft-recovery-final/report.md`.
+The local update-only deployment completed successfully. Next, use reviewed
+source drafts and this incremental action to recover coverage, then propose
+game-owned schema additions through normal designer review and activation.
+
+Revision `09b3f3e` adds the desktop coverage-review handoff. Project Inventory
+keeps its factual category summaries and now offers individual coverage findings
+with selectable details and Open Evidence navigation to sources/draft rules or
+content proposals. Historical missing evidence has explicit rebuild guidance.
+The generic roleplay example and content-proposal navigation passed all 5 focused
+developer headless tests. This is one implementation iteration following the
+owner's reported 60% five-hour/20% weekly allowance. Independent QA passed 8/8
+Inventory/Planning headless tests and the desktop Release build. Evidence:
+`artifacts/qa/20261117-inventory-coverage-navigation/report.md`. Source and
+content navigation have dedicated headless coverage; exact session/rule draft
+navigation was statically verified. Local update-only deployment succeeded.
+
 The owner approved generic source/rule/schema coverage work, superseding the
 SOT-specific Skill-first checkpoint. Revision `ffa6ea5` adds advisory inventory
 observations for uncited complete source passages, current draft rules without
