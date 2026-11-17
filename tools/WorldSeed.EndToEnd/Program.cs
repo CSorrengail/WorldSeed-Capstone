@@ -182,9 +182,21 @@ file static class DevelopmentPlanIntegrationCommand
 
         using var modelHttp = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
         var client = new OllamaChatClient(modelHttp, OllamaDefaults.CreateProfile("development-plan-check", "Development Plan Check", model));
+        var revise = Environment.GetEnvironmentVariable("WORLDSEED_PLAN_REVISION_GUIDANCE");
+        DevelopmentPlanProposal? prior = null;
+        if (!string.IsNullOrWhiteSpace(revise))
+        {
+            var workspace = await api.GetFromJsonAsync<JsonObject>($"api/projects/{Uri.EscapeDataString(projectId)}/development-plans");
+            prior = workspace?["plans"]?.AsArray().Select(node => node!.Deserialize<DevelopmentPlanProposal>(new JsonSerializerOptions(JsonSerializerDefaults.Web))!)
+                .Where(candidate => candidate.InventoryId == inventory.Id).OrderByDescending(candidate => candidate.CreatedAt).FirstOrDefault()
+                ?? throw new InvalidOperationException("No plan exists for the current inventory to revise.");
+            using var decision = await api.PostAsJsonAsync($"api/projects/{Uri.EscapeDataString(projectId)}/development-plans/{Uri.EscapeDataString(prior.Id)}/decisions",
+                new DevelopmentPlanDecisionRequest(DevelopmentPlanDecisionKind.RevisionRequested, revise));
+            decision.EnsureSuccessStatusCode();
+        }
         var plan = await new DevelopmentPlanGenerationService(client).CreateAsync(
             inventory,
-            "Prioritize a cohesive, substantially fleshed-out game. Preserve designer authority, address dependencies before dependent content, and keep evaluation game-specific.");
+            "Prioritize a cohesive, substantially fleshed-out game. Preserve designer authority, address dependencies before dependent content, and keep evaluation game-specific.", prior, revise);
 
         using var response = await api.PutAsJsonAsync($"api/projects/{Uri.EscapeDataString(projectId)}/development-plans/{Uri.EscapeDataString(plan.Id)}", plan);
         if (!response.IsSuccessStatusCode)
