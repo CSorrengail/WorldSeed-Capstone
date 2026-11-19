@@ -177,11 +177,14 @@ public static class PublicationSnapshotService
             units.Add(new PublicationUnit(contentTypeUnitId, PublicationUnitKind.ContentType, DisplayName(entityType), null, [new("schema-entity-type", entityTypeId)], string.Empty));
             var typeEntries = entries.Where(entry => string.Equals(entry["entityTypeId"]?.GetValue<string>(), entityTypeId, StringComparison.Ordinal)).ToArray();
             var properties = EffectiveProperties(schema, entityType).ToDictionary(property => DefinitionId(property)!, StringComparer.Ordinal);
-            foreach (var entry in typeEntries)
+            for (var entryIndex = 0; entryIndex < typeEntries.Length; entryIndex++)
             {
+                var entry = typeEntries[entryIndex];
                 var entryId = entry["id"]?.GetValue<string>() ?? "unknown";
                 var values = entry["values"] as JsonObject ?? new JsonObject();
-                var heading = values.FirstOrDefault(property => IsLabelProperty(property.Key) && property.Value is JsonValue).Value is { } labelNode && StringValue(labelNode) is { Length: > 0 } label ? label : entryId;
+                var heading = values.Where(property => IsLabelProperty(property.Key) && property.Value is not null)
+                    .Select(property => StringValue(property.Value!)).FirstOrDefault(label => !string.IsNullOrWhiteSpace(label))
+                    ?? "Entry " + (entryIndex + 1).ToString(CultureInfo.InvariantCulture);
                 var body = new StringBuilder().AppendLine($"Entry ID: `{Escape(entryId)}`").AppendLine();
                 var readerBody = new StringBuilder();
                 foreach (var property in values.OrderBy(property => properties.TryGetValue(property.Key, out var definition) ? DisplayName(definition) : property.Key, StringComparer.Ordinal))

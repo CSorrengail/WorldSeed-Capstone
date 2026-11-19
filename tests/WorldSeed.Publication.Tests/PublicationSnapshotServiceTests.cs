@@ -53,6 +53,47 @@ public sealed class PublicationSnapshotServiceTests
     }
 
     [Fact]
+    public void Unnamed_entries_use_distinct_reader_headings_without_exposing_canonical_ids()
+    {
+        var (rules, schema, data) = Fixture();
+        var schemaRoot = JsonNode.Parse(schema.SchemaJson)!.AsObject();
+        schemaRoot["entityTypes"]![0]!["properties"]!.AsArray().RemoveAt(0);
+        schema = schema with { SchemaJson = schemaRoot.ToJsonString() };
+        var dataRoot = JsonNode.Parse(data.DataJson)!.AsObject();
+        var entries = dataRoot["entityInstances"]!.AsArray();
+        entries[0]!["values"]!.AsObject().Remove("name");
+        entries.Add(JsonNode.Parse("""{"id":"private-entry-002","entityTypeId":"creature","values":{"role":"scout"}}"""));
+        data = data with { DataJson = dataRoot.ToJsonString() };
+
+        var snapshot = PublicationSnapshotService.Create("Test Game", rules, schema, data, Now);
+        var edition = PublicationEditionService.CreateInitial(snapshot, Now);
+
+        Assert.Contains("#### Entry 1", edition.Markdown);
+        Assert.Contains("#### Entry 2", edition.Markdown);
+        Assert.DoesNotContain("glass-fox", edition.Markdown);
+        Assert.DoesNotContain("private-entry-002", edition.Markdown);
+        Assert.Contains("glass-fox", edition.ManifestJson);
+        Assert.Contains("private-entry-002", edition.ManifestJson);
+        Assert.Contains("Entry ID: `glass-fox`", snapshot.Markdown);
+    }
+
+    [Fact]
+    public void Blank_entry_labels_do_not_hide_a_later_designer_label()
+    {
+        var (rules, schema, data) = Fixture();
+        var schemaRoot = JsonNode.Parse(schema.SchemaJson)!.AsObject();
+        schemaRoot["entityTypes"]![0]!["properties"]!.AsArray().Add(JsonNode.Parse("""{"metadata":{"id":"title","name":"Title"},"valueType":{"kind":"primitive","name":"string"},"required":false,"nullable":false}"""));
+        schema = schema with { SchemaJson = schemaRoot.ToJsonString() };
+        var root = JsonNode.Parse(data.DataJson)!.AsObject();
+        root["entityInstances"]![0]!["values"]!["name"] = " ";
+        root["entityInstances"]![0]!["values"]!["title"] = "Designer Title";
+
+        var snapshot = PublicationSnapshotService.Create("Test Game", rules, schema, data with { DataJson = root.ToJsonString() }, Now);
+
+        Assert.Equal("Designer Title", Assert.Single(snapshot.Units!, unit => unit.Kind == PublicationUnitKind.ContentEntry).Title);
+    }
+
+    [Fact]
     public void Includes_only_current_game_specific_evaluation_context_with_reader_safe_output_and_provenance()
     {
         var (rules, schema, data) = Fixture();
