@@ -2,6 +2,7 @@ using System.Text.Json.Nodes;
 using WorldSeed.Content;
 using WorldSeed.GameData;
 using WorldSeed.WorkingRules;
+using WorldSeed.LlmIntegration;
 
 namespace WorldSeed.Content.Tests;
 
@@ -41,6 +42,60 @@ public sealed class EvaluationAssistanceServiceTests
     {
         var response = """{"summary":"Suggestion","sourceWorkingRuleIds":["invented"],"candidate":{"title":"Test"}}""";
         Assert.Throws<EvaluationAssistanceFormatException>(() => EvaluationAssistanceGenerationService.ParseResponse(response, new HashSet<string> { "rule-threat" }));
+    }
+
+    [Theory]
+    [InlineData("magicItem", "Magic Item", "charges", "Magic Item Charges")]
+    [InlineData("promise", "Promise", "fulfillment", "Promise Fulfillment")]
+    public async Task Generation_selects_relevant_rules_beyond_the_first_thirty(string typeId, string typeName, string field, string ruleName)
+    {
+        var baseline = Rules().Rules[0];
+        var rules = Enumerable.Range(0, 40).Select(index => baseline with
+        {
+            Id = "unrelated-" + index, Name = "Travel", AuthoritativeText = "Journeys follow roads."
+        }).Append(baseline with { Id = "relevant", Name = ruleName, AuthoritativeText = $"{typeName} {field} ranges from one to ten." }).ToArray();
+        var schema = new JsonObject { ["entityTypes"] = new JsonArray(new JsonObject
+        {
+            ["metadata"] = new JsonObject { ["id"] = typeId, ["name"] = typeName },
+            ["properties"] = new JsonArray(new JsonObject { ["metadata"] = new JsonObject { ["id"] = field, ["name"] = field } })
+        }) };
+        var model = new CapturingModel("""{"summary":"Compare supplied bounds.","sourceWorkingRuleIds":["relevant"],"candidate":{"title":"Comparison"}}""");
+
+        var result = await new EvaluationAssistanceGenerationService(model).GenerateAsync(new("project", typeId,
+            EvaluationProposalKind.AdvisoryBalanceProfile, schema, rules, $"Compare {field} references."));
+
+        Assert.Equal(new[] { "relevant" }, result.SourceWorkingRuleIds);
+        var context = model.Request!.Messages[2].Content;
+        Assert.Contains("[relevant]", context);
+        Assert.DoesNotContain("[unrelated-", context);
+    }
+
+    [Fact]
+    public async Task Generation_bounds_context_and_rejects_citations_to_omitted_rules()
+    {
+        var rules = Enumerable.Range(0, 40).Select(index => Rules().Rules[0] with { Id = "rule-" + index }).ToArray();
+        var model = new CapturingModel("""{"summary":"Suggestion","sourceWorkingRuleIds":["rule-39"],"candidate":{"title":"Comparison"}}""");
+
+        var error = await Assert.ThrowsAsync<EvaluationAssistanceFormatException>(() => new EvaluationAssistanceGenerationService(model)
+            .GenerateAsync(new("project", "creature", EvaluationProposalKind.MechanicalValidation,
+                JsonNode.Parse(Schema().SchemaJson)!.AsObject(), rules, "Evaluate threat.")));
+
+        Assert.Contains("not supplied", error.Message);
+        var context = model.Request!.Messages[2].Content;
+        Assert.Contains("selection of 30 from 40", context);
+        Assert.Contains("[rule-0]", context);
+        Assert.Contains("[rule-29]", context);
+        Assert.DoesNotContain("[rule-30]", context);
+    }
+
+    private sealed class CapturingModel(string response) : ILanguageModelClient
+    {
+        public LlmChatRequest? Request { get; private set; }
+        public Task<LlmChatResponse> CompleteAsync(LlmChatRequest request, CancellationToken cancellationToken = default)
+        {
+            Request = request;
+            return Task.FromResult(new LlmChatResponse(response, "fixture", null));
+        }
     }
 
     private static WorkingRuleSet Rules() => new("rules", "project", "0.1", "Rules", null, 2, Now, Now,

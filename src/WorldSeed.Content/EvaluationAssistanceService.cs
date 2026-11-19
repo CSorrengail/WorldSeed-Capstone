@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using WorldSeed.GameData;
 using WorldSeed.LlmIntegration;
 using WorldSeed.WorkingRules;
@@ -186,9 +187,18 @@ public sealed class EvaluationAssistanceFormatException(string message) : Except
 
 public sealed class EvaluationAssistanceGenerationService(ILanguageModelClient client)
 {
+    public const int MaximumContextRules = 30;
+    private static readonly HashSet<string> CommonWords = new(StringComparer.Ordinal)
+    {
+        "a", "an", "and", "or", "of", "to", "for", "in", "on", "with", "is", "are", "be",
+        "must", "should", "this", "that", "these", "those", "from", "by", "as", "it", "its",
+        "can", "may", "only", "one", "use", "using"
+    };
+
     public async Task<EvaluationAssistanceGenerationResult> GenerateAsync(EvaluationAssistanceGenerationRequest request, CancellationToken cancellationToken = default)
     {
         if (request.Rules.Count == 0 || string.IsNullOrWhiteSpace(request.DesignerGoal)) throw new ArgumentException("Working Rules and a designer goal are required.");
+        var contextRules = SelectContextRules(request);
         var contract = request.Kind == EvaluationProposalKind.MechanicalValidation
             ? "candidate must be {\"title\":\"...\",\"ruleText\":\"...\",\"targetPropertyIds\":[\"property-id\"],\"suggestedConstraints\":{\"property-id\":{\"minimum\":0,\"maximum\":10}}}. Use only applicable minimum, maximum, minimumLength, maximumLength, pattern, or distinctItems constraints."
             : "candidate must be a ContentBalanceProfile: {\"id\":\"...\",\"entityTypeId\":\"...\",\"sourceWorkingRuleIds\":[\"rule-id\"],\"signals\":[{\"id\":\"...\",\"propertyId\":\"...\",\"measure\":\"numericValue\",\"minimumReferenceValue\":0,\"maximumReferenceValue\":10,\"message\":\"...\",\"references\":[{\"id\":\"...\",\"label\":\"...\",\"value\":5,\"rationale\":\"...\"}]}]}. measure is numericValue or collectionCount.";
@@ -196,11 +206,39 @@ public sealed class EvaluationAssistanceGenerationService(ILanguageModelClient c
         {
             new LlmMessage(LlmMessageRole.System, $"You propose one reviewable, game-specific evaluation addition. Never invent universal balance formulas, approve your output, or change project data. Return JSON only: {{\"summary\":\"...\",\"sourceWorkingRuleIds\":[\"...\"],\"candidate\":{{...}}}}. {contract}"),
             new LlmMessage(LlmMessageRole.System, $"Selected content type: {request.EntityTypeId}\nActive game-owned schema:\n{request.ActiveSchema.ToJsonString()}"),
-            new LlmMessage(LlmMessageRole.System, "Available Working Rules:\n" + string.Join("\n", request.Rules.Take(30).Select(rule => $"[{rule.Id}] {rule.AuthoritativeText}"))),
+            new LlmMessage(LlmMessageRole.System, $"Available Working Rules (bounded selection of {contextRules.Count} from {request.Rules.Count}; cite only these IDs):\n" + string.Join("\n", contextRules.Select(rule => $"[{rule.Id}] {rule.AuthoritativeText}"))),
             new LlmMessage(LlmMessageRole.User, request.DesignerGoal)
         };
         var response = await client.CompleteAsync(new LlmChatRequest(messages, Temperature: 0.15, MaxOutputTokens: 1600, RequireJsonObject: true), cancellationToken);
-        return ParseResponse(response.Content, request.Rules.Select(rule => rule.Id).ToHashSet(StringComparer.Ordinal));
+        return ParseResponse(response.Content, contextRules.Select(rule => rule.Id).ToHashSet(StringComparer.Ordinal));
+    }
+
+    private static IReadOnlyList<WorkingRule> SelectContextRules(EvaluationAssistanceGenerationRequest request)
+    {
+        var entity = (request.ActiveSchema["entityTypes"] as JsonArray)?.OfType<JsonObject>()
+            .FirstOrDefault(type => (type["metadata"]?["id"] ?? type["id"])?.GetValue<string>() == request.EntityTypeId);
+        var typeTerms = Terms(request.EntityTypeId + " " + (entity?["metadata"]?["name"] ?? entity?["name"])?.GetValue<string>());
+        var fieldTerms = Terms(string.Join(" ", (entity?["properties"] as JsonArray)?.OfType<JsonObject>()
+            .Select(property => (property["metadata"]?["id"] ?? property["name"])?.GetValue<string>()) ?? []));
+        var goalTerms = Terms(request.DesignerGoal);
+        var ranked = request.Rules.Select((rule, index) =>
+        {
+            var name = Terms(rule.Name);
+            var text = Terms(rule.AuthoritativeText);
+            var score = name.Count(typeTerms.Contains) * 8 + text.Count(typeTerms.Contains) * 4
+                + name.Count(goalTerms.Contains) * 3 + text.Count(goalTerms.Contains)
+                + text.Count(fieldTerms.Contains) * 2;
+            return (Rule: rule, Index: index, Score: score);
+        }).OrderByDescending(item => item.Score).ThenBy(item => item.Index).ToArray();
+        var relevant = ranked.Where(item => item.Score > 0).ToArray();
+        return (relevant.Length > 0 ? relevant : ranked).Take(MaximumContextRules).Select(item => item.Rule).ToArray();
+    }
+
+    private static HashSet<string> Terms(string? text)
+    {
+        var split = Regex.Replace(text ?? string.Empty, @"(?<=[\p{Ll}\p{N}])(?=\p{Lu})", " ");
+        return Regex.Matches(split, @"[\p{L}\p{N}]+")
+            .Select(match => match.Value.ToLowerInvariant()).Where(term => !CommonWords.Contains(term)).ToHashSet(StringComparer.Ordinal);
     }
 
     public static EvaluationAssistanceGenerationResult ParseResponse(string content, IReadOnlySet<string> availableRuleIds)
