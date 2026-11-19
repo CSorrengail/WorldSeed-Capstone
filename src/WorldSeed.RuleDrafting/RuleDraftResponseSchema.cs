@@ -5,9 +5,21 @@ namespace WorldSeed.RuleDrafting;
 /// <summary>Native structured-output contract for local providers that support JSON Schema.</summary>
 public static class RuleDraftResponseSchema
 {
-    public static JsonObject Create(IReadOnlySet<string> allowedSourceNoteIds, IReadOnlyList<SourcePassage>? sourcePassages = null)
+    public static JsonObject Create(IReadOnlySet<string> allowedSourceNoteIds, IReadOnlyList<SourcePassage>? sourcePassages = null, bool allowDesignOptions = false, bool requireDesignChoices = false)
     {
         ArgumentNullException.ThrowIfNull(allowedSourceNoteIds);
+        if (requireDesignChoices && !allowDesignOptions) throw new ArgumentException("Design choices require the trusted expansion workflow.");
+        if (requireDesignChoices)
+            return new JsonObject
+            {
+                ["type"] = "object", ["additionalProperties"] = false,
+                ["required"] = new JsonArray("action", "designQuestions"),
+                ["properties"] = new JsonObject
+                {
+                    ["action"] = new JsonObject { ["type"] = "string", ["enum"] = new JsonArray("askClarifyingQuestion") },
+                    ["designQuestions"] = DesignQuestionsSchema()
+                }
+            };
         var sourceIds = allowedSourceNoteIds.OrderBy(id => id, StringComparer.Ordinal).ToArray();
         var passageIds = (sourcePassages ?? []).Select(passage => passage.Id).OrderBy(id => id, StringComparer.Ordinal).ToArray();
         var schema = JsonNode.Parse("""
@@ -70,6 +82,38 @@ public static class RuleDraftResponseSchema
         supportSourceIdEnum["enum"] = new JsonArray(sourceIds.Select(id => (JsonNode)JsonValue.Create(id)!).ToArray());
         var passageIdEnum = schema["properties"]!["draft"]!["properties"]!["rules"]!["items"]!["properties"]!["sourceSupport"]!["items"]!["properties"]!["passageIds"]!["items"]!.AsObject();
         passageIdEnum["enum"] = new JsonArray(passageIds.Select(id => (JsonNode)JsonValue.Create(id)!).ToArray());
+        if (allowDesignOptions)
+        {
+            schema["properties"]!["designQuestions"] = DesignQuestionsSchema();
+            schema["allOf"]![0]!["then"] = new JsonObject
+            {
+                ["anyOf"] = new JsonArray(
+                    new JsonObject { ["required"] = new JsonArray("clarifyingQuestions") },
+                    new JsonObject { ["required"] = new JsonArray("designQuestions") })
+            };
+        }
         return schema;
     }
+
+    private static JsonObject DesignQuestionsSchema() => JsonNode.Parse("""
+        {
+          "type":"array", "minItems":1, "maxItems":2,
+          "items":{
+            "type":"object", "additionalProperties":false, "required":["question","options"],
+            "properties":{
+              "question":{"type":"string","minLength":1,"maxLength":240},
+              "options":{
+                "type":"array","minItems":2,"maxItems":2,
+                "items":{
+                  "type":"object","additionalProperties":false,"required":["mechanic","tradeoff"],
+                  "properties":{
+                    "mechanic":{"type":"string","minLength":1,"maxLength":360},
+                    "tradeoff":{"type":"string","minLength":1,"maxLength":180}
+                  }
+                }
+              }
+            }
+          }
+        }
+        """)!.AsObject();
 }

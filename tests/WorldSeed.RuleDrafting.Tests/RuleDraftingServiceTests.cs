@@ -159,6 +159,59 @@ public class RuleDraftingServiceTests
         Assert.Contains(model.Requests[1].Messages, message => message.Content.Contains("previous response was cut off"));
     }
 
+    [Fact]
+    public async Task First_expansion_turn_requires_concrete_structured_choices_and_renders_existing_question_ui()
+    {
+        var model = new FakeModel(DesignChoicesResponse);
+
+        var turn = await new RuleDraftingService(model).AdvanceAsync(ExpansionConversation());
+
+        var question = Assert.Single(turn.ClarifyingQuestions);
+        Assert.Contains("Proposed Option A: Renew promises at gatherings.", question);
+        Assert.Contains("Proposed Option B: Promises never expire.", question);
+        Assert.Contains("Tradeoff: More bookkeeping.", question);
+        Assert.Null(turn.Draft);
+        Assert.Equal(1600, model.Request!.MaxOutputTokens);
+        Assert.NotNull(model.Request.ResponseSchema!["properties"]!["designQuestions"]);
+        Assert.Null(model.Request.ResponseSchema["properties"]!["draft"]);
+    }
+
+    [Theory]
+    [InlineData("{\"action\":\"askClarifyingQuestion\",\"clarifyingQuestions\":[\"What should happen?\"]}")]
+    [InlineData("{\"action\":\"askClarifyingQuestion\",\"designQuestions\":[{\"question\":\"When?\",\"options\":[{\"mechanic\":\"At gatherings.\",\"tradeoff\":\"Bookkeeping.\"}]}]}")]
+    [InlineData("{\"action\":\"askClarifyingQuestion\",\"designQuestions\":[{\"question\":\"When?\",\"options\":[{\"mechanic\":\"At gatherings.\",\"tradeoff\":\"Bookkeeping.\"},{\"mechanic\":\"AT GATHERINGS.\",\"tradeoff\":\"Different label.\"}]}]}")]
+    [InlineData("{\"action\":\"askClarifyingQuestion\",\"designQuestions\":[{\"question\":\"When?\",\"options\":[{\"mechanic\":\"At gatherings.\",\"tradeoff\":\"Bookkeeping.\"},{\"mechanic\":\"Never.\"}]}]}")]
+    public async Task Rejects_missing_duplicate_or_incomplete_expansion_options(string response)
+    {
+        await Assert.ThrowsAsync<RuleDraftFormatException>(() => new RuleDraftingService(new FakeModel(response)).AdvanceAsync(ExpansionConversation()));
+    }
+
+    [Fact]
+    public async Task Ordinary_source_intake_does_not_accept_generated_design_choices()
+    {
+        var conversation = ExpansionConversation() with { AllowDesignOptions = false, RequireDesignChoices = false };
+
+        await Assert.ThrowsAsync<RuleDraftFormatException>(() => new RuleDraftingService(new FakeModel(DesignChoicesResponse)).AdvanceAsync(conversation));
+    }
+
+    [Fact]
+    public async Task Incomplete_expansion_retry_keeps_the_question_contract_instead_of_drafting_rules()
+    {
+        var model = new SequenceModel("{\"action\":\"askClarifyingQuestion\",\"designQuestions\":[", DesignChoicesResponse);
+
+        var turn = await new RuleDraftingService(model).AdvanceAsync(ExpansionConversation());
+
+        Assert.Null(turn.Draft);
+        Assert.Equal(2, model.Requests.Count);
+        Assert.All(model.Requests, request => Assert.Equal(1600, request.MaxOutputTokens));
+        Assert.Contains(model.Requests[1].Messages, message => message.Content.Contains("one designQuestion"));
+    }
+
+    private static RuleDraftConversation ExpansionConversation() => new("project", ["goal"],
+        [new(LlmMessageRole.User, "Develop promise renewal.")], AllowDesignOptions: true, RequireDesignChoices: true);
+
+    private const string DesignChoicesResponse = """{"action":"askClarifyingQuestion","designQuestions":[{"question":"When are promises renewed?","options":[{"mechanic":"Renew promises at gatherings.","tradeoff":"More bookkeeping."},{"mechanic":"Promises never expire.","tradeoff":"Less flexibility."}]}]}""";
+
     private sealed class FakeModel(string content) : ILanguageModelClient
     {
         public LlmChatRequest? Request { get; private set; }

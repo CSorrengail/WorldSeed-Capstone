@@ -50,7 +50,7 @@ public sealed class DesignSessionService
             (session.Messages[^1].Role != LlmMessageRole.User ||
              !session.SourceNotes.Skip(1).Any(source => string.Equals(source.OriginalText, session.Messages[^1].Content, StringComparison.Ordinal))))
             throw new RuleDraftFormatException("An expansion requires an explicit designer answer saved as source material before continuing.");
-        var conversation = new RuleDraftConversation(session.ProjectId, session.SourceNotes.Select(source => source.Id).ToArray(), session.Messages, session.SourceNotes.ToDictionary(source => source.Id, source => source.OriginalText, StringComparer.Ordinal), WorkflowInstruction: workflowInstruction, AllowDesignOptions: requireClarificationOnFirstTurn);
+        var conversation = new RuleDraftConversation(session.ProjectId, session.SourceNotes.Select(source => source.Id).ToArray(), session.Messages, session.SourceNotes.ToDictionary(source => source.Id, source => source.OriginalText, StringComparer.Ordinal), WorkflowInstruction: workflowInstruction, AllowDesignOptions: requireClarificationOnFirstTurn, RequireDesignChoices: requireClarificationOnFirstTurn && firstTurn);
         var result = await _ruleDrafting.AdvanceWithTranscriptAsync(conversation, cancellationToken);
         if (firstTurn && requireClarificationOnFirstTurn && result.Turn.Action != RuleDraftAction.AskClarifyingQuestion)
             throw new RuleDraftFormatException("An expansion request must begin with clarification before it can produce draft rules.");

@@ -7,7 +7,7 @@ public sealed class RuleDraftJsonParser
 {
     private readonly StructuredRuleDraftValidator _validator = new();
 
-    public RuleDraftTurn Parse(string content, IReadOnlySet<string> allowedSourceNoteIds, IReadOnlyDictionary<string, string>? sourceTextById = null, IReadOnlyList<SourcePassage>? sourcePassages = null)
+    public RuleDraftTurn Parse(string content, IReadOnlySet<string> allowedSourceNoteIds, IReadOnlyDictionary<string, string>? sourceTextById = null, IReadOnlyList<SourcePassage>? sourcePassages = null, bool allowDesignOptions = false, bool requireDesignChoices = false)
     {
         if (allowedSourceNoteIds is null || allowedSourceNoteIds.Count == 0) throw new ArgumentException("At least one allowed source note id is required.", nameof(allowedSourceNoteIds));
         JsonObject root;
@@ -29,6 +29,17 @@ public sealed class RuleDraftJsonParser
             _ => throw new RuleDraftFormatException("The model response has an unknown action.")
         };
         var questions = Strings(root, "clarifyingQuestions");
+        if (root["designQuestions"] is not null)
+        {
+            if (!allowDesignOptions) throw new RuleDraftFormatException("Proposed design choices are only allowed in the trusted expansion workflow.");
+            if (action != RuleDraftAction.AskClarifyingQuestion || root["draft"] is not null)
+                throw new RuleDraftFormatException("Proposed design choices must be questions, not draft rules.");
+            if (questions.Length > 0 || root["clarifyingQuestion"] is not null)
+                throw new RuleDraftFormatException("Return designQuestions without a second clarification format.");
+            questions = ParseDesignQuestions(root["designQuestions"]);
+        }
+        else if (requireDesignChoices)
+            throw new RuleDraftFormatException("The first expansion turn requires structured designQuestions with two proposed mechanics and tradeoffs.");
         // Accept the v0.1 response shape while existing saved sessions and small local models catch up.
         var legacyQuestion = String(root["clarifyingQuestion"]);
         if (questions.Length == 0 && legacyQuestion is not null) questions = [legacyQuestion];
@@ -44,6 +55,24 @@ public sealed class RuleDraftJsonParser
             if (issues.Count > 0) throw new RuleDraftFormatException(string.Join(" ", issues));
         }
         return new RuleDraftTurn(action, legacyQuestion ?? questions.FirstOrDefault(), questions, draft);
+    }
+
+    private static string[] ParseDesignQuestions(JsonNode? node)
+    {
+        if (node is not JsonArray questions || questions.Count is < 1 or > 2)
+            throw new RuleDraftFormatException("Provide one or two structured design questions.");
+        return questions.Select(questionNode =>
+        {
+            if (questionNode is not JsonObject question) throw new RuleDraftFormatException("A design question must be an object.");
+            if (question["options"] is not JsonArray options || options.Count != 2 || options.Any(option => option is not JsonObject))
+                throw new RuleDraftFormatException("Each design question requires two proposed mechanics with tradeoffs.");
+            var first = options[0]!.AsObject();
+            var second = options[1]!.AsObject();
+            var a = Required(first, "mechanic");
+            var b = Required(second, "mechanic");
+            if (string.Equals(a, b, StringComparison.OrdinalIgnoreCase)) throw new RuleDraftFormatException("Proposed mechanics must be distinct alternatives.");
+            return $"{Required(question, "question")}\nProposed Option A: {a}\nTradeoff: {Required(first, "tradeoff")}\nProposed Option B: {b}\nTradeoff: {Required(second, "tradeoff")}\nChoose A Or B, Revise An Option, Or Reject Both.";
+        }).ToArray();
     }
 
     private static StructuredRuleDraft RepairNearExcerpts(StructuredRuleDraft draft, IReadOnlyDictionary<string, string>? sourceTextById)

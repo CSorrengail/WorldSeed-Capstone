@@ -38,6 +38,7 @@ public sealed record RuleDraftConversation(
     IReadOnlyDictionary<string, string>? SourceTextById = null,
     IReadOnlyList<SourcePassage>? SourcePassages = null,
     string? WorkflowInstruction = null,
-    bool AllowDesignOptions = false);
+    bool AllowDesignOptions = false,
+    bool RequireDesignChoices = false);
 
 public sealed class RuleDraftFormatException(string message) : Exception(message);

@@ -54,26 +54,32 @@ public sealed class RuleDraftingService
             messages.Add(new LlmMessage(LlmMessageRole.System, ExpansionDesignInstruction));
         if (!string.IsNullOrWhiteSpace(conversation.WorkflowInstruction))
             messages.Add(new LlmMessage(LlmMessageRole.System, conversation.WorkflowInstruction.Trim()));
+        if (conversation.RequireDesignChoices)
+            messages.Add(new LlmMessage(LlmMessageRole.System, "First expansion turn: you MUST propose concrete candidate mechanics for designer review, not merely ask for missing facts. Return exactly {\"action\":\"askClarifyingQuestion\",\"designQuestions\":[{\"question\":\"...\",\"options\":[{\"mechanic\":\"...\",\"tradeoff\":\"...\"},{\"mechanic\":\"...\",\"tradeoff\":\"...\"}]}]}. Provide one or two focused questions with exactly two distinct options each. Each mechanic is a short declarative candidate rule, not another question. Each tradeoff explains a consequence. These are proposals, not existing rules or approval. Do not output clarifyingQuestions, a draft, or source quotations."));
         if (sourcePassages.Count > 0) messages.Add(new LlmMessage(LlmMessageRole.System, "Source passages available for citation:\n" + string.Join("\n", sourcePassages.Select(passage => $"[{passage.Id} | {passage.SourceNoteId}] {passage.Text}"))));
         messages.AddRange(conversation.Messages);
+        var responseSchema = RuleDraftResponseSchema.Create(allowedSourceNoteIds, sourcePassages, conversation.AllowDesignOptions, conversation.RequireDesignChoices);
         var response = await _client.CompleteAsync(new LlmChatRequest(
             messages,
             Temperature: 0.2,
-            MaxOutputTokens: 4800,
-            ResponseSchema: RuleDraftResponseSchema.Create(allowedSourceNoteIds, sourcePassages)), cancellationToken);
+            MaxOutputTokens: conversation.RequireDesignChoices ? 1600 : 4800,
+            ResponseSchema: responseSchema), cancellationToken);
         try
         {
-            return new RuleDraftingResult(_parser.Parse(response.Content, allowedSourceNoteIds, sourceTextById, sourcePassages), response.Content);
+            return new RuleDraftingResult(_parser.Parse(response.Content, allowedSourceNoteIds, sourceTextById, sourcePassages, conversation.AllowDesignOptions, conversation.RequireDesignChoices), response.Content);
         }
         catch (RuleDraftFormatException exception) when (exception.Message.Contains("appears incomplete", StringComparison.Ordinal))
         {
-            var recoveryMessages = messages.Append(new LlmMessage(LlmMessageRole.System, "Your previous response was cut off. Return a complete compact replacement now: at most four consolidated rules, short text, anchor citations only, and valid JSON. Do not continue the prior JSON.")).ToArray();
+            var recoveryInstruction = conversation.RequireDesignChoices
+                ? "Your previous response was cut off. Return a complete compact replacement with one designQuestion, exactly two short mechanic/tradeoff options, and valid JSON. Do not draft rules or continue the prior JSON."
+                : "Your previous response was cut off. Return a complete compact replacement now: at most four consolidated rules, short text, anchor citations only, and valid JSON. Do not continue the prior JSON.";
+            var recoveryMessages = messages.Append(new LlmMessage(LlmMessageRole.System, recoveryInstruction)).ToArray();
             var recovery = await _client.CompleteAsync(new LlmChatRequest(
                 recoveryMessages,
                 Temperature: 0.1,
-                MaxOutputTokens: 2400,
-                ResponseSchema: RuleDraftResponseSchema.Create(allowedSourceNoteIds, sourcePassages)), cancellationToken);
-            return new RuleDraftingResult(_parser.Parse(recovery.Content, allowedSourceNoteIds, sourceTextById, sourcePassages), recovery.Content);
+                MaxOutputTokens: conversation.RequireDesignChoices ? 1600 : 2400,
+                ResponseSchema: responseSchema), cancellationToken);
+            return new RuleDraftingResult(_parser.Parse(recovery.Content, allowedSourceNoteIds, sourceTextById, sourcePassages, conversation.AllowDesignOptions, conversation.RequireDesignChoices), recovery.Content);
         }
     }
 }
