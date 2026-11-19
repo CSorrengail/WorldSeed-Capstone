@@ -535,11 +535,15 @@ projects.MapGet("/{projectId}/schema-proposal", async (string projectId, IProjec
 projects.MapPut("/{projectId}/schema-proposal", async (string projectId, ProjectSchemaProposal proposal, IDesignProjectStore projectsStore, IWorkingRuleSetStore ruleSets, IProjectSchemaProposalStore schemaProposals, CancellationToken cancellationToken) =>
 {
     if (!string.Equals(projectId, proposal.ProjectId, StringComparison.Ordinal)) return Results.BadRequest("The URL project id must match the proposal projectId.");
+    if (string.IsNullOrWhiteSpace(proposal.Id)) return Results.BadRequest("A schema proposal id is required.");
     var project = await projectsStore.LoadAsync(projectId, cancellationToken);
     if (project is null) return Results.NotFound("The project does not exist.");
     var ruleSet = await ruleSets.LoadAsync(projectId, cancellationToken);
     if (ruleSet is null || !string.Equals(ruleSet.Id, proposal.WorkingRuleSetId, StringComparison.Ordinal) || ruleSet.Revision != proposal.WorkingRuleSetRevision)
         return Results.BadRequest("The schema proposal must be based on the current saved Working Rule Set revision.");
+    var existingProposal = await schemaProposals.LoadAsync(projectId, cancellationToken);
+    if (existingProposal is not null && !string.Equals(existingProposal.Id, proposal.Id, StringComparison.Ordinal))
+        return Results.Conflict("The current schema proposal id must be preserved when updating it. Reload the project's saved proposal before saving changes.");
     await schemaProposals.SaveAsync(proposal, cancellationToken);
     return Results.NoContent();
 });
