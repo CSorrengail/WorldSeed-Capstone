@@ -17,6 +17,25 @@ preserved at `backup/main-before-test-doc-squash-20261107`.
 
 ## Current Development Task
 
+**Autonomous execution is stopped.** The owner interrupted the run after a
+five-hour allowance overrun consumed credits, then authorized only completion
+of iteration 9 (`e8bd5c9`). That bounded verification is finished. Do not begin
+iteration 10 or another broad QA/advisor cycle. Discuss the credit overrun and
+enforcement of the existing usage guard with the owner before further work.
+Do not interpret a prior reset report as a reliable current allowance.
+
+Iteration 9 outcome: 22 planning tests passed. One real focused plan call cited
+the exact selected unresolved question and produced a meaningful recommendation
+(2449 input / 352 output tokens reported by the local model). One subsequent
+expansion clarification call asked three ordinary questions but supplied no
+clearly labeled Proposed Option/tradeoff. The trusted expansion feature remains
+connected-test FAILED at that boundary. No designer answer, follow-up draft,
+Working Rule change, schema decision, or publication was made in this run.
+Full evidence: `artifacts/qa/20261119-expansion-options-07d97c7/report.md` and its
+`iteration9` captures. The coordinator verified the leftover ExpansionProbe
+PID 70184, stopped it, and its child 6580 exited; only pre-existing VS Code
+dotnet PID 23640 remained. No alarm was sounded for this owner-requested stop.
+
 On 2026-11-19 the owner reported both allowances reset and authorized the main
 presentation push. The primary acceptance run now uses all 12 owner-supplied
 SRD51_Capstone_Corpus INPUT_DOCUMENTS in an isolated project. README, evaluation
@@ -75,9 +94,53 @@ revision, linked replacement, approval, application, and a revised Ready edition
 containing Ring of the Everbloom. Balance remains NotConfigured. Evidence:
 `artifacts/qa/20261119-srd51-evolution-6c073fa/report.md`.
 
-**Iteration count this push: 3.** Next: isolated API/Mongo persistence/reload,
-then the remaining reviewed mechanic-completion and evaluation acceptance paths.
-Manual owner testing remains deferred. No owner input is currently required.
+Iterations 4 and 5 are independently checked at `1002594`: 27 Content tests and
+one real Spell evaluation call passed. Relevant context included late rules
+`b021-r004`/`b022-r001`; a typed 0-9 spell-level constraint proposal was reviewed
+in memory but not applied. The API now rejects changed mutable proposal IDs
+with 409 while preserving the document; a normal stable-ID update returns 204.
+Remaining API activation/restart/history assertions are BLOCKED by the temporary
+probe's numeric-enum reading error, not a product endpoint failure. API retries
+were stopped. Reports: `artifacts/qa/20261119-evaluation-context-1002594/report.md`
+and `artifacts/qa/20261119-srd51-api-mongo-1002594/report.md`.
+
+**Iteration count this push: 9.** Iteration 6 (`61e9a48`) contains the execution
+incident: two external restore attempts omitted worker-limit switches, and 100
+orphan MSBuild workers appeared under their exited SDK parents. The coordinator
+verified and stopped exactly those 100, retaining VS Code PID 23640. All further
+feature work paused. A mandatory bounded SDK wrapper now enforces limits on
+Restore as well as Build/Test/Publish; four mocked developer tests passed without
+launching the SDK. Independent verification passed: four mocked tests and one
+controlled real cached restore exited successfully, leaving only VS Code PID
+23640 before and after. Evidence:
+`artifacts/qa/20261119-bounded-sdk-wrapper-61e9a48/report.md`.
+Do not bypass the mandatory wrapper with raw SDK commands.
+
+Iteration 7 (`07d97c7`) implements trusted expansion-only proposed design options
+in clarification, with explicit designer selection and retained Q&A citations.
+Follow-up drafting requires a persisted designer-answer source. The advisor
+assessed this GREEN with no owner architecture decision; ordinary source intake
+remains strict. Developer and independent focused tests passed 9 DesignSessions,
+10 RuleDrafting, and 17 Planning cases, with no extra workers. Connected corpus
+expansion verification is in progress. Compact owner testing guides are in
+`qa/MANUAL_MVP_SMOKE.md`; owner testing remains deferred.
+
+Iteration 8 (`3aef256`) added bounded planner observations and category-specific
+evidence contracts; its 20 tests passed. A connected plan became structurally
+valid, but selected unrelated source coverage. Inspection found a roughly
+37,000-character prompt and a fixture that never communicated its chosen
+question's literal ID/text. Iteration 9 (`e8bd5c9`) caps the planner's user
+context at 8,000 characters, summarizes rule coverage, marks clipped metadata,
+and bounds corrective-response history. All 22 planning tests passed. The
+connected check explicitly passed the chosen question and retained all raw
+responses. The planner correction passed; the subsequent options behavior did
+not. Do not treat the earlier unrelated plan as an accepted game design
+decision or claim that rule-system expansion is fully verified.
+
+Reviewed mechanic completion, evaluation application, multi-type content,
+the remaining API round trip, and owner testing remain unfinished. They are
+backlog items pending the owner's post-iteration discussion, not authorization
+to continue this run.
 
 ## Historical Development Checkpoints
 
