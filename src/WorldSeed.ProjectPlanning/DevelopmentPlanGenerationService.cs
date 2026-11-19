@@ -12,10 +12,12 @@ public sealed class DevelopmentPlanGenerationService(ILanguageModelClient client
     private const int MaxOutputTokens = 3600;
     private const int MaxCorrectiveRetries = 2;
     public const int MaximumContextObservations = 60;
+    public const int MaximumInputCharacters = 8000;
     private const string SystemPrompt = """
         You are a TTRPG project planning assistant. Produce a development plan from the supplied immutable WorldSeed inventory. Return JSON only and follow the supplied response schema.
         The inventory describes facts; it does not authorize you to invent canonical rules or content. Recommend between one and ten bounded next steps. Every recommendation must cite one or more supplied observation ids. Do not cite ids that were not supplied.
         The observations may be a bounded view of a larger saved inventory. Respect omittedObservationCount; do not claim omitted observations do not exist. Each shown observation lists allowedRecommendationCategories. Cite it only in one of those categories.
+        Prefer one to three concise recommendations for a focused designer request. Keep summaries and rationales brief; do not reproduce source passages. Truncated observation descriptions are planning metadata, not complete game rules.
         Distinguish resolving uncertain rules, expanding a rule system, expanding game-specific content, adding game-specific evaluation coverage, and improving publication. Do not assume this game has monsters, items, skills, dice, levels, or any other common concept unless the inventory explicitly names it.
         Explain tradeoffs, an alternative approach where meaningful, uncertainty, and any reasonable difference of opinion with the designer direction. A difference of opinion is advice, not authority. State any designer choice needed before execution.
         Dependencies may reference only recommendation ids in this response and must not contain cycles. A plan never executes work, changes schema, generates content, or approves itself.
@@ -29,18 +31,26 @@ public sealed class DevelopmentPlanGenerationService(ILanguageModelClient client
         if (inventory.Observations.Count == 0) throw new ArgumentException("The inventory has no observations to support a development plan.", nameof(inventory));
         if (replaces is not null && string.IsNullOrWhiteSpace(revisionGuidance)) throw new ArgumentException("Revising a development plan requires designer guidance.", nameof(revisionGuidance));
         var contextObservations = SelectContextObservations(inventory, designerDirection, revisionGuidance);
-        var contextInventory = inventory with { Observations = contextObservations };
-        var input = new
+        string BuildInput(IReadOnlyList<InventoryObservation> observations) => JsonSerializer.Serialize(new
         {
-            inventory = Summarize(inventory, contextObservations),
+            inventory = Summarize(inventory, observations),
             designerDirection = string.IsNullOrWhiteSpace(designerDirection) ? null : designerDirection.Trim(),
             priorPlan = replaces is null ? null : new { replaces.Id, replaces.Version, replaces.Summary, recommendations = replaces.Recommendations.Select(item => new { item.Id, item.Title, category = item.Category.ToString(), item.Goal }) },
             revisionGuidance = string.IsNullOrWhiteSpace(revisionGuidance) ? null : revisionGuidance.Trim()
-        };
+        });
+        var inputJson = BuildInput(contextObservations);
+        while (inputJson.Length > MaximumInputCharacters && contextObservations.Count > 1)
+        {
+            contextObservations = contextObservations.Take(contextObservations.Count - 1).ToArray();
+            inputJson = BuildInput(contextObservations);
+        }
+        if (inputJson.Length > MaximumInputCharacters)
+            throw new ArgumentException("The planner context is too large even with one observation. Shorten the designer direction or revision guidance before retrying.");
+        var contextInventory = inventory with { Observations = contextObservations };
         var messages = new List<LlmMessage>
         {
             new(LlmMessageRole.System, SystemPrompt),
-            new(LlmMessageRole.User, JsonSerializer.Serialize(input))
+            new(LlmMessageRole.User, inputJson)
         };
         var responseSchema = ResponseSchema(contextInventory);
         for (var retryCount = 0; ; retryCount++)
@@ -50,7 +60,11 @@ public sealed class DevelopmentPlanGenerationService(ILanguageModelClient client
             try { return Parse(contextInventory, response.Content, designerDirection, replaces); }
             catch (DevelopmentPlanFormatException exception) when (retryCount < MaxCorrectiveRetries)
             {
-                messages.Add(new(LlmMessageRole.Assistant, response.Content));
+                // Preserve the original bounded context, not an accumulating chain of
+                // malformed multi-thousand-token responses that crowds out the designer's goal.
+                if (messages.Count > 2) messages.RemoveRange(2, messages.Count - 2);
+                var rejected = response.Content.Length <= 1800 ? response.Content : response.Content[..1800] + "\n[Rejected output truncated; return a complete compact replacement.]";
+                messages.Add(new(LlmMessageRole.Assistant, rejected));
                 messages.Add(new(LlmMessageRole.System,
                     $"WorldSeed rejected that response: {exception.Message} Return the complete corrected JSON plan. Do not preserve an unsupported recommendation merely by changing its wording; remove it or cite only compatible factual observations using the required category mapping."));
             }
@@ -106,12 +120,22 @@ public sealed class DevelopmentPlanGenerationService(ILanguageModelClient client
         inventory.Id,
         inventory.Revision,
         inventory.Sources,
-        inventory.Rules,
+        rules = new
+        {
+            inventory.Rules.RuleCount, inventory.Rules.CountsByKind, inventory.Rules.EvidenceBackedRuleCount,
+            rulesWithoutEvidenceCount = inventory.Rules.RulesWithoutEvidence.Count,
+            unresolvedQuestionCount = inventory.Rules.OpenQuestions.Count,
+            conflictCount = inventory.Rules.Conflicts.Count,
+            exclusionCount = inventory.Rules.Exclusions.Count
+        },
         inventory.Schema,
         inventory.Publication,
         observationCount = inventory.Observations.Count,
         omittedObservationCount = inventory.Observations.Count - observations.Count,
-        observations = observations.Select(item => new { item.Id, kind = item.Kind.ToString(), item.SubjectId, item.Description, item.EvidenceIds,
+        observations = observations.Select(item => new { item.Id, kind = item.Kind.ToString(), item.SubjectId,
+            description = item.Description.Length <= 240 ? item.Description : item.Description[..240] + "...",
+            descriptionTruncated = item.Description.Length > 240,
+            evidenceIds = item.EvidenceIds.Take(4), omittedEvidenceIdCount = Math.Max(0, item.EvidenceIds.Count - 4),
             allowedRecommendationCategories = Enum.GetValues<DevelopmentRecommendationCategory>().Where(category => DevelopmentPlanService.Supports(category, item.Kind)).Select(category => category.ToString()) })
     };
 

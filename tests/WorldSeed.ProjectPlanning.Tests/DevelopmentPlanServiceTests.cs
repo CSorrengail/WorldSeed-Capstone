@@ -118,8 +118,9 @@ public sealed class DevelopmentPlanServiceTests
 
         var input = JsonNode.Parse(model.LastRequest!.Messages[1].Content)!;
         var sent = input["inventory"]!["observations"]!.AsArray();
-        Assert.Equal(60, sent.Count);
-        Assert.Equal(41, input["inventory"]!["omittedObservationCount"]!.GetValue<int>());
+        Assert.InRange(sent.Count, 1, DevelopmentPlanGenerationService.MaximumContextObservations);
+        Assert.Equal(101 - sent.Count, input["inventory"]!["omittedObservationCount"]!.GetValue<int>());
+        Assert.True(model.LastRequest.Messages[1].Content.Length <= DevelopmentPlanGenerationService.MaximumInputCharacters);
         Assert.Contains(sent, observation => observation!["Id"]!.GetValue<string>() == "observation-question");
         Assert.DoesNotContain(sent, observation => observation!["Id"]!.GetValue<string>() == "passage-99");
     }
@@ -132,6 +133,44 @@ public sealed class DevelopmentPlanServiceTests
         await Assert.ThrowsAsync<ArgumentException>(() => new DevelopmentPlanGenerationService(model).CreateAsync(Inventory() with { Observations = [] }, null, cancellationToken: TestContext.Current.CancellationToken));
 
         Assert.Null(model.LastRequest);
+    }
+
+    [Fact]
+    public async Task Planner_bounds_large_descriptions_without_changing_saved_inventory()
+    {
+        var question = Inventory().Observations[0];
+        var observations = Enumerable.Range(0, 80).Select(index => new InventoryObservation("passage-" + index,
+            InventoryObservationKind.UncitedSourcePassage, "source", new string('x', 2000), Enumerable.Range(0, 20).Select(value => "evidence-" + value).ToArray())).Append(question).ToArray();
+        var inventory = Inventory() with { Observations = observations, Rules = Inventory().Rules with { Exclusions = [new string('y', 20000)] } };
+        var model = new CapturingModel("""{"summary":"Plan","overallTradeoffs":[],"recommendations":[{"id":"question","title":"Question","category":"ResolveSourceOrRule","priority":"Now","goal":"Resolve timing.","rationale":"Unresolved timing.","expectedOutcome":"Reviewed timing.","evidenceObservationIds":["observation-question"],"dependsOnRecommendationIds":[],"tradeoffs":[],"alternativeApproach":null,"differenceOfOpinion":null,"designerDecisionNeeded":null}]}""");
+
+        await new DevelopmentPlanGenerationService(model).CreateAsync(inventory, "Resolve reactions.", cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.True(model.LastRequest!.Messages[1].Content.Length <= DevelopmentPlanGenerationService.MaximumInputCharacters);
+        var input = JsonNode.Parse(model.LastRequest.Messages[1].Content)!;
+        var clipped = input["inventory"]!["observations"]!.AsArray().First(item => item!["kind"]!.GetValue<string>() == "UncitedSourcePassage")!;
+        Assert.True(clipped["descriptionTruncated"]!.GetValue<bool>());
+        Assert.Equal(4, clipped["evidenceIds"]!.AsArray().Count);
+        Assert.Equal(2000, inventory.Observations[0].Description.Length);
+        Assert.Equal(20000, inventory.Rules.Exclusions[0].Length);
+    }
+
+    [Fact]
+    public async Task Planner_retries_keep_original_context_without_accumulating_large_rejected_outputs()
+    {
+        var valid = """{"summary":"Plan","overallTradeoffs":[],"recommendations":[{"id":"question","title":"Question","category":"ResolveSourceOrRule","priority":"Now","goal":"Resolve timing.","rationale":"Unresolved timing.","expectedOutcome":"Reviewed timing.","evidenceObservationIds":["observation-question"],"dependsOnRecommendationIds":[],"tradeoffs":[],"alternativeApproach":null,"differenceOfOpinion":null,"designerDecisionNeeded":null}]}""";
+        var model = new SequencedModel(new string('x', 10000), new string('y', 10000), valid);
+
+        await new DevelopmentPlanGenerationService(model).CreateAsync(Inventory(), "Resolve reactions.", cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(3, model.Requests.Count);
+        foreach (var retry in model.Requests.Skip(1))
+        {
+            Assert.Equal(4, retry.Messages.Count);
+            Assert.Equal(model.Requests[0].Messages[1], retry.Messages[1]);
+            Assert.True(retry.Messages[2].Content.Length < 2000);
+            Assert.Contains("truncated", retry.Messages[2].Content);
+        }
     }
 
     [Fact]
