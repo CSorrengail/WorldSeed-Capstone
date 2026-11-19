@@ -5,6 +5,7 @@ using WorldSeed.ProjectPlanning;
 using WorldSeed.RuleDrafting;
 using WorldSeed.SchemaTranslation;
 using WorldSeed.WorkingRules;
+using System.Text.Json.Nodes;
 
 namespace WorldSeed.ProjectPlanning.Tests;
 
@@ -85,6 +86,52 @@ public sealed class DevelopmentPlanServiceTests
         Assert.Equal(DevelopmentRecommendationCategory.ExpandContent, Assert.Single(plan.Recommendations).Category);
         Assert.Equal(2, model.Requests.Count);
         Assert.Contains("does not support its category", model.Requests[1].Messages[^1].Content);
+        Assert.Contains("empty-weapon", model.Requests[1].Messages[^1].Content);
+        Assert.Contains("EmptyContentType", model.Requests[1].Messages[^1].Content);
+        Assert.Contains("Allowed categories", model.Requests[1].Messages[^1].Content);
+    }
+
+    [Fact]
+    public async Task Response_contract_pairs_categories_with_only_compatible_evidence()
+    {
+        var model = new CapturingModel("""{"summary":"Plan","overallTradeoffs":[],"recommendations":[{"id":"question","title":"Question","category":"ResolveSourceOrRule","priority":"Now","goal":"Resolve timing.","rationale":"Unresolved timing.","expectedOutcome":"Reviewed timing.","evidenceObservationIds":["observation-question"],"dependsOnRecommendationIds":[],"tradeoffs":[],"alternativeApproach":null,"differenceOfOpinion":null,"designerDecisionNeeded":null}]}""");
+        var inventory = Inventory() with { Observations = [Inventory().Observations[0], new("empty", InventoryObservationKind.EmptyContentType, "promise", "No promises.", [])] };
+
+        await new DevelopmentPlanGenerationService(model).CreateAsync(inventory, null, cancellationToken: TestContext.Current.CancellationToken);
+
+        var branches = model.LastRequest!.ResponseSchema!["properties"]!["recommendations"]!["items"]!["anyOf"]!.AsArray().OfType<JsonObject>().ToArray();
+        var resolve = branches.Single(branch => branch["properties"]!["category"]!["enum"]![0]!.GetValue<string>() == "ResolveSourceOrRule");
+        var content = branches.Single(branch => branch["properties"]!["category"]!["enum"]![0]!.GetValue<string>() == "ExpandContent");
+        Assert.Equal(new[] { "observation-question" }, resolve["properties"]!["evidenceObservationIds"]!["items"]!["enum"]!.AsArray().Select(id => id!.GetValue<string>()));
+        Assert.Equal(new[] { "empty" }, content["properties"]!["evidenceObservationIds"]!["items"]!["enum"]!.AsArray().Select(id => id!.GetValue<string>()));
+        Assert.Contains("allowedRecommendationCategories", model.LastRequest.Messages[1].Content);
+    }
+
+    [Fact]
+    public async Task Large_inventory_context_keeps_late_requested_questions_and_reports_omissions()
+    {
+        var observations = Enumerable.Range(0, 100).Select(index => new InventoryObservation("passage-" + index,
+            InventoryObservationKind.UncitedSourcePassage, "source", "Review travel notes.", [])).Append(Inventory().Observations[0]).ToArray();
+        var model = new CapturingModel("""{"summary":"Plan","overallTradeoffs":[],"recommendations":[{"id":"question","title":"Question","category":"ResolveSourceOrRule","priority":"Now","goal":"Resolve timing.","rationale":"Unresolved timing.","expectedOutcome":"Reviewed timing.","evidenceObservationIds":["observation-question"],"dependsOnRecommendationIds":[],"tradeoffs":[],"alternativeApproach":null,"differenceOfOpinion":null,"designerDecisionNeeded":null}]}""");
+
+        await new DevelopmentPlanGenerationService(model).CreateAsync(Inventory() with { Observations = observations }, "Resolve reactions.", cancellationToken: TestContext.Current.CancellationToken);
+
+        var input = JsonNode.Parse(model.LastRequest!.Messages[1].Content)!;
+        var sent = input["inventory"]!["observations"]!.AsArray();
+        Assert.Equal(60, sent.Count);
+        Assert.Equal(41, input["inventory"]!["omittedObservationCount"]!.GetValue<int>());
+        Assert.Contains(sent, observation => observation!["Id"]!.GetValue<string>() == "observation-question");
+        Assert.DoesNotContain(sent, observation => observation!["Id"]!.GetValue<string>() == "passage-99");
+    }
+
+    [Fact]
+    public async Task Empty_inventory_is_rejected_before_requesting_a_model_plan()
+    {
+        var model = new CapturingModel("not called");
+
+        await Assert.ThrowsAsync<ArgumentException>(() => new DevelopmentPlanGenerationService(model).CreateAsync(Inventory() with { Observations = [] }, null, cancellationToken: TestContext.Current.CancellationToken));
+
+        Assert.Null(model.LastRequest);
     }
 
     [Fact]

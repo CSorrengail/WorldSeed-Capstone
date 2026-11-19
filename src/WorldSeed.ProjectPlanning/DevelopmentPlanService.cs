@@ -55,15 +55,16 @@ public static class DevelopmentPlanService
             if (recommendation.EvidenceObservationIds.Count == 0 || recommendation.EvidenceObservationIds.Any(id => !observationIds.Contains(id)))
                 throw new ArgumentException($"Recommendation '{recommendation.Id}' must cite existing inventory observations.", nameof(recommendations));
             var evidence = inventory.Observations.Where(observation => recommendation.EvidenceObservationIds.Contains(observation.Id, StringComparer.Ordinal)).ToArray();
-            if (evidence.Any(observation => !Supports(recommendation.Category, observation.Kind)))
-                throw new ArgumentException($"Recommendation '{recommendation.Id}' cites an inventory observation that does not support its category.", nameof(recommendations));
+            var unsupported = evidence.FirstOrDefault(observation => !Supports(recommendation.Category, observation.Kind));
+            if (unsupported is not null)
+                throw new ArgumentException($"Recommendation '{recommendation.Id}' cites observation '{unsupported.Id}' ({unsupported.Kind}) that does not support its category '{recommendation.Category}'. Allowed categories for this observation: {string.Join(", ", Enum.GetValues<DevelopmentRecommendationCategory>().Where(category => Supports(category, unsupported.Kind)))}.", nameof(recommendations));
             if (recommendation.DependsOnRecommendationIds.Any(id => id == recommendation.Id || !recommendationIds.Contains(id, StringComparer.Ordinal)))
                 throw new ArgumentException($"Recommendation '{recommendation.Id}' has an invalid dependency.", nameof(recommendations));
         }
         EnsureAcyclic(recommendations);
     }
 
-    private static bool Supports(DevelopmentRecommendationCategory category, InventoryObservationKind observation) => category switch
+    internal static bool Supports(DevelopmentRecommendationCategory category, InventoryObservationKind observation) => category switch
     {
         DevelopmentRecommendationCategory.ResolveSourceOrRule => observation is InventoryObservationKind.MissingFoundation
             or InventoryObservationKind.UnresolvedQuestion or InventoryObservationKind.Conflict or InventoryObservationKind.MissingSourceTrace
