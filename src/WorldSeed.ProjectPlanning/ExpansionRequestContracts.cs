@@ -204,7 +204,7 @@ public static class ExpansionRequestService
     }
 
     public static string ClarificationInstruction =>
-        "This source is an accepted development goal, not approved game mechanics. On the first turn, ask focused clarification questions about the rules, boundaries, dependencies, validation needs, and intended player-facing result. Do not present a rule draft until the designer has answered those questions. Later drafts may use only the expansion request and designer answers as evidence.";
+        "This source is an accepted development goal, not approved game mechanics. On the first turn, ask focused clarification questions about the rules, boundaries, dependencies, validation needs, and intended player-facing result. For a missing design choice, offer at most two clearly labeled Proposed Options with concise tradeoffs for the designer to select, revise, or reject. Goal acceptance is not mechanic approval. Do not present a rule draft until the designer has explicitly supplied or selected the mechanics. Later drafts may use only the expansion request's established facts and the saved designer question-and-answer choices as evidence; never adopt rejected or unselected options.";
 
     private static string BuildSourceText(
         DevelopmentPlanProposal plan,

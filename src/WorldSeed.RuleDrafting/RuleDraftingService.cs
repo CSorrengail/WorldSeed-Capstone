@@ -22,6 +22,12 @@ public sealed class RuleDraftingService
         """;
 
     private readonly ILanguageModelClient _client;
+    private const string ExpansionDesignInstruction = """
+        This is a trusted game-system expansion interview, not ordinary source ingestion.
+        In clarifying questions ONLY, you may propose up to two concise new mechanic options with tradeoffs for a missing design choice. Clearly label them Proposed Options, not existing rules or source facts. Ask the designer to select, revise, or reject them; do not require the designer to invent every missing mechanic unaided.
+        Accepting a development goal or asking you to brainstorm is not approval of a mechanic. Do not draft a proposed option until the designer explicitly selects or revises it. If no option is accepted, ask a follow-up or preserve the unresolved choice; never choose for the designer.
+        Later draft rules may restate only the explicitly accepted/revised choice and already supplied facts. Cite the saved question-and-answer source note that records the choice, not the original unresolved goal as proof. Never adopt rejected or unselected alternatives simply because they appear in the same question-and-answer note.
+        """;
     private readonly RuleDraftJsonParser _parser;
 
     public RuleDraftingService(ILanguageModelClient client, RuleDraftJsonParser? parser = null)
@@ -44,6 +50,8 @@ public sealed class RuleDraftingService
         var sourcePassages = conversation.SourcePassages ?? SourcePassageCatalog.Create(sourceTextById);
         if (sourcePassages.Any(passage => !allowedSourceNoteIds.Contains(passage.SourceNoteId) || string.IsNullOrWhiteSpace(passage.Id) || string.IsNullOrWhiteSpace(passage.Text))) throw new ArgumentException("Source passages must belong to available source notes and contain text.", nameof(conversation));
         var messages = new List<LlmMessage> { new(LlmMessageRole.System, SystemPrompt), new(LlmMessageRole.System, "Source material IDs for this turn: " + string.Join(", ", conversation.SourceMaterialIds)) };
+        if (conversation.AllowDesignOptions)
+            messages.Add(new LlmMessage(LlmMessageRole.System, ExpansionDesignInstruction));
         if (!string.IsNullOrWhiteSpace(conversation.WorkflowInstruction))
             messages.Add(new LlmMessage(LlmMessageRole.System, conversation.WorkflowInstruction.Trim()));
         if (sourcePassages.Count > 0) messages.Add(new LlmMessage(LlmMessageRole.System, "Source passages available for citation:\n" + string.Join("\n", sourcePassages.Select(passage => $"[{passage.Id} | {passage.SourceNoteId}] {passage.Text}"))));

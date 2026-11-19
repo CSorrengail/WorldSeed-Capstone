@@ -37,6 +37,7 @@ public sealed record RuleDraftConversation(
     IReadOnlyList<LlmMessage> Messages,
     IReadOnlyDictionary<string, string>? SourceTextById = null,
     IReadOnlyList<SourcePassage>? SourcePassages = null,
-    string? WorkflowInstruction = null);
+    string? WorkflowInstruction = null,
+    bool AllowDesignOptions = false);
 
 public sealed class RuleDraftFormatException(string message) : Exception(message);

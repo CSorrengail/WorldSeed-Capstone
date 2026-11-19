@@ -37,6 +37,49 @@ public class DesignSessionServiceTests
 
         Assert.Contains("must begin with clarification", exception.Message);
         Assert.Contains(model.Request!.Messages, message => message.Content == "Ask clarification before drafting.");
+        Assert.Contains(model.Request.Messages, message => message.Content.Contains("Clearly label them Proposed Options"));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Expansion_requires_the_designer_choice_to_be_saved_before_drafting(bool saveAnswerSource)
+    {
+        var firstService = new DesignSessionService(new RuleDraftingService(new FakeModel("""{"action":"askClarifyingQuestion","clarifyingQuestions":["Proposed Options: A renew promises at gatherings; B promises never expire. Which do you choose?"]}""")));
+        var source = new DesignSourceNote("goal", "Develop promise renewal.", DateTimeOffset.UtcNow);
+        var session = await firstService.AdvanceAsync(firstService.Start("session", "project", "local", source), "Explore proposed options.", true);
+        const string answer = "Question: Proposed Options: A renew promises at gatherings; B promises never expire\nAnswer: Use A; reject B";
+        session = firstService.AddDesignerMessage(session, answer, saveAnswerSource ? new DesignSourceNote("choice", answer, DateTimeOffset.UtcNow) : null);
+        var model = new FakeModel("""{"action":"presentDraft","draft":{"title":"Promise Renewal","intent":"Record the chosen renewal rule.","rules":[{"id":"renewal","name":"Renewal","kind":"rule","text":"Promises are renewed at gatherings.","sourceNoteIds":["choice"],"sourceSupport":[{"sourceNoteId":"choice","passageIds":["choice:p001"]}]}],"concepts":[],"assumptions":[],"openQuestions":[],"exclusions":[]}}""");
+        var followup = new DesignSessionService(new RuleDraftingService(model));
+
+        if (!saveAnswerSource)
+        {
+            var error = await Assert.ThrowsAsync<RuleDraftFormatException>(() => followup.AdvanceAsync(session, "Explore proposed options.", true));
+            Assert.Contains("saved as source material", error.Message);
+            Assert.Null(model.Request);
+            return;
+        }
+
+        var result = await followup.AdvanceAsync(session, "Explore proposed options.", true);
+        var rule = Assert.Single(result.LatestTurn!.Draft!.Rules);
+        Assert.Equal("choice", Assert.Single(rule.SourceSupport).SourceNoteId);
+        Assert.Contains("Answer: Use A; reject B", rule.SourceSupport[0].Excerpt);
+        Assert.Contains(model.Request!.Messages, message => message.Content.Contains("Never adopt rejected or unselected alternatives"));
+    }
+
+    [Fact]
+    public async Task Expansion_cannot_advance_again_without_a_new_designer_answer()
+    {
+        var model = new FakeModel("""{"action":"askClarifyingQuestion","clarifyingQuestions":["Which proposed option do you prefer?"]}""");
+        var service = new DesignSessionService(new RuleDraftingService(model));
+        var source = new DesignSourceNote("goal", "Develop promise renewal.", DateTimeOffset.UtcNow);
+        var session = await service.AdvanceAsync(service.Start("session", "project", "local", source), "Explore proposed options.", true);
+        var firstRequest = model.Request;
+
+        await Assert.ThrowsAsync<RuleDraftFormatException>(() => service.AdvanceAsync(session, "Explore proposed options.", true));
+
+        Assert.Same(firstRequest, model.Request);
     }
 
     [Fact]

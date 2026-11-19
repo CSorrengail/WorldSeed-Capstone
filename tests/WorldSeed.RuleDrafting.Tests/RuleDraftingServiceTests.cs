@@ -23,6 +23,7 @@ public class RuleDraftingServiceTests
         Assert.Contains(model.Request.Messages, message => message.Content.Contains("Do not replace a required clarification with openQuestions"));
         Assert.Contains(model.Request.Messages, message => message.Content.Contains("means choosing the same revealed option"));
         Assert.NotNull(model.Request.ResponseSchema);
+        Assert.DoesNotContain(model.Request.Messages, message => message.Content.Contains("trusted game-system expansion interview"));
         Assert.Equal("source-001", model.Request.ResponseSchema!["properties"]!["draft"]!["properties"]!["rules"]!["items"]!["properties"]!["sourceNoteIds"]!["items"]!["enum"]![0]!.GetValue<string>());
     }
 
