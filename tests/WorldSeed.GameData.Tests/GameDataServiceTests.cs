@@ -252,6 +252,35 @@ public class GameDataServiceTests
         Assert.True(GameDataService.Validate(active, projectData).IsValid);
     }
 
+    [Fact]
+    public void Same_schema_with_new_rules_requires_review_and_preserves_authored_entries()
+    {
+        var proposal = CreateProposal();
+        var active = GameDataService.Activate(proposal, null, false, Now);
+        var data = GameDataService.CreateEmpty(active, Now);
+        var root = JsonNode.Parse(data.DataJson)!.AsObject();
+        root["entityInstances"]!.AsArray().Add(JsonNode.Parse("""{"id":"entry-1","entityTypeId":"weapon","values":{"name":"Existing Entry"}}"""));
+        data = data with { DataJson = root.ToJsonString() };
+        var updated = proposal with { WorkingRuleSetRevision = 2, UpdatedAt = Now.AddMinutes(1) };
+
+        var review = GameDataService.ReviewTransition(updated, active, data, Now.AddMinutes(1));
+
+        Assert.True(review.CanActivate);
+        Assert.Equal(SchemaTransitionKind.Compatible, review.Kind);
+        Assert.Contains(review.Changes, change => change.Contains("Revision 1 ->", StringComparison.Ordinal));
+        Assert.Equal(1, active.WorkingRuleSetRevision);
+        Assert.Throws<GameDataFormatException>(() => GameDataService.Activate(updated, active, true, Now));
+        var result = GameDataService.ApplyReviewedTransition(updated, active, data, Now.AddMinutes(2));
+        Assert.Equal(2, result.ActiveSchema.WorkingRuleSetRevision);
+        Assert.Equal(2, result.ActiveSchema.Revision);
+        Assert.Equal(active.SchemaJson, result.ActiveSchema.SchemaJson);
+        Assert.True(JsonNode.DeepEquals(JsonNode.Parse(data.DataJson), JsonNode.Parse(result.GameData.DataJson)));
+        Assert.Equal(SchemaTransitionKind.NoChanges, GameDataService.ReviewTransition(updated, result.ActiveSchema, result.GameData, Now).Kind);
+        var history = GameDataService.CreateTransitionRecord(updated, active, data, review, result, Now);
+        Assert.Equal(active.SchemaJson, history.PreviousSchemaJson);
+        Assert.Equal(result.ActiveSchema.SchemaJson, history.ResultSchemaJson);
+    }
+
     private static ProjectSchemaProposal CreateProposal() => new(
         "proposal-sot",
         "project-sot",

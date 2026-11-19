@@ -745,7 +745,7 @@ public partial class MainWindow : Window
             RefreshGameDataView();
             RefreshSchemaView();
             await LoadDevelopmentPlansAsync(_project.Id);
-            var detail = _projectGameData is null ? "No game-data document was returned." : "An empty game-data document is ready for entries.";
+            var detail = _projectGameData is null ? "No Game Data Document Was Returned." : GameDataService.HasAuthoredContent(_projectGameData) ? "Existing Game Data Was Preserved." : "An Empty Game Data Document Is Ready For Entries.";
             SchemaStatusText.Text = $"Active schema revision {_activeGameSchema.Revision} is ready. {detail}";
             AppLog.Info($"Activated schema revision {_activeGameSchema.Revision} for project '{_project.Id}'.");
         }
@@ -1366,6 +1366,7 @@ public partial class MainWindow : Window
     private bool ActiveSchemaMatchesSavedProposal()
     {
         if (_activeGameSchema is null || _schemaProposal is null) return false;
+        if (_activeGameSchema.WorkingRuleSetId != _schemaProposal.WorkingRuleSetId || _activeGameSchema.WorkingRuleSetRevision != _schemaProposal.WorkingRuleSetRevision) return false;
         try
         {
             return JsonNode.DeepEquals(JsonNode.Parse(_activeGameSchema.SchemaJson), JsonNode.Parse(_schemaProposal.SchemaJson));
@@ -2080,6 +2081,30 @@ public partial class MainWindow : Window
             _expansionSchemaDecisions.Add(decision);
             await LoadDevelopmentPlansAsync(_project.Id);
             DevelopmentPlanStatusText.Text = "Recorded That This Expansion Requires No Schema Change. The Rationale Is Preserved.";
+            try
+            {
+                var active = await _gameDataWorkspace.LoadActiveSchemaAsync(_project.Id);
+                if (active is not null && _workingRuleSet is not null &&
+                    (active.WorkingRuleSetId != _workingRuleSet.Id || active.WorkingRuleSetRevision != _workingRuleSet.Revision))
+                {
+                    var saved = await SchemaProposalStore().LoadAsync(_project.Id)
+                        ?? throw new InvalidOperationException("A saved proposal matching the active schema is required for a rules-only update.");
+                    var candidate = ExpansionRequestService.PrepareRuleContextUpdate(decision, _workingRuleSet, active, saved, DateTimeOffset.UtcNow);
+                    await SchemaProposalStore().SaveAsync(candidate);
+                    _activeGameSchema = active;
+                    _schemaProposal = candidate;
+                    _schemaTransitionReview = null;
+                    RefreshSchemaView();
+                    WorkspaceTabs.SelectedIndex = 2;
+                    SchemaStatusText.Text = "Schema Structure Is Unchanged. Review Updated Proposal, Then Activate The Compatible Rule Context Before Publishing.";
+                    DevelopmentPlanStatusText.Text = "No Schema Change Decision Saved. Updated Rule Context Is Prepared For Review In Schema; Nothing Is Activated Yet.";
+                }
+            }
+            catch (Exception ex)
+            {
+                AppLog.Error("Prepare expansion rule context", ex);
+                DevelopmentPlanStatusText.Text = "No Schema Change Decision Saved. Rule Context Update Was Not Prepared: " + ex.Message;
+            }
             return true;
         }
         catch (Exception ex)

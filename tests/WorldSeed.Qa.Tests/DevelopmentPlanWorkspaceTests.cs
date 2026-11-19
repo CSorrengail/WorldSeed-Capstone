@@ -10,6 +10,8 @@ using WorldSeed.App;
 using WorldSeed.DesignSessions;
 using WorldSeed.ProjectPlanning;
 using WorldSeed.WorkingRules;
+using WorldSeed.GameData;
+using WorldSeed.SchemaTranslation;
 
 namespace WorldSeed.Qa.Tests;
 
@@ -134,6 +136,54 @@ public sealed class DevelopmentPlanWorkspaceTests
         finally { window.Close(); }
     }
 
+    [AvaloniaFact]
+    public async Task Narrative_completion_prepares_review_without_automatically_activating_or_regenerating_schema()
+    {
+        var inventory = Inventory();
+        var handler = new DevelopmentPlanApiHandler(inventory);
+        using var model = new HttpClient(new SequencedOllamaHandler(PlanResponse("Resolve Reactions", null))) { BaseAddress = new Uri("http://model.invalid/") };
+        using var api = new HttpClient(handler) { BaseAddress = new Uri("http://qa.invalid/") };
+        var window = CreateWindow(model, api, inventory);
+        try
+        {
+            Assert.True(await window.GenerateDevelopmentPlanAsync());
+            Assert.True(await window.DecideDevelopmentPlanAsync(DevelopmentPlanDecisionKind.Approved));
+            Assert.True(await window.DecideDevelopmentRecommendationAsync(DevelopmentRecommendationDecisionKind.Accepted));
+            Assert.True(await window.StartExpansionRequestAsync());
+            handler.ProgressStage = ExpansionProgressStage.WorkingRulesIncorporated;
+            Assert.True(await window.StartExpansionRequestAsync());
+            var now = inventory.CapturedAt;
+            var rule = new WorkingRule("reaction-rule", "Reaction Rule", WorkingRuleKind.Rule, "Reactions resolve immediately.", [], [], [], [], null, [], []);
+            SetField(window, "_workingRuleSet", new WorkingRuleSet("rules", inventory.ProjectId, "0.1", "Rules", null, 4, now, now, [rule], [], [], [], []));
+            const string schema = """{"id":"story","name":"Story","version":"1","entityTypes":[{"metadata":{"id":"promise","name":"Promise"},"properties":[]}]}""";
+            handler.ActiveSchema = new ActiveGameSchema("active", inventory.ProjectId, "0.1", "Story", schema, "proposal", "rules", 3, 2, now, now);
+            handler.SavedSchema = new ProjectSchemaProposal("proposal", inventory.ProjectId, "0.1", "Original summary", schema, [], "rules", 3, [], now, now);
+            var data = GameDataService.CreateEmpty(handler.ActiveSchema, now);
+            var root = JsonNode.Parse(data.DataJson)!.AsObject();
+            root["entityInstances"]!.AsArray().Add(JsonNode.Parse("""{"id":"promise-1","entityTypeId":"promise","values":{}}"""));
+            handler.GameData = data with { DataJson = root.ToJsonString() };
+            window.FindControl<TextBox>("DevelopmentPlanGuidanceText")!.Text = "Narrative procedure only; existing data structure is unchanged.";
+
+            Assert.True(await window.MarkExpansionNoSchemaAsync());
+
+            Assert.Equal(4, handler.SavedSchema.WorkingRuleSetRevision);
+            Assert.Equal(schema, handler.SavedSchema.SchemaJson);
+            Assert.Equal(3, handler.ActiveSchema.WorkingRuleSetRevision);
+            Assert.Equal(0, handler.ActivationCount);
+            Assert.Equal(2, window.FindControl<TabControl>("WorkspaceTabs")!.SelectedIndex);
+            Assert.True(window.FindControl<Button>("ActivateSchemaButton")!.IsVisible);
+            await window.ActivateSchemaAsync();
+            Assert.Equal(0, handler.ActivationCount);
+            Assert.Contains("Working Rule Context", window.FindControl<TextBlock>("SchemaStatusText")!.Text);
+            await window.ActivateSchemaAsync();
+            Assert.Equal(1, handler.ActivationCount);
+            Assert.Equal(4, handler.ActiveSchema.WorkingRuleSetRevision);
+            Assert.Contains("promise-1", handler.GameData.DataJson);
+            Assert.Contains("Preserved", window.FindControl<TextBlock>("SchemaStatusText")!.Text);
+        }
+        finally { window.Close(); }
+    }
+
     private static MainWindow CreateWindow(HttpClient model, HttpClient api, ProjectInventory inventory)
     {
         var window = new MainWindow(model, api);
@@ -210,11 +260,39 @@ public sealed class DevelopmentPlanWorkspaceTests
         public List<ExpansionRequest> ExpansionRequests { get; } = [];
         public List<ExpansionSchemaDecision> SchemaDecisions { get; } = [];
         public ExpansionProgressStage ProgressStage { get; set; } = ExpansionProgressStage.ReadyForClarification;
+        public ActiveGameSchema? ActiveSchema { get; set; }
+        public ProjectSchemaProposal? SavedSchema { get; set; }
+        public ProjectGameData? GameData { get; set; }
+        public int ActivationCount { get; private set; }
         private DesignProject Project { get; set; } = DesignProjectService.Create(inventory.ProjectId, "Planning Project");
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var path = request.RequestUri!.AbsolutePath;
+            if (request.Method == HttpMethod.Get && path.EndsWith("/active-schema", StringComparison.Ordinal) && ActiveSchema is not null)
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(ActiveSchema, options: Options) };
+            if (path.EndsWith("/schema-proposal", StringComparison.Ordinal))
+            {
+                if (request.Method == HttpMethod.Get && SavedSchema is not null)
+                    return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(SavedSchema, options: Options) };
+                if (request.Method == HttpMethod.Put)
+                {
+                    SavedSchema = await request.Content!.ReadFromJsonAsync<ProjectSchemaProposal>(Options, cancellationToken);
+                    return new HttpResponseMessage(HttpStatusCode.NoContent);
+                }
+            }
+            if (request.Method == HttpMethod.Get && path.EndsWith("/schema-transition", StringComparison.Ordinal) && SavedSchema is not null)
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(GameDataService.ReviewTransition(SavedSchema, ActiveSchema, GameData, inventory.CapturedAt), options: Options) };
+            if (request.Method == HttpMethod.Post && path.EndsWith("/active-schema", StringComparison.Ordinal) && SavedSchema is not null)
+            {
+                var result = GameDataService.ApplyReviewedTransition(SavedSchema, ActiveSchema, GameData, inventory.CapturedAt);
+                ActiveSchema = result.ActiveSchema;
+                GameData = result.GameData;
+                ActivationCount++;
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(ActiveSchema, options: Options) };
+            }
+            if (request.Method == HttpMethod.Get && path.EndsWith("/game-data", StringComparison.Ordinal) && GameData is not null)
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(GameData, options: Options) };
             if (request.Method == HttpMethod.Get && path == $"/api/projects/{inventory.ProjectId}")
                 return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(Project, options: Options) };
             if (request.Method == HttpMethod.Get && path.EndsWith("/development-plans", StringComparison.Ordinal))

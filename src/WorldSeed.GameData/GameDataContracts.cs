@@ -113,7 +113,7 @@ public static class GameDataService
         if (!validation.IsValid)
             throw new GameDataFormatException("The saved schema proposal is not a valid game schema: " + Describe(validation));
 
-        if (current is not null && JsonNode.DeepEquals(ParseObject(current.SchemaJson, "The active schema snapshot is not a JSON object."), schema))
+        if (current is not null && current.WorkingRuleSetId == proposal.WorkingRuleSetId && current.WorkingRuleSetRevision == proposal.WorkingRuleSetRevision && JsonNode.DeepEquals(ParseObject(current.SchemaJson, "The active schema snapshot is not a JSON object."), schema))
             return current;
 
         if (current is not null && hasGameData)
@@ -181,12 +181,16 @@ public static class GameDataService
                 [new SchemaValidationIssue("$", exception.Message)]);
         }
 
-        if (JsonNode.DeepEquals(active, proposed))
+        var sameStructure = JsonNode.DeepEquals(active, proposed);
+        var sameRuleContext = current.WorkingRuleSetId == proposal.WorkingRuleSetId && current.WorkingRuleSetRevision == proposal.WorkingRuleSetRevision;
+        if (sameStructure && sameRuleContext)
             return new SchemaTransitionReview(proposal.Id, proposal.UpdatedAt, current.Revision,
                 SchemaTransitionKind.NoChanges, false,
                 "The saved proposal is identical to the active schema.", [], []);
 
-        var changes = DescribeChanges(active, proposed);
+        var changes = DescribeChanges(active, proposed).ToList();
+        if (!sameRuleContext)
+            changes.Add($"Working Rule Context: {current.WorkingRuleSetId} Revision {current.WorkingRuleSetRevision} -> {proposal.WorkingRuleSetId} Revision {proposal.WorkingRuleSetRevision}.");
         if (!HasAuthoredContent(gameData))
             return new SchemaTransitionReview(proposal.Id, proposal.UpdatedAt, targetRevision,
                 SchemaTransitionKind.Compatible, true,
@@ -202,7 +206,7 @@ public static class GameDataService
         return validation.IsValid
             ? new SchemaTransitionReview(proposal.Id, proposal.UpdatedAt, targetRevision,
                 SchemaTransitionKind.Compatible, true,
-                "Existing canonical Game Data remains valid without transforming any entries.", changes, [])
+                sameStructure ? "Schema structure is unchanged. Review the updated Working Rule context; existing canonical entries remain valid." : "Existing canonical Game Data remains valid without transforming any entries.", changes, [])
             : new SchemaTransitionReview(proposal.Id, proposal.UpdatedAt, targetRevision,
                 SchemaTransitionKind.RequiresDataWork, false,
                 "Existing canonical Game Data does not conform to the proposed schema. Nothing can be activated until the listed data issues are resolved.",

@@ -157,6 +157,35 @@ public static class ExpansionRequestService
             string.IsNullOrWhiteSpace(note) ? null : note.Trim(), now);
     }
 
+    /// <summary>Prepares only a proposal; normal transition review and explicit activation remain required.</summary>
+    public static ProjectSchemaProposal PrepareRuleContextUpdate(
+        ExpansionSchemaDecision decision, WorkingRuleSet rules, ActiveGameSchema active,
+        ProjectSchemaProposal savedProposal, DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(decision);
+        ArgumentNullException.ThrowIfNull(rules);
+        ArgumentNullException.ThrowIfNull(active);
+        ArgumentNullException.ThrowIfNull(savedProposal);
+        if (decision.Kind != ExpansionSchemaDecisionKind.NoSchemaChangeRequired ||
+            decision.ProjectId != rules.ProjectId || active.ProjectId != rules.ProjectId || savedProposal.ProjectId != rules.ProjectId ||
+            decision.WorkingRuleSetRevision != rules.Revision || rules.Id != active.WorkingRuleSetId || rules.Id != savedProposal.WorkingRuleSetId ||
+            rules.Revision <= active.WorkingRuleSetRevision)
+            throw new ArgumentException("A current no-schema-change decision and a newer revision of this project's Working Rules are required.");
+        if (savedProposal.Id != active.SourceSchemaProposalId || !SemanticallySameJson(savedProposal.SchemaJson, active.SchemaJson))
+            throw new ArgumentException("The saved proposal has pending structural changes or differs from the active proposal. Review those changes before preparing a rules-only update.");
+        var ruleIds = rules.Rules.Select(rule => rule.Id).ToHashSet(StringComparer.Ordinal);
+        if (decision.WorkingRuleIds.Count == 0 || decision.WorkingRuleIds.Any(id => !ruleIds.Contains(id)) ||
+            savedProposal.SelectedWorkingRuleIds.Any(id => !ruleIds.Contains(id)) ||
+            savedProposal.DefinitionSources.SelectMany(source => source.WorkingRuleIds).Any(id => !ruleIds.Contains(id)))
+            throw new ArgumentException("Existing proposal citations and the reviewed expansion must still exist in the current Working Rules.");
+        return savedProposal with
+        {
+            WorkingRuleSetRevision = rules.Revision,
+            SelectedWorkingRuleIds = SchemaProposalMerger.MergeWorkingRuleIds(savedProposal.SelectedWorkingRuleIds, decision.WorkingRuleIds),
+            UpdatedAt = now
+        };
+    }
+
     private static bool SemanticallySameJson(string left, string right)
     {
         try { return JsonNode.DeepEquals(JsonNode.Parse(left), JsonNode.Parse(right)); }
