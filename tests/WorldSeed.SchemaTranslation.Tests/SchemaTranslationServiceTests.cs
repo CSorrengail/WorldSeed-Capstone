@@ -95,6 +95,35 @@ public class SchemaTranslationServiceTests
         Assert.Equal(SchemaTranslationAction.PresentProposal, turn.Action);
         Assert.Equal(2, model.Requests.Count);
         Assert.Contains("prior response could not be parsed", model.Requests[1].Messages[^1].Content);
+        Assert.Equal(LlmMessageRole.Assistant, model.Requests[1].Messages[^2].Role);
+        Assert.Equal(model.Requests[0].Messages.Count + 2, model.Requests[1].Messages.Count);
+        Assert.Equal("{\"action\":\"presentProposal\",\"proposal\":", model.Requests[1].Messages[^2].Content);
+    }
+
+    [Fact]
+    public async Task Structure_goal_rejects_extra_content_types_without_reclassifying_them()
+    {
+        var output = """{"action":"presentProposal","proposal":{"summary":"Two concepts.","schema":{"id":"game","name":"Game","version":"0.5","entityTypes":[{"metadata":{"id":"promise","name":"Promise"}},{"metadata":{"id":"nestedValue","name":"Nested Value"}}]},"definitionSources":[{"definitionId":"promise","workingRuleIds":["casting-adds-mark"]},{"definitionId":"nestedValue","workingRuleIds":["casting-adds-mark"]}]}}""";
+        var model = new FakeModel(output);
+
+        var error = await Assert.ThrowsAsync<SchemaTranslationFormatException>(() => new SchemaTranslationService(model)
+            .TranslateAsync(new SchemaTranslationRequest(CreateWorkingRuleSet(), StructureGoal: "Create one content type named 'Promise' from these rules.")));
+
+        Assert.Contains("exactly one content type", error.Message);
+        Assert.Equal(3, model.Requests.Count);
+        var entities = model.Requests[0].ResponseSchema!["properties"]!["proposal"]!["properties"]!["schema"]!["properties"]!["entityTypes"]!;
+        Assert.Equal(1, entities["minItems"]!.GetValue<int>());
+        Assert.Equal(1, entities["maxItems"]!.GetValue<int>());
+    }
+
+    [Fact]
+    public void Ordinary_schema_proposals_keep_support_for_multiple_content_types()
+    {
+        var schema = SchemaTranslationResponseSchema.Create(new HashSet<string> { "rule" });
+
+        var entities = schema["properties"]!["proposal"]!["properties"]!["schema"]!["properties"]!["entityTypes"]!;
+        Assert.Null(entities["minItems"]);
+        Assert.Equal(3, entities["maxItems"]!.GetValue<int>());
     }
 
     [Fact]

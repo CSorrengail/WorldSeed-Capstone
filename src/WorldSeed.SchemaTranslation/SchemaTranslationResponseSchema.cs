@@ -5,7 +5,7 @@ namespace WorldSeed.SchemaTranslation;
 /// <summary>Native structured-output contract that keeps local schema proposals small and syntactically complete.</summary>
 public static class SchemaTranslationResponseSchema
 {
-    public static JsonObject Create(IReadOnlySet<string> allowedWorkingRuleIds)
+    public static JsonObject Create(IReadOnlySet<string> allowedWorkingRuleIds, bool singleContentType = false)
     {
         ArgumentNullException.ThrowIfNull(allowedWorkingRuleIds);
         if (allowedWorkingRuleIds.Count == 0) throw new ArgumentException("At least one Working Rule id is required.", nameof(allowedWorkingRuleIds));
@@ -110,6 +110,12 @@ public static class SchemaTranslationResponseSchema
         var allowed = allowedWorkingRuleIds.OrderBy(id => id, StringComparer.Ordinal)
             .Select(id => (JsonNode)JsonValue.Create(id)!).ToArray();
         schema["properties"]!["proposal"]!["properties"]!["definitionSources"]!["items"]!["properties"]!["workingRuleIds"]!["items"]!["enum"] = new JsonArray(allowed);
+        if (singleContentType)
+        {
+            var entityTypes = schema["properties"]!["proposal"]!["properties"]!["schema"]!["properties"]!["entityTypes"]!;
+            entityTypes["minItems"] = 1;
+            entityTypes["maxItems"] = 1;
+        }
         return schema;
     }
 }
