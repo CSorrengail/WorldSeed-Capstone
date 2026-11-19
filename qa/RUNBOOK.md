@@ -31,6 +31,15 @@ Exit 0 means every configured gate passed; 1 means failure/block; 2 means review
 
 DOTNET_PROCESSOR_COUNT=2, -m:1 and disabled build servers bound worker creation. -p:UsedAvaloniaProducts= suppresses package build-statistics writes while retaining XAML compilation and analyzers. Docker/formatting may require inherited permissions outside a restricted sandbox. Report denied checks as blocked.
 
+Create disposable executable .NET probe projects in a uniquely owned OS temporary
+directory outside the open repository. Keep transcripts and reports under
+artifacts/qa. This avoids exposing temporary project files to editor project
+discovery, whose background builds can use different worker settings from the QA
+shell. Build once with the explicit bounded settings above, then execute the
+compiled DLL directly. Record process counts before and after probes. If workers accumulate,
+stop additional launches and return exact process IDs/commands to the coordinator
+for ownership checks and cleanup. Do not terminate unidentified processes.
+
 ## Isolation
 
 - Never use RunWorldSeed.bat, the normal compose stack, port 5080, development volumes, real project folders or real preferences.

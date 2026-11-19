@@ -63,9 +63,15 @@ while manifests preserve technical provenance.
 
 ### 6. Full Demonstration And Stabilization
 
-Run a substantial Sword of Truth project through the complete workflow, resolve
-blocking defects, and document observable results. Repeat a smaller check with a
+Run the owner-supplied, deliberately incomplete SRD 5.1 corpus through the
+complete workflow, resolve blocking defects, and document observable results.
+Use preserved rules, a designer-reviewed completion of an incomplete mechanic,
+and original generated content for the primary presentation comparison. Sword
+of Truth remains a development test case. Repeat a smaller check with a
 mechanically different TTRPG to confirm the universal layer remains generic.
+Prepare saved demonstration checkpoints and readable exports before owner
+rehearsal. The target is a coherent D&D-derived supplement using the generic
+application, with functional completion before the Week 9 reset.
 
 ## Deferred Until After This MVP
 

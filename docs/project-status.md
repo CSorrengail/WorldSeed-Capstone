@@ -17,6 +17,94 @@ preserved at `backup/main-before-test-doc-squash-20261107`.
 
 ## Current Development Task
 
+On 2026-11-19 the owner reported both allowances reset and authorized the main
+presentation push. The primary acceptance run now uses all 12 owner-supplied
+SRD51_Capstone_Corpus INPUT_DOCUMENTS in an isolated project. README, evaluation
+guide, and full SRD stay outside product-model context. The objective is an
+initial readable export and a complete-path blocker list, followed by generic
+product fixes. SOT remains development-only. Owner manual testing stays on the
+backlog until a complete rehearsal workflow is ready. QA is running the first
+connected corpus assessment with cached stage outputs for resumability.
+
+Iteration 1 of this push is verified at `339137f`: Working Rule formalization
+now preserves included source drafts' open questions and exclusions, and keeps
+assumptions explicitly unconfirmed. The connected corpus imported all 12 files;
+11 initial drafts plus one health/rest deferral produced 144 draft statements.
+QA independently passed 16 focused tests and replayed 38 cached model responses
+with no new model calls. All 212 Working Rules retained identical IDs, text,
+evidence, and draft references; seven source-draft questions now survive instead
+of zero. Rule counts do not establish semantic coverage. Structure discovery and
+the first readable publication remain in progress. Evidence:
+`artifacts/qa/20261119-srd51-wrs` and
+`artifacts/qa/20261119-draft-uncertainty-regression`.
+
+The advisor's 2026-11-19 review is YELLOW and non-blocking: the bounded D&D
+workflow is aligned, but the first export is only a checkpoint. After it, verify
+publication integrity, one reviewed completion of an incomplete mechanic, one
+original content entry through mechanical/balance evaluation and approval,
+cross-stage traceability, and the smaller genericity check. Coverage gaps are
+not proof of product failure; inability to expose or resolve them through normal
+review would be a blocker. No new owner decision was identified.
+
+Iteration 2 is committed at `6213cf2`, with 28 developer schema-translation tests
+passing and independent connected retesting pending. Discovery produced 63 plans
+from 18 bounded calls. The first Ancestry translation failed all three attempts
+by modeling referenced nested value shapes as extra content types. The fix
+constrains explicit single-content-type discovery goals in the output contract
+and service, clarifies value-shape references, and includes the rejected response
+in corrective retries. Validation is not weakened. QA is resuming Ancestry,
+Magic Item, and Spell from the cached Working Rules and plans.
+
+Independent connected retesting passed `6213cf2`: four local-model calls built
+all three selected types, a normal reviewed transition activated schema r1,
+and one original Magic Item passed mechanical validation, simulated explicit
+approval, canonical application, export, and Ready-edition publication. The
+initial reader artifact is
+`artifacts/qa/20261119-srd51-initial-artifact-6213cf2/publication-edition-ready.md`;
+the consolidated report is `artifacts/qa/20261119-srd51-corpus/report.md`.
+This is a partial service-connected checkpoint, not MVP completion: the item has
+no usable effect field, balance is explicitly NotConfigured, and API/Mongo/UI
+round trips remain unverified for this corpus.
+
+Iteration 3 is independently verified at `6c073fa`, with 15 publication tests
+passing. Unnamed entries use numbered reader headings instead of technical IDs;
+supplied labels and manifest IDs remain intact. A real model translated an
+optional name/effect schema change; compatible activation advanced to r2 and
+preserved the old canonical item. Two further content calls exercised requested
+revision, linked replacement, approval, application, and a revised Ready edition
+containing Ring of the Everbloom. Balance remains NotConfigured. Evidence:
+`artifacts/qa/20261119-srd51-evolution-6c073fa/report.md`.
+
+**Iteration count this push: 3.** Next: isolated API/Mongo persistence/reload,
+then the remaining reviewed mechanic-completion and evaluation acceptance paths.
+Manual owner testing remains deferred. No owner input is currently required.
+
+## Historical Development Checkpoints
+
+A single connected local-model recovery check was authorized with 9% weekly
+allowance remaining. QA's first disposable probe obtained drafting/formalization
+responses but its baseline rule lacked a required completed-draft citation.
+The validator correctly rejected that fixture. Separately, 30 orphaned reusable
+MSBuild workers appeared during the in-repository probe build. The coordinator
+verified dead parent IDs and worker command lines before stopping exactly those
+30 processes. The existing VS Code host and its child were retained (2 dotnet
+processes). Editor project discovery is a suspected cause, not a confirmed one.
+The generated in-repository project was disabled, and the runbook now places
+executable probes outside the open repository. The corrected external probe
+passed with local `gemma3:12b` in about 21 seconds and no process growth (2 before
+and after). Four actual model calls produced a traceable recovered draft, an
+incremental Working Rule Set retaining the baseline rule, an `armorSet` schema
+proposal, and a generated candidate with `armorValue: 12`. The candidate had no
+reported schema gaps and passed deterministic validation. Inventory recognized
+the recovered original passage. Evidence is under
+`artifacts/qa/20261117-live-recovery-42aa611/attempt2/`. This verifies the isolated
+production-service path with temporary JSON project persistence, not a new
+desktop/API/Mongo end-to-end demonstration. Advisor YELLOW reflects infrastructure
+recurrence risk. No production code changed. No owner-operated test is required
+before the next larger authorized MVP cycle after the weekly reset.
+Final independent QA report:
+`artifacts/qa/20261117-live-recovery-42aa611/report.md` (PASS at `42aa611`).
+
 The tight cycle authorized after the five-hour reset (17% weekly remaining)
 implements omitted-passage recovery at `b039d12`. Project Inventory offers Draft
 Selected Passage. It creates or reuses an exact linked review source, retaining
@@ -439,6 +527,17 @@ remains available for any later owner-action stop.
   changes during this demonstration.
 
 ## Latest Verified Application Revision
+
+- **Current verified production revision:** `6c073fa`, following `339137f` and
+  `6213cf2`. Independent suites passed 16 Working Rules, 28 Schema Translation,
+  and 15 Publication tests at their respective revisions. The connected SRD51
+  run reached partial Ready publication and a compatible schema/content revision
+  with retained history. It does not establish final corpus completeness,
+  balance coverage, or API/Mongo/desktop behavior for this project.
+- **Current evidence:** `artifacts/qa/20261119-srd51-corpus/report.md` and
+  `artifacts/qa/20261119-srd51-evolution-6c073fa/report.md`.
+
+The records below describe earlier verified checkpoints, not the current HEAD.
 
 - **Tested revision:** `3be5ce2` - Preserve schema transition history, following
   deterministic review at `6ecb209` and explicit compatible activation at
@@ -966,17 +1065,19 @@ of Truth demonstration.
 
 ## Remaining Authorized Work
 
-- Continue SOT development checks, then demonstrate the complete workflow using
-  owner-supplied existing-TTRPG sample documents and a mechanically different
-  genericity check. SOT is excluded from the final presentation.
+- Finish the owner-supplied D&D corpus demonstration through normal persistent
+  application paths, reviewed mechanic completion, multi-type content and
+  evaluation, then a smaller mechanically different genericity check. SOT
+  remains development-only and is excluded from the final presentation.
 - Preserve the optional future retrieval seam; semantic embeddings remain
   unnecessary while the structured project context is sufficient.
 
 ## Next Action Required
 
-Use the new inventory observations to guide source/rule coverage recovery and
-rule-backed schema proposals through existing designer review controls. Preserve
-authoritative narrative rules without requiring structured fields. Then resume
-multi-type content generation, evaluation, and publication. The owner authorized
-feature-focused continuation beyond the earlier usage estimate. No new owner
-product-scope decision is pending for the generic coverage checks.
+Verify the saved SRD51 corpus and revised content through isolated API/Mongo
+persistence and reload, preserving decisions and transitions. Then complete one
+reviewed incomplete mechanic and meaningful game-owned evaluation, and extend
+original content across the other discovered types. Reuse cached model results;
+do not regenerate successful intake or schema work. Keep uncertainty explicit,
+preserve narrative rules, and do not invent a universal balance formula. No
+owner product-scope decision is pending.

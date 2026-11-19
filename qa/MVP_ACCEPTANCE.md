@@ -26,9 +26,13 @@ invent game rules, approve designer decisions, or modify production code.
 8. **Publication:** canonical rules and approved content produce an organized,
    human-readable document without internal IDs; its manifest retains exact
    technical provenance.
-9. **Real-project demonstration:** a substantial Sword of Truth workflow reaches
-   readable output without database edits, manual JSON repair, or code changes
-   between stages.
+9. **Real-project demonstration:** the owner-supplied, deliberately incomplete
+   SRD 5.1 input corpus reaches readable output without database edits, manual
+   JSON repair, or code changes between stages. Demonstrate preserved rules,
+   designer-reviewed completion of an incomplete mechanic, and original
+   generated content. Sword of Truth remains a development case, excluded from
+   the final presentation. Keep the corpus evaluation guide and full SRD out of
+   product-model context; compare results independently afterward.
 10. **Genericity check:** a smaller mechanically different TTRPG follows the
     same universal workflow without introducing universal monsters, items,
     skills, dice, or challenge ratings.
