@@ -2,6 +2,33 @@
 
 Routine QA is strictly non-implementing. The parent assigns a tested revision and scope; qa_engineer runs checks and returns findings. The implementing agent owns repairs, tracked test changes, application configuration and baseline approval. The earlier autonomous repair loop is superseded. Read [SUBAGENT.md](SUBAGENT.md), [STATUS.md](STATUS.md), [FEATURES.md](FEATURES.md), and [REPORT_TEMPLATE.md](REPORT_TEMPLATE.md).
 
+## Mandatory bounded SDK execution
+
+Use `scripts/Invoke-BoundedDotNet.ps1` for every SDK Restore, Build, Test, or
+Publish operation, including temporary projects outside the repository. Invoke
+from a PowerShell session with the repository's normal process-only script
+execution option (`powershell.exe -NoProfile -ExecutionPolicy Bypass`); do not
+change machine/user execution policy. Example commands inside that session:
+
+    & ./scripts/Invoke-BoundedDotNet.ps1 -Operation Restore -Project $probeProject
+    & ./scripts/Invoke-BoundedDotNet.ps1 -Operation Build -Project $probeProject -AdditionalArguments @('-c', 'Release')
+
+The wrapper enforces `--disable-parallel` on Restore, `--no-restore` on later
+operations, `-m:1`, `-nr:false`, `BuildInParallel=false`, disabled shared
+compilation, and process-local worker environment settings. A failed restore or
+missing assets is a STOP, not permission to retry raw SDK commands. Runtime DLL
+execution remains direct. Count processes before/after each SDK operation.
+
+On 2026-11-19, two external probe restores omitted worker-limit switches even
+though later builds were bounded. One hundred orphaned workers appeared under
+two exited SDK parents at the time of those restores. The coordinator verified timestamps, command
+lines, and dead parents before stopping those exact workers; VS Code remained
+untouched. Outside-repository placement alone does not bound restore workers.
+
+Test command construction without launching the SDK:
+
+    python -m unittest discover -s qa -p test_bounded_dotnet.py -v
+
 ## Verify setup without application QA
 
     python qa/verify_setup.py
@@ -19,7 +46,7 @@ For a focused Avalonia assignment, run the selected headless test against the ex
 
     $env:WORLDSEED_DATA_DIRECTORY = (Join-Path (Resolve-Path artifacts/qa/<task-id>) 'data')
     $env:WORLDSEED_QA_SCREENSHOTS = (Join-Path (Resolve-Path artifacts/qa/<task-id>) 'screenshots')
-    dotnet test tests/WorldSeed.Qa.Tests/WorldSeed.Qa.Tests.csproj --no-restore -m:1 --filter FullyQualifiedName~SchemaChangeClarificationWindowTests --logger trx --results-directory artifacts/qa/<task-id>/tests
+    & ./scripts/Invoke-BoundedDotNet.ps1 -Operation Test -Project tests/WorldSeed.Qa.Tests/WorldSeed.Qa.Tests.csproj -AdditionalArguments @('--filter', 'FullyQualifiedName~SchemaChangeClarificationWindowTests', '--logger', 'trx', '--results-directory', 'artifacts/qa/<task-id>/tests')
 
 Use appropriate process-local WORLDSEED_* overrides. If binaries are missing/stale, build only the assigned snapshot or report BLOCKED. Do not install packages or alter source/configuration to overcome failures. Formatting is verification-only (--verify-no-changes).
 
@@ -60,7 +87,7 @@ Build live-test tools first with bounded MSBuild settings, then execute the buil
 DLL directly. Do not use `dotnet run` for connected QA: interrupted SDK 10
 `dotnet run` builds can leave orphaned MSBuild worker nodes on Windows. Example:
 
-    dotnet build tools/WorldSeed.EndToEnd/WorldSeed.EndToEnd.csproj -c Release --no-restore -m:1 -nr:false -p:UseSharedCompilation=false
+    & ./scripts/Invoke-BoundedDotNet.ps1 -Operation Build -Project tools/WorldSeed.EndToEnd/WorldSeed.EndToEnd.csproj -AdditionalArguments @('-c', 'Release')
     dotnet tools/WorldSeed.EndToEnd/bin/Release/net8.0/WorldSeed.EndToEnd.dll gemma3:12b --suite
 
 Return the English report directly to the parent and stop after the assigned scope.

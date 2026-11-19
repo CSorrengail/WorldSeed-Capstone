@@ -6,6 +6,15 @@ Delegate scoped QA to the project custom agent `qa_engineer` in [.codex/agents/q
 
 Routine QA must not modify production code, application configuration, tracked tests/fixtures or approved baselines. Write reports and temporary outputs under artifacts/qa; never restore another agent's changes. Run only the parent's assigned scope; a comprehensive run needs an explicit assignment. Databases, ports and app data must be isolated. Never use the normal app launcher for QA. Return actual commands, tested revision/dirty state, pass/fail and skipped/blocked checks, reproducible defects, severity, evidence and recommended corrections directly to the parent. Do not start autonomous repair cycles or merge changes.
 
+All development/QA SDK restore, build, test, and publish commands must use
+`scripts/Invoke-BoundedDotNet.ps1`. This applies to external temporary probes as
+well as repository projects. Restore needs its own worker limits; limiting only
+the subsequent build is insufficient. Never fall back to raw `dotnet restore`,
+`dotnet msbuild -t:Restore`, or `dotnet run` after a wrapper failure. Stop and
+report missing assets/failures instead. Direct execution of already-built DLLs
+and read-only SDK inventory commands remain permitted. Audit process counts
+before and after SDK operations; stop further launches on unexplained growth.
+
 ## Permanent Three Agent Workflow
 
 The primary development agent is the coordinator. It organizes authorized work
