@@ -17,12 +17,48 @@ preserved at `backup/main-before-test-doc-squash-20261107`.
 
 ## Current Development Task
 
-**Autonomous execution is stopped.** The owner interrupted the run after a
-five-hour allowance overrun consumed credits, then authorized only completion
-of iteration 9 (`e8bd5c9`). That bounded verification is finished. Do not begin
-iteration 10 or another broad QA/advisor cycle. Discuss the credit overrun and
-enforcement of the existing usage guard with the owner before further work.
-Do not interpret a prior reset report as a reliable current allowance.
+**Bounded cycle finished; execution is stopped.** The owner reported 63%
+five-hour and 79% weekly allowance. This cycle used ONE implementation
+(`0442e84`, cumulative iteration 11) and ONE consolidated QA pass, then stopped.
+Independent tests passed 11 Game Data, 24 Planning, and six headless UI cases.
+The cached real-corpus continuation FAILED a new overly strict citation guard:
+the legitimate applied Name/Effect schema-change ID
+`schema-change-f1d13e4d5c6b4e7495c053d436fad9a0` is retained in proposal provenance
+but is not a Working Rule ID. Preparation refused it before any activation or
+publication. No citations were dropped, no schema/data were modified, and no
+model/API/Mongo calls were made. Candidate `0442e84` is not fully verified for
+the real walkthrough. Evidence:
+`artifacts/qa/20261119-rule-context-review-0442e84/report.md`.
+Do not start another repair/feature cycle without authorization and current
+allowance readings. Next fix: resolve citation IDs against both current Working
+Rules and durable, Applied, same-project schema-change records; unknown, failed,
+or foreign records must remain invalid. Reuse the same cached continuation.
+Ten additional MSBuild workers observed before the first build were identified
+by CIM as children of the existing live VS Code host 23640 (`nodeReuse:true`);
+they were preserved as editor-owned. Bounded test builds added no orphans.
+
+The preceding bounded cycle used ONE implementation (`5cec0be`, cumulative
+iteration 10) and ONE QA pass, then stopped as agreed. Do not treat prior
+allowance readings as current usage information.
+
+The structured expansion fix passed independent QA: 17 RuleDrafting and 9
+DesignSessions tests, plus three actual local-model calls. The first turn
+provided two questions with distinct A/B mechanics and tradeoffs. Explicit saved
+Q&A selections yielded two traced draft rules; incremental formalization retained
+all 212 old rule IDs/text/evidence and added two (214 total). Rejected options
+were not adopted. No new planner call or user-data mutation was needed; process
+audits retained only VS Code PID 23640. UI/API/Mongo were outside this pass.
+Evidence: `artifacts/qa/20261119-structured-choices-5cec0be/report.md`.
+
+The previous walkthrough boundary was a narrative-only expansion whose newer
+Working Rule Set could not be published against the older active binding.
+Revision `0442e84` adds the separate preparation/review/activation route and
+preserves pending schema work, but the real project needs the provenance fix
+above before it can complete this route. The publication exact-revision guard
+remains unchanged. Component/headless success is not a connected-corpus pass.
+
+The previous nine-iteration run exceeded the five-hour allowance and consumed
+credits. The owner-limited verification below finished before this new cycle.
 
 Iteration 9 outcome: 22 planning tests passed. One real focused plan call cited
 the exact selected unresolved question and produced a meaningful recommendation
@@ -1137,10 +1173,10 @@ of Truth demonstration.
 
 ## Next Action Required
 
-Verify the saved SRD51 corpus and revised content through isolated API/Mongo
-persistence and reload, preserving decisions and transitions. Then complete one
-reviewed incomplete mechanic and meaningful game-owned evaluation, and extend
-original content across the other discovered types. Reuse cached model results;
-do not regenerate successful intake or schema work. Keep uncertainty explicit,
-preserve narrative rules, and do not invent a universal balance formula. No
-owner product-scope decision is pending.
+Wait for authorization of another bounded cycle and current allowance readings.
+Next priority is correcting the new preparation guard to recognize durable
+Applied schema-change citations without accepting arbitrary IDs. Then rerun the
+cached reviewed rule-context/publication continuation, preserving canonical
+entries and the exact-revision guard. Later finish the isolated API/Mongo reload, actual
+evaluation application, and multi-type content checks. Reuse successful captures;
+do not rerun intake or claim MVP completion from the verified partial path.

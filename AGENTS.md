@@ -17,6 +17,12 @@ before and after SDK operations; stop further launches on unexplained growth.
 
 ## Permanent Three Agent Workflow
 
+The default authorized cycle is capped at two implementation iterations and one
+consolidated QA pass, then STOP and report. This cap includes QA preparation and
+does not authorize an open-ended repair loop. A new defect goes on the next-cycle
+backlog after the pass unless the owner explicitly extends this cycle. Fresh
+allowance percentages authorize the agreed bounded cycle, not unlimited work.
+
 The primary development agent is the coordinator. It organizes authorized work
 into bounded development cycles containing multiple coherent implementation
 iterations. During a cycle it identifies applicable requirements, implements and
