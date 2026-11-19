@@ -54,6 +54,18 @@ public sealed class WorkingRuleSetFormalizationService
             parsedBatches.AddRange(await FormalizeBatchAsync(project, batch, rawResponses, cancellationToken));
 
         var ruleSet = CombineBatches(project, currentRuleSet, parsedBatches, _timeProvider.GetUtcNow(), addMissingOnly);
+        // Draft-level uncertainty is not part of the model's per-rule input. Carry it
+        // forward directly rather than asking another model to rediscover or resolve it.
+        var includedSessions = sourceDrafts.Select(draft => draft.Reference.SessionId).ToHashSet(StringComparer.Ordinal);
+        var includedDrafts = project.Sessions.Where(session => includedSessions.Contains(session.Id))
+            .Select(session => session.LatestTurn!.Draft!).ToArray();
+        ruleSet = ruleSet with
+        {
+            OpenQuestions = DistinctNonBlank(ruleSet.OpenQuestions.Concat(includedDrafts.SelectMany(draft => draft.OpenQuestions))
+                .Concat(includedDrafts.SelectMany(draft => draft.Assumptions).Where(value => !string.IsNullOrWhiteSpace(value))
+                    .Select(value => "Unconfirmed Source-Draft Assumption: " + value.Trim()))),
+            Exclusions = DistinctNonBlank(ruleSet.Exclusions.Concat(includedDrafts.SelectMany(draft => draft.Exclusions)))
+        };
         var validation = _validator.Validate(ruleSet, project);
         if (!validation.IsValid) throw new WorkingRuleSetFormatException(string.Join(" ", validation.Issues.Select(issue => issue.Message)));
         return new WorkingRuleSetFormalizationResult(ruleSet, string.Join("\n\n", rawResponses), parsedBatches.Count);

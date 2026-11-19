@@ -162,6 +162,57 @@ public class WorkingRuleSetFormalizationServiceTests
         Assert.Equal("latest-session", Assert.Single(Assert.Single(result.RuleSet.Rules).SourceDraftRules).SessionId);
     }
 
+    [Fact]
+    public async Task Preserves_source_draft_uncertainty_without_promoting_assumptions_to_rules()
+    {
+        var project = CreateProject();
+        var session = project.Sessions[0];
+        var draft = session.LatestTurn!.Draft! with
+        {
+            OpenQuestions = ["How are ties resolved?", "How are ties resolved?"],
+            Exclusions = ["No tie procedure was provided."],
+            Assumptions = ["Ties might be simultaneous.", " "]
+        };
+        project = project with { Sessions = [session with { LatestTurn = session.LatestTurn with { Draft = draft } }] };
+        var model = new CapturingModel(ValidResponse);
+
+        var result = await new WorkingRuleSetFormalizationService(model).CreateProposalAsync(project);
+
+        Assert.Equal(new[] { "How are ties resolved?", "Unconfirmed Source-Draft Assumption: Ties might be simultaneous." }, result.RuleSet.OpenQuestions);
+        Assert.Equal(new[] { "No tie procedure was provided." }, result.RuleSet.Exclusions);
+        Assert.Single(result.RuleSet.Rules);
+        Assert.DoesNotContain("simultaneous", result.RuleSet.Rules[0].AuthoritativeText);
+        Assert.Equal(1, result.BatchCount);
+    }
+
+    [Fact]
+    public async Task Incremental_recovery_carries_only_newly_incorporated_draft_uncertainty()
+    {
+        var project = CreateProjectWithCompletedDrafts(2);
+        var original = await new WorkingRuleSetFormalizationService(new CapturingModel(ResponseFor("d001")))
+            .CreateProposalAsync(project with { Sessions = [project.Sessions[0]] });
+        var sessions = project.Sessions.Select((session, index) => session with
+        {
+            LatestTurn = session.LatestTurn! with
+            {
+                Draft = session.LatestTurn.Draft! with
+                {
+                    OpenQuestions = [index == 0 ? "Old question removed by designer." : "New unresolved procedure."],
+                    Exclusions = [index == 0 ? "Old exclusion removed by designer." : "New excluded mechanic."]
+                }
+            }
+        }).ToArray();
+        project = project with { Sessions = sessions };
+
+        var result = await new WorkingRuleSetFormalizationService(new CapturingModel(ResponseFor("d001")))
+            .CreateProposalAsync(project, original.RuleSet, addMissingOnly: true);
+
+        Assert.Equal(new[] { "New unresolved procedure." }, result.RuleSet.OpenQuestions);
+        Assert.Equal(new[] { "New excluded mechanic." }, result.RuleSet.Exclusions);
+        Assert.Equal(original.RuleSet.Rules[0], result.RuleSet.Rules[0]);
+        Assert.Equal(2, result.RuleSet.Rules.Count);
+    }
+
     private const string ValidResponse = """
     {"name":"Combat Rules","description":null,"rules":[{"id":"combat-turn-order","name":"Combat Turn Order","kind":"procedure","authoritativeText":"At the beginning of combat, the combatant with the lowest initiative takes a turn.","sourceDraftIds":["d001"],"conceptIds":[],"schemaHints":[],"openQuestions":[],"exclusions":[]}],"concepts":[],"openQuestions":[],"exclusions":[],"conflicts":[]}
     """;
