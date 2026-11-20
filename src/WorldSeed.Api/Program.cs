@@ -509,7 +509,7 @@ projects.MapGet("/{projectId}/working-rules", async (string projectId, IWorkingR
     var ruleSet = await store.LoadAsync(projectId, cancellationToken);
     return ruleSet is null ? Results.NotFound() : Results.Ok(ruleSet);
 });
-projects.MapPut("/{projectId}/working-rules", async (string projectId, WorkingRuleSet ruleSet, IDesignProjectStore projectsStore, IWorkingRuleSetStore ruleSets, IProjectSchemaProposalStore schemaProposals, WorkingRuleSetValidator validator, CancellationToken cancellationToken) =>
+projects.MapPut("/{projectId}/working-rules", async (string projectId, WorkingRuleSet ruleSet, IDesignProjectStore projectsStore, IWorkingRuleSetStore ruleSets, WorkingRuleSetValidator validator, CancellationToken cancellationToken) =>
 {
     if (!string.Equals(projectId, ruleSet.ProjectId, StringComparison.Ordinal)) return Results.BadRequest("The URL project id must match the working rule set projectId.");
     var project = await projectsStore.LoadAsync(projectId, cancellationToken);
@@ -517,7 +517,8 @@ projects.MapPut("/{projectId}/working-rules", async (string projectId, WorkingRu
     var validation = validator.Validate(ruleSet, project);
     if (!validation.IsValid) return Results.BadRequest(validation.Issues);
     await ruleSets.SaveAsync(ruleSet, cancellationToken);
-    await schemaProposals.DeleteAsync(projectId, cancellationToken);
+    // Retain schema work and provenance at its original binding. Review/activation
+    // reject stale bindings until a current proposal has been explicitly prepared.
     return Results.NoContent();
 });
 projects.MapDelete("/{projectId}/working-rules", async (string projectId, IWorkingRuleSetStore store, IProjectSchemaProposalStore schemaProposals, CancellationToken cancellationToken) =>
@@ -574,21 +575,27 @@ projects.MapGet("/{projectId}/active-schema", async (string projectId, IActiveGa
     var schema = await store.LoadAsync(projectId, cancellationToken);
     return schema is null ? Results.NotFound() : Results.Ok(schema);
 });
-projects.MapGet("/{projectId}/schema-transition", async (string projectId, IProjectSchemaProposalStore proposals, IActiveGameSchemaStore activeSchemas, IProjectGameDataStore gameData, CancellationToken cancellationToken) =>
+projects.MapGet("/{projectId}/schema-transition", async (string projectId, IProjectSchemaProposalStore proposals, IWorkingRuleSetStore ruleSets, IActiveGameSchemaStore activeSchemas, IProjectGameDataStore gameData, CancellationToken cancellationToken) =>
 {
     var proposal = await proposals.LoadAsync(projectId, cancellationToken);
     if (proposal is null) return Results.NotFound("A saved schema proposal is required before a transition can be reviewed.");
+    var rules = await ruleSets.LoadAsync(projectId, cancellationToken);
+    if (rules is null || rules.Id != proposal.WorkingRuleSetId || rules.Revision != proposal.WorkingRuleSetRevision)
+        return Results.Conflict("The saved schema proposal uses an older or different Working Rule Set. Prepare an updated proposal before reviewing the transition.");
     var current = await activeSchemas.LoadAsync(projectId, cancellationToken);
     var existingData = await gameData.LoadAsync(projectId, cancellationToken);
     return Results.Ok(GameDataService.ReviewTransition(proposal, current, existingData, DateTimeOffset.UtcNow));
 });
 projects.MapGet("/{projectId}/schema-transitions", async (string projectId, ISchemaTransitionStore store, CancellationToken cancellationToken) =>
     Results.Ok(await store.ListAsync(projectId, cancellationToken)));
-projects.MapPost("/{projectId}/active-schema", async (string projectId, IDesignProjectStore projectsStore, IProjectSchemaProposalStore proposals, IActiveGameSchemaStore activeSchemas, IProjectGameDataStore gameData, ISchemaTransitionStore transitions, CancellationToken cancellationToken) =>
+projects.MapPost("/{projectId}/active-schema", async (string projectId, IDesignProjectStore projectsStore, IProjectSchemaProposalStore proposals, IWorkingRuleSetStore ruleSets, IActiveGameSchemaStore activeSchemas, IProjectGameDataStore gameData, ISchemaTransitionStore transitions, CancellationToken cancellationToken) =>
 {
     if (await projectsStore.LoadAsync(projectId, cancellationToken) is null) return Results.NotFound("The project does not exist.");
     var proposal = await proposals.LoadAsync(projectId, cancellationToken);
     if (proposal is null) return Results.BadRequest("A saved schema proposal is required before a schema can be activated.");
+    var rules = await ruleSets.LoadAsync(projectId, cancellationToken);
+    if (rules is null || rules.Id != proposal.WorkingRuleSetId || rules.Revision != proposal.WorkingRuleSetRevision)
+        return Results.Conflict("The saved schema proposal uses an older or different Working Rule Set. Prepare an updated proposal before activation.");
 
     var current = await activeSchemas.LoadAsync(projectId, cancellationToken);
     var existingData = await gameData.LoadAsync(projectId, cancellationToken);

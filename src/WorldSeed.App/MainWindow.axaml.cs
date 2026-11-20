@@ -597,7 +597,7 @@ public partial class MainWindow : Window
             await WorkingRuleStore().SaveAsync(result.RuleSet);
             _workingRuleSet = result.RuleSet;
             await LoadDevelopmentPlansAsync(_project.Id);
-            _schemaProposal = null;
+            await LoadSchemaProposalAsync(_project.Id);
             _schemaTransitionReview = null;
             _schemaQueueRuleIds.Clear();
             _pendingSchemaQuestion = null;
@@ -1318,7 +1318,10 @@ public partial class MainWindow : Window
         }
         RefreshSchemaActivationControls();
         var citedRuleCount = _schemaProposal.DefinitionSources.SelectMany(source => source.WorkingRuleIds).Distinct(StringComparer.Ordinal).Count();
-        if (!preserveStatus) SchemaStatusText.Text = $"Saved proposal: {CountSchemaDefinitions(_schemaProposal.SchemaJson)} structure(s) linked to {citedRuleCount} Working Rule(s).";
+        if (!preserveStatus) SchemaStatusText.Text = _workingRuleSet is not null &&
+            (_schemaProposal.WorkingRuleSetId != _workingRuleSet.Id || _schemaProposal.WorkingRuleSetRevision != _workingRuleSet.Revision)
+            ? $"Saved Schema Work Is Retained At Working Rules Revision {_schemaProposal.WorkingRuleSetRevision}. Review The New Rules And Prepare An Updated Proposal Before Activation."
+            : $"Saved proposal: {CountSchemaDefinitions(_schemaProposal.SchemaJson)} structure(s) linked to {citedRuleCount} Working Rule(s).";
         SchemaText.Text = $"Summary\n{_schemaProposal.Summary}\n\nGame Data Readiness\n{DescribeSchemaContent(_schemaProposal.SchemaJson)}\n\nSchema Clarifications\n{FormatSchemaClarifications(_schemaProposal.Clarifications)}\n\nWorking Rule Inputs ({_schemaProposal.SelectedWorkingRuleIds.Count})\n{string.Join("\n", _schemaProposal.SelectedWorkingRuleIds.Select(id => "- " + id))}\n\nDefinition Sources ({_schemaProposal.DefinitionSources.Count})\n{string.Join("\n", _schemaProposal.DefinitionSources.Select(source => $"- {source.DefinitionId}: {string.Join(", ", source.WorkingRuleIds)}"))}\n\nSchema JSON\n{PrettyJson(_schemaProposal.SchemaJson)}";
     }
 
