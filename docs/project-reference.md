@@ -22,7 +22,8 @@ product requirements or replace a decision by the project owner.
    conflict. In particular, decisions 0001 through 0009 define provenance and
    proposal boundaries; 0010 through 0013 define UI, local-model, localization,
    and distribution directions; 0014 defines the completed historical creature
-   slice; 0015 defines the active complete-game authoring MVP.
+   slice; 0015 defines the active complete-game authoring MVP, amended by 0016
+   to defer balance evaluation to the first stretch goal.
 5. **Architecture documents** in `docs/architecture/` describe the intended
    component boundaries and current workspace design. They are implementation
    guidance and must yield to the first four sources when inconsistent.
@@ -41,10 +42,11 @@ quantitative balance evaluation inform revision; the designer retains control of
 what becomes established game knowledge.
 
 The active class MVP is the complete experienced-designer workflow in decision
-0015: several loose files become cohesive rules, expanded game-specific systems
-and content, system-specific evaluation, preserved designer decisions, and an
+0015, amended by 0016: several loose files become cohesive rules, expanded game-specific systems
+and content, mechanical/schema validation, preserved designer decisions, and an
 organized readable game document. It need not provide beginner onboarding or
-commercial-release polish.
+commercial-release polish. Balance evaluation is the first stretch goal after
+the complete MVP, subject to available time and usage.
 
 ## Current Evidence To Review
 
@@ -64,7 +66,7 @@ commercial-release polish.
 These are review questions, not requirements:
 
 - The active MVP scope, designer decision workflow, system-specific balance
-  direction, and retrieval deferral are recorded in decision 0015 and
+  direction, and retrieval deferral are recorded in decisions 0015 and 0016 and
   `docs/mvp-plan.md`. Decision 0014 remains historical creature-slice evidence.
 - “Substantially fleshed out” is intentionally an owner-assessed product outcome.
   Project-specific coverage measures may guide planning but are not universal

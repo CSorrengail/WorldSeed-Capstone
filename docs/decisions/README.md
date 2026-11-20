@@ -4,4 +4,4 @@ Use this directory for short decision records as the meta-schema evolves. Each r
 
 The first decisions should cover source-text provenance, the distinction between properties and relationships, the role of behaviors, and schema/data versioning.
 
-The current decision record is [0014: Approve the monster MVP vertical slice](0014-approve-monster-mvp-vertical-slice.md).
+Active MVP scope: [0015: Complete game authoring](0015-expand-mvp-to-complete-game-authoring.md), amended by [0016: Balance as the first stretch goal](0016-defer-balance-to-first-stretch-goal.md). Decision 0014 is historical vertical-slice evidence.

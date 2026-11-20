@@ -3,6 +3,9 @@
 QA verifies the assigned integrated cycle and final demonstration. It does not
 invent game rules, approve designer decisions, or modify production code.
 
+Decision 0016 defers balance evaluation to the first stretch goal. Mechanical
+validation remains required; absence of balance coverage is not an MVP failure.
+
 ## Required Final Evidence
 
 1. **Loose-file ingestion:** several source files enter one persistent project;
@@ -17,9 +20,10 @@ invent game rules, approve designer decisions, or modify production code.
 5. **Content breadth:** the project generates and manages multiple game-owned
    content types with individually reviewable entries, duplicate prevention,
    dependency awareness, and explicit canonical application.
-6. **Evaluation:** deterministic mechanical violations and game-specific balance
-   concerns are separate, source/reference-backed, and demonstrably different
-   across mechanically different games.
+6. **Mechanical validation:** check game-owned structures and implemented
+   constraints, explain violations, and demonstrate system-specific checks across
+   mechanically different games. A missing balance profile must not block the
+   core review/application/export path. Keep unevaluated balance clearly labeled.
 7. **Designer control:** approval, rejection, revision, schema-transition, and
    content-application histories survive reload and identify the reviewed
    revisions.
@@ -55,6 +59,7 @@ invent game rules, approve designer decisions, or modify production code.
 - Generated rules or content silently become canonical.
 - Game-specific concepts leak into the universal meta-schema or application
   domain model.
-- Validation or balance claims lack game-owned rules/reference values.
+- Validation claims lack game-owned rules/constraints, or unevaluated content is
+  falsely described as balanced.
 - Publication omits approved canonical material or exposes technical IDs as
   player-facing prose.

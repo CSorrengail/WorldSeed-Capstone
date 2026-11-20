@@ -4,10 +4,11 @@
 
 An experienced TTRPG designer can take a handful of loose and incomplete source
 files through WorldSeed and produce a substantially fleshed-out game containing
-cohesive rules, game-specific systems and content, validation and balance
-explanations, preserved designer decisions, and an organized readable document.
+cohesive rules, game-specific systems and content, mechanical/schema validation,
+preserved designer decisions, and an organized readable document.
 
-Decision 0015 is the active scope authority. The earlier creature vertical slice
+Decisions 0015 and 0016 define the active scope; balance is the first stretch
+goal, not an MVP acceptance gate. The earlier creature vertical slice
 is completed architectural evidence, not the current finish line.
 
 ## Existing Foundation
@@ -28,7 +29,7 @@ is completed architectural evidence, not the current finish line.
 Provide a project-wide view of existing rules, schema, content, and publication
 coverage. Identify contradictions, incomplete mechanics, missing dependencies,
 missing content types, underdeveloped areas, and missing minimum game-specific
-validation or balance coverage. Present a prioritized plan that the designer can
+mechanical validation coverage. Present a prioritized plan that the designer can
 accept, reject, revise, or defer.
 
 ### 2. Coordinated Rule And System Expansion
@@ -37,7 +38,7 @@ Turn an approved plan item into a bounded clarification and proposal workflow.
 Allow new systems and related rules to be created, connected to existing rules,
 reviewed, and safely incorporated without requiring the designer to manually
 assemble every schema grouping. Carry forward any explicitly accepted minimum
-validation and balance needs without building the later automated assistance
+mechanical validation needs without building the later automated assistance
 feature prematurely.
 
 ### 3. Scalable Multi-Type Content Expansion
@@ -47,12 +48,13 @@ dependencies, existing canonical examples, designer decisions, validation, and
 duplicate prevention. Keep every generated entry individually reviewable and
 never auto-approve or silently apply it.
 
-### 4. Evaluation Assistance
+### 4. Mechanical Validation
 
-Use game-owned rules and reference values to propose useful validation and
-balance-profile coverage. Clearly separate deterministic violations from
-advisory concerns. Require designer approval for new evaluation rules and never
-invent a universal balance formula.
+Check generated content against the game-owned schema and implemented
+constraints, explain mechanical violations, and retain designer review for
+proposed validation changes. A missing balance profile must not block the core
+approval/application/publication workflow. Do not claim unevaluated content is
+balanced.
 
 ### 5. Complete Game Publication
 
@@ -75,6 +77,8 @@ application, with functional completion before the Week 9 reset.
 
 ## Deferred Until After This MVP
 
+- **First stretch goal:** game-specific balance evaluation, profile coverage, and
+  balance assistance, if time and usage remain after MVP completion (0016).
 - Beginner-oriented onboarding and broad visual polish.
 - Semantic embeddings when structured retrieval remains sufficient.
 - Automated migration of incompatible schema revisions.

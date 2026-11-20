@@ -17,6 +17,11 @@ before and after SDK operations; stop further launches on unexplained growth.
 
 ## Permanent Three Agent Workflow
 
+Current owner scope adjustment (2026-11-19, decision 0016): balance evaluation
+is the first stretch goal after MVP completion, not an acceptance gate. Keep
+mechanical/schema validation required and preserve existing balance features,
+but do not spend MVP cycles completing balance profiles or assistance.
+
 The default authorized cycle is capped at two implementation iterations and one
 consolidated QA pass, then STOP and report. This cap includes QA preparation and
 does not authorize an open-ended repair loop. A new defect goes on the next-cycle

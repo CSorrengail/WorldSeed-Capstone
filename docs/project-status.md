@@ -6,9 +6,16 @@
 creature-focused demonstration as the active MVP finish line. The class MVP is
 now the complete experienced-designer workflow from several loose files to a
 substantially fleshed-out TTRPG with cohesive rules, expanded systems and
-game-specific content, evaluation, preserved decisions, and organized readable
+game-specific content, mechanical/schema validation, preserved decisions, and organized readable
 publication. The completed creature slice remains verified evidence for the
 architecture; it is not described as the completed WorldSeed MVP.
+
+**Owner scope amendment, 2026-11-19 (decision 0016):** Balance evaluation is
+the first stretch goal after the complete MVP, if time and usage permit.
+Missing balance profiles or evaluation coverage do not block MVP acceptance.
+Mechanical/schema validation remains required. Preserve existing balance
+functionality and clearly identify unevaluated content; do not spend MVP
+implementation cycles expanding balance features.
 
 Standalone testing and status commits were consolidated locally on 2026-11-07.
 QA reports retain the original commit IDs they actually tested; rewriting commit
@@ -16,6 +23,68 @@ parents changed the equivalent IDs on `main`. The pre-consolidation history is
 preserved at `backup/main-before-test-doc-squash-20261107`.
 
 ## Current Development Task
+
+**Larger owner-authorized cycle complete; execution is stopped.** The owner reported 89% five-hour
+remaining and renewed authorization after reporting weekly allowance clear.
+The live isolated API/Mongo check at `00eccae` passed: the 12-source, 144-draft,
+212-rule/r2 checkpoint, schema-change provenance, two canonical entries,
+decisions, transitions, and Ready publication survived API restart/reload and
+project cascade cleanup. It does not yet verify the later 214-rule/r3 checkpoint
+through persistence. Evidence: `artifacts/qa/20261119-mvp-persistence-00eccae/report.md`.
+
+Two narrow implementation iterations (`6f4257a`, `3f25d3d`; cumulative 13–14)
+address generic nested records: generation contracts now describe their fields
+and constraints; reader editions use their labels rather than raw technical JSON.
+Focused developer checks passed eight generation and one publication test.
+Independent QA at `3f25d3d` passed 29 Content and 16 Publication tests. Four actual
+local `gemma3:12b` calls generated two spells and two ancestries using all 214
+Working Rules. QA rejected one spell as semantically duplicative and gave
+explicit QA-only simulated approvals to the other three. Normal application
+preserved the two original Magic Items, producing five canonical entries across
+three game-owned types and a Ready 214-rule publication. The rejected candidate
+was absent. Evidence: `artifacts/qa/20261119-mvp-multitype-00eccae/report.md`.
+
+The smaller Wretched & Alone check passed 23 SchemaValidation tests, including
+the existing approved schema/data fixture. Its requested lifecycle/publication
+probe was not completed within the bounded window, so it is PARTIAL, not a second
+end-to-end demonstration. Evidence:
+`artifacts/qa/20261119-mvp-wretched-3f25d3d/report.md`. There were four model calls
+total, no model retries, two implementation iterations, and one consolidated
+verification cycle in three scoped stages (the last partial).
+
+One external QA probe failed on a harness assertion that wrongly required the
+intentionally rejected spell to become canonical. The coordinator verified the
+exact owned probe PID 72564 and its QA shell parent 21772 via CIM, stopped only
+that hung probe, and its child 30476 exited. The corrected external assertion
+then passed. This was not MSBuild worker proliferation or a production defect;
+only the pre-existing editor dotnet PID 23640 remained after cleanup.
+
+The advisor assessment is YELLOW: complete persistence and cross-type canonical
+publication evidence before claiming a complete-game MVP. No new owner decision
+or architecture change is required. Balance remains deferred under 0016.
+
+### Previous Verified Cycle
+
+**Bounded cycle finished; execution is stopped.** The owner reported the
+five-hour allowance reset and weekly allowance clear. This cycle completed ONE
+implementation (`00eccae`, cumulative iteration 12) and ONE consolidated QA pass.
+The provenance blocker RC-001 is fixed: rule-context preparation resolves exact
+citations against current Working Rules and freshly loaded, Applied, same-project
+schema-change records with an applied timestamp. Unknown, unapplied, foreign,
+and incomplete records remain invalid; expansion decisions still require real
+Working Rule IDs. Schema JSON and source mappings are retained unchanged.
+
+Independent QA passed 31 Planning, 11 Game Data, and six headless workspace tests
+(48 total). The cached SRD51 continuation passed: 214 rules, Compatible explicit
+review/activation, active schema revision 3, both canonical entries retained,
+Ready publication, and immutable prior snapshots. Zero model calls or live
+API/Mongo/desktop access were used; only editor-owned dotnet PID 23640 remained.
+Evidence: `artifacts/qa/20261119-provenance-00eccae/report.md`. This verifies the
+cached service and headless paths, not the complete live demonstration or final
+content breadth. Next bounded cycle should verify isolated API/Mongo reload,
+then expand multi-type content evidence. Balance remains the first stretch goal.
+
+### Previous Bounded Cycle
 
 **Bounded cycle finished; execution is stopped.** The owner reported 63%
 five-hour and 79% weekly allowance. This cycle used ONE implementation
@@ -627,14 +696,20 @@ remains available for any later owner-action stop.
 
 ## Latest Verified Application Revision
 
-- **Current verified production revision:** `6c073fa`, following `339137f` and
-  `6213cf2`. Independent suites passed 16 Working Rules, 28 Schema Translation,
-  and 15 Publication tests at their respective revisions. The connected SRD51
-  run reached partial Ready publication and a compatible schema/content revision
-  with retained history. It does not establish final corpus completeness,
-  balance coverage, or API/Mongo/desktop behavior for this project.
-- **Current evidence:** `artifacts/qa/20261119-srd51-corpus/report.md` and
-  `artifacts/qa/20261119-srd51-evolution-6c073fa/report.md`.
+- **Latest scoped verified production revision:** `3f25d3d`, including `6f4257a`.
+  Independent QA passed 29 Content and 16 Publication tests and the connected
+  local-model D&D generation/application/publication slice: 214 rules, five
+  canonical entries across three types, one duplicate suggestion rejected.
+  SchemaValidation passed 23 tests; the Wretched lifecycle check remains partial.
+  The separate API/Mongo restart check at `00eccae` passed for the captured
+  212-rule/r2 state. These scoped results do not establish final corpus
+  completeness, a connected 214-rule/r3 database reload, or desktop usability.
+- **Current evidence:** `artifacts/qa/20261119-mvp-multitype-00eccae/report.md`,
+  `artifacts/qa/20261119-mvp-persistence-00eccae/report.md`, and
+  `artifacts/qa/20261119-mvp-wretched-3f25d3d/report.md`.
+  Earlier intake/schema/publication evidence remains under
+  `artifacts/qa/20261119-srd51-corpus/` and
+  `artifacts/qa/20261119-srd51-evolution-6c073fa/`.
 
 The records below describe earlier verified checkpoints, not the current HEAD.
 
@@ -1090,15 +1165,16 @@ The records below describe earlier verified checkpoints, not the current HEAD.
 ## Approved MVP Direction And Remaining Decisions
 
 The owner-approved class MVP is the complete experienced-designer workflow in
-decision 0015, `docs/mvp-plan.md`, and `qa/MVP_ACCEPTANCE.md`. It begins with
-several loose files and ends with a substantially fleshed-out, evaluated, and
+decisions 0015 and 0016, `docs/mvp-plan.md`, and `qa/MVP_ACCEPTANCE.md`. It begins with
+several loose files and ends with a substantially fleshed-out, mechanically validated, and
 human-readable game. The prior creature demonstration satisfies a subset of this
 contract and remains evidence rather than the finish line.
 
 No owner decision blocks the first milestone. The owner deliberately left
 “fully fleshed out” as a product-sufficiency judgment rather than a universal
-numeric threshold; final acceptance therefore includes an owner-observed Sword
-of Truth demonstration.
+numeric threshold; final acceptance therefore includes an owner-observed
+demonstration using the supplied D&D corpus. Sword of Truth remains a development
+case. Balance evaluation is the first stretch goal rather than an MVP gate.
 
 ## Advisor Review Of Expanded MVP Scope
 
@@ -1174,9 +1250,10 @@ of Truth demonstration.
 ## Next Action Required
 
 Wait for authorization of another bounded cycle and current allowance readings.
-Next priority is correcting the new preparation guard to recognize durable
-Applied schema-change citations without accepting arbitrary IDs. Then rerun the
-cached reviewed rule-context/publication continuation, preserving canonical
-entries and the exact-revision guard. Later finish the isolated API/Mongo reload, actual
-evaluation application, and multi-type content checks. Reuse successful captures;
+The provenance guard, cached rule-context continuation, 212-rule/r2 API/Mongo
+restart, and 214-rule/r3 multi-type content publication now pass. Next finish the
+small Wretched application/publication probe and persist/reload the newer
+214-rule/r3 multi-type checkpoint with its complete expansion source/session
+evidence. Then expand the demonstration's content breadth and prepare owner
+rehearsal. Balance evaluation is deferred under decision 0016. Reuse captures;
 do not rerun intake or claim MVP completion from the verified partial path.
