@@ -308,6 +308,35 @@ public sealed class PublicationSnapshotServiceTests
         }
     }
 
+    [Fact]
+    public void Reader_uses_labels_for_nested_records_collections_aliases_and_enumerations()
+    {
+        var (rules, schema, data) = Fixture();
+        var definition = JsonNode.Parse(schema.SchemaJson)!.AsObject();
+        definition["valueTypes"]!.AsArray().Add(JsonNode.Parse("""
+            {"metadata":{"id":"card-record","name":"Card"},"kind":"record","properties":[
+              {"metadata":{"id":"private.choice","name":"Choice"},"valueType":{"kind":"definedValueType","valueTypeId":"roleType"},"required":true,"nullable":false},
+              {"metadata":{"id":"private.count","name":"Count"},"valueType":{"kind":"primitive","name":"integer"},"required":true,"nullable":false}]}
+            """));
+        definition["valueTypes"]!.AsArray().Add(JsonNode.Parse("""
+            {"metadata":{"id":"card-alias","name":"Card Alias"},"kind":"alias","targetType":{"kind":"definedValueType","valueTypeId":"card-record"}}
+            """));
+        definition["entityTypes"]![0]!["properties"]!.AsArray().Add(JsonNode.Parse("""
+            {"metadata":{"id":"private.cards","name":"Cards"},"valueType":{"kind":"collection","itemType":{"kind":"definedValueType","valueTypeId":"card-alias"}},"required":false,"nullable":false}
+            """));
+        var root = JsonNode.Parse(data.DataJson)!.AsObject();
+        root["entityInstances"]![0]!["values"]!["private.cards"] = JsonNode.Parse("""[{"private.choice":"scout","private.count":2}]""");
+
+        var snapshot = PublicationSnapshotService.Create("Test Game", rules,
+            schema with { SchemaJson = definition.ToJsonString() }, data with { DataJson = root.ToJsonString() }, Now);
+        var edition = PublicationEditionService.CreateInitial(snapshot, Now);
+
+        Assert.Contains("**Cards:** Choice: Scout; Count: 2", edition.Markdown);
+        Assert.DoesNotContain("private.", edition.Markdown);
+        Assert.Contains("private.choice", snapshot.Markdown);
+        Assert.Contains("glass-fox", edition.ManifestJson);
+    }
+
     private static (WorkingRuleSet Rules, ActiveGameSchema Schema, ProjectGameData Data) Fixture()
     {
         var rule = new WorkingRule("rule-1", "Creature Rule", WorkingRuleKind.Rule, "Creatures have a role.", [], [], [], [], null, [], []);

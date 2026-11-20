@@ -322,13 +322,31 @@ public static class PublicationSnapshotService
     };
 
     private static string RenderReaderValue(JsonNode? value, JsonObject? property, IReadOnlyDictionary<string, JsonObject> valueTypes)
+        => RenderReaderTypedValue(value, property?["valueType"] as JsonObject, valueTypes, 0);
+
+    private static string RenderReaderTypedValue(JsonNode? value, JsonObject? type, IReadOnlyDictionary<string, JsonObject> valueTypes, int depth)
     {
-        var type = property?["valueType"] as JsonObject;
-        if (type?["kind"]?.GetValue<string>() == "definedValueType" && type["valueTypeId"]?.GetValue<string>() is { } valueTypeId && valueTypes.TryGetValue(valueTypeId, out var definition) && definition["kind"]?.GetValue<string>() == "enumeration")
+        if (value is null) return "null";
+        if (depth >= 32) return "(Nested Value)";
+        var kind = type?["kind"]?.GetValue<string>();
+        if (kind == "collection" && value is JsonArray collection)
+            return string.Join(", ", collection.Select(item => RenderReaderTypedValue(item, type?["itemType"] as JsonObject, valueTypes, depth + 1)));
+        if (kind == "definedValueType" && type?["valueTypeId"]?.GetValue<string>() is { } valueTypeId && valueTypes.TryGetValue(valueTypeId, out var definition))
         {
-            var entries = (definition["entries"] as JsonArray)?.OfType<JsonObject>().Where(entry => DefinitionId(entry) is not null).ToDictionary(entry => DefinitionId(entry)!, DisplayName, StringComparer.Ordinal) ?? [];
-            if (value is JsonValue scalar && scalar.TryGetValue<string>(out var id) && entries.TryGetValue(id, out var name)) return Escape(name);
-            if (value is JsonArray array) return string.Join(", ", array.Select(item => item is JsonValue itemValue && itemValue.TryGetValue<string>(out var itemId) && entries.TryGetValue(itemId, out var itemName) ? Escape(itemName) : RenderValue(item)));
+            var definitionKind = definition["kind"]?.GetValue<string>();
+            if (definitionKind == "alias")
+                return RenderReaderTypedValue(value, definition["targetType"] as JsonObject, valueTypes, depth + 1);
+            if (definitionKind == "record" && value is JsonObject record)
+            {
+                var fields = (definition["properties"] as JsonArray)?.OfType<JsonObject>() ?? [];
+                return string.Join("; ", fields.Where(field => DefinitionId(field) is { } id && record.ContainsKey(id))
+                    .Select(field => $"{Escape(DisplayName(field))}: {RenderReaderTypedValue(record[DefinitionId(field)!], field["valueType"] as JsonObject, valueTypes, depth + 1)}"));
+            }
+            if (definitionKind == "enumeration")
+            {
+                var entries = (definition["entries"] as JsonArray)?.OfType<JsonObject>().Where(entry => DefinitionId(entry) is not null).ToDictionary(entry => DefinitionId(entry)!, DisplayName, StringComparer.Ordinal) ?? [];
+                if (value is JsonValue scalar && scalar.TryGetValue<string>(out var id) && entries.TryGetValue(id, out var name)) return Escape(name);
+            }
         }
         return RenderValue(value);
     }
