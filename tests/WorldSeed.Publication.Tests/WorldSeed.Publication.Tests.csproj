@@ -16,4 +16,8 @@
     <ProjectReference Include="..\..\src\WorldSeed.Content\WorldSeed.Content.csproj" />
     <ProjectReference Include="..\..\src\WorldSeed.Publication\WorldSeed.Publication.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <Content Include="..\..\schemas\examples\wretched-and-alone-srd-patterns.v0.5.schema.example.json" Link="Fixtures\wretched.schema.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\schemas\examples\wretched-and-alone-srd-patterns.v0.5.game-data.example.json" Link="Fixtures\wretched.data.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>
