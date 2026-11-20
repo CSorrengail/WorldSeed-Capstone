@@ -40,6 +40,46 @@ public sealed class RuleContextUpdateTests
         Assert.Throws<ArgumentException>(() => ExpansionRequestService.PrepareRuleContextUpdate(decision, rules with { Rules = [rules.Rules[1]] }, active, saved, Now));
     }
 
+    [Fact]
+    public void Applied_designer_changes_are_preserved_as_provenance_but_not_accepted_as_expansion_rules()
+    {
+        var (decision, rules, active, saved) = Fixture();
+        var request = SchemaChangeRequestService.MarkApplied(SchemaChangeRequestService.Create(
+            "project", "Name", "Promises may have names.", SchemaChangeRequestOrigin.Designer, Now), Now);
+        saved = saved with
+        {
+            SelectedWorkingRuleIds = ["old-rule", request.Id],
+            DefinitionSources = [new DefinitionSource("promise", ["old-rule", request.Id])]
+        };
+
+        var candidate = ExpansionRequestService.PrepareRuleContextUpdate(decision, rules, active, saved, Now, [request]);
+
+        Assert.Equal(saved.DefinitionSources, candidate.DefinitionSources);
+        Assert.Contains(request.Id, candidate.SelectedWorkingRuleIds);
+        Assert.Equal(saved.SchemaJson, candidate.SchemaJson);
+        Assert.Throws<ArgumentException>(() => ExpansionRequestService.PrepareRuleContextUpdate(
+            decision with { WorkingRuleIds = [request.Id] }, rules, active, saved, Now, [request]));
+        Assert.Throws<ArgumentException>(() => ExpansionRequestService.PrepareRuleContextUpdate(decision, rules, active, saved, Now));
+    }
+
+    [Theory]
+    [InlineData(SchemaChangeRequestStatus.Pending, "project", true)]
+    [InlineData(SchemaChangeRequestStatus.Applying, "project", true)]
+    [InlineData(SchemaChangeRequestStatus.Failed, "project", true)]
+    [InlineData(SchemaChangeRequestStatus.NeedsClarification, "project", true)]
+    [InlineData(SchemaChangeRequestStatus.Applied, "other-project", true)]
+    [InlineData(SchemaChangeRequestStatus.Applied, "project", false)]
+    public void Unapplied_foreign_or_incomplete_designer_provenance_is_refused(
+        SchemaChangeRequestStatus status, string projectId, bool hasAppliedAt)
+    {
+        var (decision, rules, active, saved) = Fixture();
+        var request = SchemaChangeRequestService.Create(projectId, "Name", "Promises may have names.", SchemaChangeRequestOrigin.Designer, Now)
+            with { Status = status, AppliedAt = hasAppliedAt ? Now : null };
+        saved = saved with { DefinitionSources = [new DefinitionSource("promise", [request.Id])] };
+
+        Assert.Throws<ArgumentException>(() => ExpansionRequestService.PrepareRuleContextUpdate(decision, rules, active, saved, Now, [request]));
+    }
+
     private static (ExpansionSchemaDecision, WorkingRuleSet, ActiveGameSchema, ProjectSchemaProposal) Fixture()
     {
         var oldRule = new WorkingRule("old-rule", "Promises", WorkingRuleKind.Rule, "Promises are recorded.", [], [], [], [], null, [], []);

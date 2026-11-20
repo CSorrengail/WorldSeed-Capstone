@@ -160,7 +160,8 @@ public static class ExpansionRequestService
     /// <summary>Prepares only a proposal; normal transition review and explicit activation remain required.</summary>
     public static ProjectSchemaProposal PrepareRuleContextUpdate(
         ExpansionSchemaDecision decision, WorkingRuleSet rules, ActiveGameSchema active,
-        ProjectSchemaProposal savedProposal, DateTimeOffset now)
+        ProjectSchemaProposal savedProposal, DateTimeOffset now,
+        IReadOnlyList<SchemaChangeRequest>? schemaChangeRequests = null)
     {
         ArgumentNullException.ThrowIfNull(decision);
         ArgumentNullException.ThrowIfNull(rules);
@@ -174,10 +175,16 @@ public static class ExpansionRequestService
         if (savedProposal.Id != active.SourceSchemaProposalId || !SemanticallySameJson(savedProposal.SchemaJson, active.SchemaJson))
             throw new ArgumentException("The saved proposal has pending structural changes or differs from the active proposal. Review those changes before preparing a rules-only update.");
         var ruleIds = rules.Rules.Select(rule => rule.Id).ToHashSet(StringComparer.Ordinal);
+        // Schema evolution retains designer-change IDs as provenance. Resolve those
+        // against persisted requests, never by accepting an ID prefix alone.
+        var citationIds = ruleIds.Concat((schemaChangeRequests ?? [])
+            .Where(request => request.ProjectId == rules.ProjectId &&
+                request.Status == SchemaChangeRequestStatus.Applied && request.AppliedAt.HasValue)
+            .Select(request => request.Id)).ToHashSet(StringComparer.Ordinal);
         if (decision.WorkingRuleIds.Count == 0 || decision.WorkingRuleIds.Any(id => !ruleIds.Contains(id)) ||
-            savedProposal.SelectedWorkingRuleIds.Any(id => !ruleIds.Contains(id)) ||
-            savedProposal.DefinitionSources.SelectMany(source => source.WorkingRuleIds).Any(id => !ruleIds.Contains(id)))
-            throw new ArgumentException("Existing proposal citations and the reviewed expansion must still exist in the current Working Rules.");
+            savedProposal.SelectedWorkingRuleIds.Any(id => !citationIds.Contains(id)) ||
+            savedProposal.DefinitionSources.SelectMany(source => source.WorkingRuleIds).Any(id => !citationIds.Contains(id)))
+            throw new ArgumentException("The reviewed expansion must cite current Working Rules. Existing proposal citations must resolve to current Working Rules or saved, applied schema changes from this project.");
         return savedProposal with
         {
             WorkingRuleSetRevision = rules.Revision,

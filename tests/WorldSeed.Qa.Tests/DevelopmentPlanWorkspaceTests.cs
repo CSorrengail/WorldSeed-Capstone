@@ -158,6 +158,14 @@ public sealed class DevelopmentPlanWorkspaceTests
             const string schema = """{"id":"story","name":"Story","version":"1","entityTypes":[{"metadata":{"id":"promise","name":"Promise"},"properties":[]}]}""";
             handler.ActiveSchema = new ActiveGameSchema("active", inventory.ProjectId, "0.1", "Story", schema, "proposal", "rules", 3, 2, now, now);
             handler.SavedSchema = new ProjectSchemaProposal("proposal", inventory.ProjectId, "0.1", "Original summary", schema, [], "rules", 3, [], now, now);
+            var appliedChange = SchemaChangeRequestService.MarkApplied(SchemaChangeRequestService.Create(
+                inventory.ProjectId, "Promise", "Track promises.", SchemaChangeRequestOrigin.Designer, now), now);
+            handler.SchemaChanges.Add(appliedChange);
+            handler.SavedSchema = handler.SavedSchema with
+            {
+                DefinitionSources = [new DefinitionSource("promise", [appliedChange.Id])],
+                SelectedWorkingRuleIds = [appliedChange.Id]
+            };
             var data = GameDataService.CreateEmpty(handler.ActiveSchema, now);
             var root = JsonNode.Parse(data.DataJson)!.AsObject();
             root["entityInstances"]!.AsArray().Add(JsonNode.Parse("""{"id":"promise-1","entityTypeId":"promise","values":{}}"""));
@@ -167,6 +175,8 @@ public sealed class DevelopmentPlanWorkspaceTests
             Assert.True(await window.MarkExpansionNoSchemaAsync());
 
             Assert.Equal(4, handler.SavedSchema.WorkingRuleSetRevision);
+            Assert.Equal(1, handler.SchemaChangeReads);
+            Assert.Contains(appliedChange.Id, handler.SavedSchema.DefinitionSources.Single().WorkingRuleIds);
             Assert.Equal(schema, handler.SavedSchema.SchemaJson);
             Assert.Equal(3, handler.ActiveSchema.WorkingRuleSetRevision);
             Assert.Equal(0, handler.ActivationCount);
@@ -259,6 +269,8 @@ public sealed class DevelopmentPlanWorkspaceTests
         public List<DevelopmentRecommendationDecision> RecommendationDecisions { get; } = [];
         public List<ExpansionRequest> ExpansionRequests { get; } = [];
         public List<ExpansionSchemaDecision> SchemaDecisions { get; } = [];
+        public List<SchemaChangeRequest> SchemaChanges { get; } = [];
+        public int SchemaChangeReads { get; private set; }
         public ExpansionProgressStage ProgressStage { get; set; } = ExpansionProgressStage.ReadyForClarification;
         public ActiveGameSchema? ActiveSchema { get; set; }
         public ProjectSchemaProposal? SavedSchema { get; set; }
@@ -269,6 +281,11 @@ public sealed class DevelopmentPlanWorkspaceTests
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var path = request.RequestUri!.AbsolutePath;
+            if (request.Method == HttpMethod.Get && path.EndsWith("/schema-change-requests", StringComparison.Ordinal))
+            {
+                SchemaChangeReads++;
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(SchemaChanges, options: Options) };
+            }
             if (request.Method == HttpMethod.Get && path.EndsWith("/active-schema", StringComparison.Ordinal) && ActiveSchema is not null)
                 return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(ActiveSchema, options: Options) };
             if (path.EndsWith("/schema-proposal", StringComparison.Ordinal))

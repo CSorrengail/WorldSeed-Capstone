@@ -2089,7 +2089,8 @@ public partial class MainWindow : Window
                 {
                     var saved = await SchemaProposalStore().LoadAsync(_project.Id)
                         ?? throw new InvalidOperationException("A saved proposal matching the active schema is required for a rules-only update.");
-                    var candidate = ExpansionRequestService.PrepareRuleContextUpdate(decision, _workingRuleSet, active, saved, DateTimeOffset.UtcNow);
+                    var schemaChanges = await SchemaChangeRequestStore().ListAsync(_project.Id);
+                    var candidate = ExpansionRequestService.PrepareRuleContextUpdate(decision, _workingRuleSet, active, saved, DateTimeOffset.UtcNow, schemaChanges);
                     await SchemaProposalStore().SaveAsync(candidate);
                     _activeGameSchema = active;
                     _schemaProposal = candidate;
