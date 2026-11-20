@@ -196,8 +196,9 @@ public sealed class ContentProposalGenerationService(ILanguageModelClient client
             if (DefinitionId(property) is { } propertyId && seen.Add(propertyId)) yield return property;
     }
 
-    private static string DescribeRuntimeValue(JsonObject? type, IReadOnlyDictionary<string, JsonObject> valueTypes)
+    private static string DescribeRuntimeValue(JsonObject? type, IReadOnlyDictionary<string, JsonObject> valueTypes, int depth = 0)
     {
+        if (depth >= 8) return "a nested value; request clarification if its full structure is not shown.";
         var kind = type?["kind"]?.GetValue<string>();
         if (kind == "primitive") return $"JSON {PrimitiveDescription(type?["name"]?.GetValue<string>())}.";
         if (kind == "definedValueType" && type?["valueTypeId"]?.GetValue<string>() is { } valueTypeId && valueTypes.TryGetValue(valueTypeId, out var definition))
@@ -210,18 +211,26 @@ public sealed class ContentProposalGenerationService(ILanguageModelClient client
                     ? $"JSON string entry ID from enumeration '{valueTypeId}', which currently has no entries."
                     : $"one JSON string entry ID from enumeration '{valueTypeId}': {string.Join(", ", entries.Select(entry => JsonSerializer.Serialize(entry)))}.";
             }
-            if (definitionKind == "alias") return DescribeRuntimeValue(definition["targetType"] as JsonObject, valueTypes);
-            if (definitionKind == "record") return $"JSON object matching record '{valueTypeId}'.";
+            if (definitionKind == "alias") return DescribeRuntimeValue(definition["targetType"] as JsonObject, valueTypes, depth + 1);
+            if (definitionKind == "record")
+            {
+                var fields = (definition["properties"] as JsonArray)?.OfType<JsonObject>() ?? [];
+                return $"JSON object matching record '{valueTypeId}' with fields: " + string.Join("; ", fields.Select(field =>
+                    $"{JsonSerializer.Serialize(DefinitionId(field))} ({(field["required"]?.GetValue<bool>() == true ? "required" : "optional")}{(field["nullable"]?.GetValue<bool>() == true ? ", nullable" : string.Empty)}): " +
+                    DescribeRuntimeValue(field["valueType"] as JsonObject, valueTypes, depth + 1) +
+                    (field["constraints"] is JsonObject constraints ? $" Declared constraints: {constraints.ToJsonString()}." : string.Empty)));
+            }
         }
-        if (kind == "collection") return $"JSON array whose items are {DescribeRuntimeValue(type?["itemType"] as JsonObject, valueTypes).TrimEnd('.').ToLowerInvariant()}.";
+        if (kind == "collection") return $"JSON array whose items are {DescribeRuntimeValue(type?["itemType"] as JsonObject, valueTypes, depth + 1).TrimEnd('.')}.";
         if (kind == "reference") return "JSON string containing an existing allowed entity-instance ID.";
         if (kind == "map") return "JSON object whose keys and values follow the declared map types.";
         if (kind == "union") return "a JSON value matching one declared union option.";
         return "JSON value matching the declared schema type.";
     }
 
-    private static JsonNode? ExampleRuntimeValue(JsonObject? type, IReadOnlyDictionary<string, JsonObject> valueTypes)
+    private static JsonNode? ExampleRuntimeValue(JsonObject? type, IReadOnlyDictionary<string, JsonObject> valueTypes, int depth = 0)
     {
+        if (depth >= 8) return null;
         var kind = type?["kind"]?.GetValue<string>();
         if (kind == "primitive") return type?["name"]?.GetValue<string>() switch
         {
@@ -234,12 +243,19 @@ public sealed class ContentProposalGenerationService(ILanguageModelClient client
         {
             if (definition["kind"]?.GetValue<string>() == "enumeration")
                 return JsonValue.Create(definition["entries"]?.AsArray().OfType<JsonObject>().Select(DefinitionId).FirstOrDefault(id => id is not null) ?? "replace-with-entry-id");
-            if (definition["kind"]?.GetValue<string>() == "alias") return ExampleRuntimeValue(definition["targetType"] as JsonObject, valueTypes);
-            if (definition["kind"]?.GetValue<string>() == "record") return new JsonObject();
+            if (definition["kind"]?.GetValue<string>() == "alias") return ExampleRuntimeValue(definition["targetType"] as JsonObject, valueTypes, depth + 1);
+            if (definition["kind"]?.GetValue<string>() == "record")
+            {
+                var record = new JsonObject();
+                foreach (var field in (definition["properties"] as JsonArray)?.OfType<JsonObject>() ?? [])
+                    if (field["required"]?.GetValue<bool>() == true && DefinitionId(field) is { } id)
+                        record[id] = ExampleRuntimeValue(field["valueType"] as JsonObject, valueTypes, depth + 1);
+                return record;
+            }
         }
         if (kind == "collection") return new JsonArray();
         if (kind == "map" || kind == "record") return new JsonObject();
-        if (kind == "union") return ExampleRuntimeValue(type?["options"]?.AsArray().OfType<JsonObject>().FirstOrDefault(), valueTypes);
+        if (kind == "union") return ExampleRuntimeValue(type?["options"]?.AsArray().OfType<JsonObject>().FirstOrDefault(), valueTypes, depth + 1);
         if (kind == "reference") return JsonValue.Create("replace-with-entity-instance-id");
         return null;
     }

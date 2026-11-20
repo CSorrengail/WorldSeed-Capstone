@@ -84,6 +84,47 @@ public class ContentProposalGenerationServiceTests
         Assert.Contains("repeats the canonical name value", Assert.Single(result.SimilarityWarnings!).Reason);
     }
 
+    [Fact]
+    public async Task Runtime_contract_explains_nested_record_fields_constraints_and_case_sensitive_entries()
+    {
+        var schema = JsonNode.Parse("""
+            {"entityTypes":[{"metadata":{"id":"prompt"},"properties":[
+              {"metadata":{"id":"card"},"valueType":{"kind":"definedValueType","valueTypeId":"card-alias"},"required":true,"nullable":false},
+              {"metadata":{"id":"cards"},"valueType":{"kind":"collection","itemType":{"kind":"definedValueType","valueTypeId":"card"}},"required":false,"nullable":false}]}],
+             "valueTypes":[
+              {"metadata":{"id":"suit"},"kind":"enumeration","entries":[{"id":"MixedCase","name":"Suit"}]},
+              {"metadata":{"id":"card-alias"},"kind":"alias","targetType":{"kind":"definedValueType","valueTypeId":"card"}},
+              {"metadata":{"id":"card"},"kind":"record","properties":[
+                {"metadata":{"id":"card.suit"},"valueType":{"kind":"definedValueType","valueTypeId":"suit"},"required":true,"nullable":false},
+                {"metadata":{"id":"card.value"},"valueType":{"kind":"primitive","name":"integer"},"required":true,"nullable":false,"constraints":{"minimum":1,"maximum":13}}]}]}
+            """)!.AsObject();
+        var model = new CapturingModel("""{"candidate":{"id":"new-prompt","entityTypeId":"prompt","values":{"card":{"card.suit":"MixedCase","card.value":2}}},"schemaGaps":[]}""");
+        var rule = new WorkingRule("rule", "Cards", WorkingRuleKind.Rule, "Cards have a suit and value.", [], [], [], [], null, [], []);
+
+        await new ContentProposalGenerationService(model).GenerateAsync(new("project", "prompt", schema, [rule], "Create a card prompt."));
+
+        var contract = model.Request!.Messages[1].Content;
+        Assert.Contains("card.suit", contract);
+        Assert.Contains("card.value", contract);
+        Assert.Contains("\"maximum\":13", contract);
+        Assert.Contains("\"MixedCase\"", contract);
+        Assert.DoesNotContain("mixedcase", contract);
+        var example = JsonNode.Parse(contract[(contract.LastIndexOf('\n') + 1)..])!;
+        Assert.Equal("MixedCase", example["candidate"]!["values"]!["card"]!["card.suit"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public async Task Recursive_value_definitions_produce_a_bounded_contract()
+    {
+        var schema = JsonNode.Parse("""{"entityTypes":[{"metadata":{"id":"prompt"},"properties":[{"metadata":{"id":"loop"},"valueType":{"kind":"definedValueType","valueTypeId":"loop"},"required":true}]}],"valueTypes":[{"metadata":{"id":"loop"},"kind":"alias","targetType":{"kind":"definedValueType","valueTypeId":"loop"}}]}""")!.AsObject();
+        var model = new CapturingModel("""{"candidate":{"id":"new-prompt","entityTypeId":"prompt","values":{}},"schemaGaps":[]}""");
+        var rule = new WorkingRule("rule", "Cards", WorkingRuleKind.Rule, "Cards exist.", [], [], [], [], null, [], []);
+
+        await new ContentProposalGenerationService(model).GenerateAsync(new("project", "prompt", schema, [rule], "Create a prompt."));
+
+        Assert.Contains("request clarification", model.Request!.Messages[1].Content);
+    }
+
     private sealed class CapturingModel(string content) : ILanguageModelClient
     {
         public LlmChatRequest? Request { get; private set; }
