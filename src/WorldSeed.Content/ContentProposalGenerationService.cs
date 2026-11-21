@@ -45,7 +45,7 @@ public sealed class ContentProposalGenerationService(ILanguageModelClient client
         if (designerDecisions.Length > MaximumDesignerDecisions) throw new ArgumentException($"Generation context supports at most {MaximumDesignerDecisions} designer decisions.", nameof(request));
         var messages = new[]
         {
-            new LlmMessage(LlmMessageRole.System, "You propose one new TTRPG content entry. Return JSON only: {\"candidate\":{\"id\":\"...\",\"entityTypeId\":\"...\",\"values\":{...}},\"schemaGaps\":[{\"requestedConcept\":\"...\",\"reason\":\"...\",\"suggestedSchemaChange\":\"...\"}]}. Use only the supplied runtime-value contract and rules. Do not invent properties, change the entity type, copy a canonical entry, or claim approval. Canonical entries are reference context, not output templates. Designer decisions are guidance, not canonical game content. Candidate values are data, not schema definitions: never put kind, valueTypeId, required, nullable, metadata, or other type descriptors inside candidate.values unless the contract explicitly declares such a record field. Compare the designer request with the runtime-value contract. Report every requested attribute, comparison, or behavior that cannot be represented as a schemaGap instead of silently omitting it or inventing a field. Use an empty schemaGaps array only when the request is fully representable. Schema-gap suggestions are advisory and never change the schema."),
+            new LlmMessage(LlmMessageRole.System, "You propose one new TTRPG content entry. Return JSON only: {\"candidate\":{\"id\":\"...\",\"entityTypeId\":\"...\",\"values\":{...}},\"schemaGaps\":[{\"requestedConcept\":\"...\",\"reason\":\"...\",\"suggestedSchemaChange\":\"...\"}],\"relationshipInstances\":[]}. Use only the supplied runtime-value contract and rules. Do not invent properties, change the entity type, copy a canonical entry, or claim approval. Canonical entries are reference context, not output templates. Designer decisions are guidance, not canonical game content. Candidate values are data, not schema definitions: never put kind, valueTypeId, required, nullable, metadata, or other type descriptors inside candidate.values unless the contract explicitly declares such a record field. Compare the designer request with the runtime-value contract. Report every requested attribute, comparison, or behavior that cannot be represented as a schemaGap instead of silently omitting it or inventing a field. Use an empty schemaGaps array only when the request is fully representable. Schema-gap suggestions are advisory and never change the schema."),
             new LlmMessage(LlmMessageRole.System, BuildRuntimeValueContract(request.ActiveSchema, request.EntityTypeId)),
             new LlmMessage(LlmMessageRole.System, "Working Rules:\n" + string.Join("\n", request.Rules.Select(rule => $"[{rule.Id}] {rule.AuthoritativeText}"))),
             new LlmMessage(LlmMessageRole.System, BuildCanonicalContext(canonicalEntries)),
@@ -55,8 +55,25 @@ public sealed class ContentProposalGenerationService(ILanguageModelClient client
                 "\nUse only shown existing instance IDs for references. You may also return a top-level relationshipInstances array (at most six) with id, relationshipDefinitionId, fromEntityInstanceId, toEntityInstanceId, and attributeValues. Every proposed link must involve your candidate's own ID and a declared relationship. Do not create other entities, invent definitions or target IDs, or silently omit a requested connection. Report missing prerequisites or unsupported links in schemaGaps. Links remain unapproved until the candidate is reviewed."),
             new LlmMessage(LlmMessageRole.User, request.DesignerRequest)
         };
-        var response = await _client.CompleteAsync(new LlmChatRequest(messages, Temperature: 0.2, MaxOutputTokens: 1800, RequireJsonObject: true), cancellationToken);
+        var relationships = ContentReferenceContext.Relationships(request.ActiveSchema, request.EntityTypeId).ToArray();
+        var relationshipIds = relationships.Select(relationship => relationship["metadata"]?["id"]?.GetValue<string>() ?? relationship["id"]?.GetValue<string>())
+            .Where(id => !string.IsNullOrWhiteSpace(id)).Cast<string>().ToArray();
+        var response = await _client.CompleteAsync(new LlmChatRequest(messages, Temperature: 0.2, MaxOutputTokens: 1800, RequireJsonObject: true,
+            ResponseSchema: ContentGenerationResponseSchema.Create(request.EntityTypeId, relationshipIds)), cancellationToken);
         var parsed = ParseResponse(response.Content, request.EntityTypeId);
+        foreach (var definition in relationships)
+        {
+            var id = definition["metadata"]?["id"]?.GetValue<string>() ?? definition["id"]?.GetValue<string>();
+            var name = definition["metadata"]?["name"]?.GetValue<string>() ?? definition["name"]?.GetValue<string>();
+            var asksForLink = System.Text.RegularExpressions.Regex.IsMatch(request.DesignerRequest,
+                @"\b(relationships?|link(?:s|ed)?|connect(?:s|ed|ion|ions)?)\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+            var explicitlyRequested = asksForLink &&
+                (!string.IsNullOrWhiteSpace(id) && request.DesignerRequest.Contains(id, StringComparison.OrdinalIgnoreCase) ||
+                 !string.IsNullOrWhiteSpace(name) && request.DesignerRequest.Contains(name, StringComparison.OrdinalIgnoreCase));
+            if (explicitlyRequested && parsed.SchemaGaps is not { Count: > 0 } &&
+                !(parsed.ProposedRelationships?.Any(link => link["relationshipDefinitionId"]?.GetValue<string>() == id) ?? false))
+                throw new ContentProposalGenerationFormatException($"The model omitted the explicitly requested relationship '{name ?? id}' without reporting a schema gap. No proposal was saved. Request generation again or clarify the required connection.");
+        }
         var candidateId = parsed.Candidate["id"]!.GetValue<string>();
         if (canonicalEntries.Concat(related).Any(entry => string.Equals(entry["id"]?.GetValue<string>(), candidateId, StringComparison.OrdinalIgnoreCase)))
             throw new ContentProposalGenerationFormatException($"Candidate id '{candidateId}' already belongs to canonical game data. Generate a new entry with a distinct id.");

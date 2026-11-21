@@ -77,13 +77,28 @@ public sealed class ConnectedContentTests
         root["entityInstances"]!.AsArray().Add(JsonNode.Parse("""{"id":"custom-private","entityTypeId":"custom","values":{"name":"Welcome Ceremony"}}"""));
         return (active, data with { DataJson = root.ToJsonString() });
     }
-    private sealed class Model : ILanguageModelClient
+    [Fact]
+    public async Task Explicitly_requested_link_cannot_be_silently_omitted_from_an_otherwise_valid_candidate()
+    {
+        var (active, data) = Fixture();
+        var schema = JsonNode.Parse(active.SchemaJson)!.AsObject();
+        var model = new Model(omitLinks: true);
+        var rule = new WorkingRule("rule", "Customs", WorkingRuleKind.Rule, "Venues observe an existing custom.", [], [], [], [], null, [], []);
+        var related = ContentReferenceContext.Select(schema, "venue", JsonNode.Parse(data.DataJson)!.AsObject());
+        var failure = await Assert.ThrowsAsync<ContentProposalGenerationFormatException>(() =>
+            new ContentProposalGenerationService(model).GenerateAsync(new("project", "venue", schema, [rule], "Return an observes relationship to the existing custom.", RelatedEntries: related)));
+        Assert.Contains("omitted", failure.Message);
+        Assert.Contains("relationshipInstances", model.Request!.ResponseSchema!["required"]!.AsArray().Select(item => item!.GetValue<string>()));
+        Assert.DoesNotContain("venue-private", data.DataJson);
+    }
+
+    private sealed class Model(bool omitLinks = false) : ILanguageModelClient
     {
         public LlmChatRequest? Request { get; private set; }
         public Task<LlmChatResponse> CompleteAsync(LlmChatRequest request, CancellationToken cancellationToken = default)
         {
             Request = request;
-            return Task.FromResult(new LlmChatResponse("{\"candidate\":" + CandidateJson + ",\"relationshipInstances\":[" + LinkJson + "],\"schemaGaps\":[]}", "test", null));
+            return Task.FromResult(new LlmChatResponse("{\"candidate\":" + CandidateJson + ",\"relationshipInstances\":[" + (omitLinks ? "" : LinkJson) + "],\"schemaGaps\":[]}", "test", null));
         }
     }
 }
