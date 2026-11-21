@@ -24,6 +24,32 @@ is completed architectural evidence, not the current finish line.
 
 ## Remaining Milestones
 
+### Immediate Functional Work (Owner Direction, 2026-11-20)
+
+Prioritize a usable implementation over polish. Corpus-based verification
+supports this work; generating more demonstration entries is not its substitute.
+
+1. **Rule reconciliation:** propose a bounded merge or resolution of selected
+   existing rules, ask for missing designer guidance, and accept/apply or reject
+   it. Preserve original rule text/evidence and decisions, reject stale inputs,
+   and record the resulting rule revision. Do not silently undo accepted work
+   during rebuilding. Preparing a schema successor remains an explicit action;
+   preserve its prior provenance and require normal review/activation.
+2. **Connected content:** supply bounded, relevant canonical entries from other
+   types so references can use real IDs. Add reviewable relationship-instance
+   proposals where needed; validate endpoints/cardinality and apply only after
+   designer review. Keep dependency queues and schema-gap requests generic.
+3. **Mechanical coverage:** exercise declared constraints and reference checks
+   on generated content, expose important prose-only conditions as unchecked,
+   and use the existing reviewable validation-change path where representable.
+   Do not invent an interpreter for arbitrary prose or pursue deferred balance.
+
+Implement in bounded cycles with consolidated QA. Acceptance includes persistence
+of reconciliation decisions, stale-input refusal, preservation of schema/data
+history, valid cross-type references, and readable publication of current rules.
+Owner UI checks remain on the existing backlog; each functional change gets a
+compact testing guide.
+
 ### 1. Project Planner And Gap Analysis
 
 Provide a project-wide view of existing rules, schema, content, and publication

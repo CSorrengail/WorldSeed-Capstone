@@ -24,6 +24,102 @@ preserved at `backup/main-before-test-doc-squash-20261107`.
 
 ## Current Development Task
 
+**Functional implementation cycle complete; execution is stopped (2026-11-20).** Owner confirmed weekly
+allowance is fine after reporting 98% five-hour remaining and explicitly asked
+for functional completion over polish. Two implementation iterations are
+committed locally: `299a8f9` (cumulative 17) and `9ee34f3` (cumulative 18).
+
+- Rules now support designer-selected reconciliation proposals, clarifications,
+  accept/apply or rejection, archived originals/evidence and saved proposal
+  provenance, applied revisions/idempotency, and explicit schema-review
+  preparation. Add Missing preserves history; a rebuild cannot silently undo
+  applied reconciliations. This is a manual selection workflow, not an automatic
+  scan/merge of the entire rulebook.
+- Generation now receives bounded game-owned reference/relationship context;
+  new entries can propose owned links for visible review and joint canonical
+  application. Preview uses existing canonical data; invalid references,
+  endpoints, attributes and cardinality remain blocked. Link snapshots are
+  fingerprinted/persisted/exported; reader output uses labels. Reviewed content
+  proposals cannot be overwritten. Mechanical results explicitly exclude
+  unexecuted prose-only conditions. Balance remains deferred.
+
+Independent consolidated QA PASSED 121 deterministic checks against `9ee34f3`:
+Working Rules 19, Schema Translation 29, Content 33, Publication 22, Mongo DTO
+persistence 5, and focused headless UI 13. This includes reconciliation through
+explicit schema preparation, stale/foreign/unclear refusals, archived originals,
+legacy BSON compatibility, connected entry/link validation, cardinality rejection,
+canonical-context preview, and reader labels. Evidence:
+`artifacts/qa/20261120-functional-9ee34f3/report.md`.
+
+The new reviewed-proposal API guard was source-reviewed, not exercised in a live
+server. Optional live-model observations were skipped; the new prompts are not
+claimed to have passed a real-model run yet. Existing D&D checkpoint evidence
+remains valid at its actual earlier tested revisions. No model or API/Mongo
+service calls were made this cycle. Advisor architecture review accepted the
+existing mutable stable-ID proposal architecture and explicit immutable active
+history boundaries; its QA-pending concern is closed for this deterministic
+scope, not overall MVP sufficiency. No owner decision is needed.
+
+Known editor process baseline is now 12 dotnet processes: host 23640 and eleven
+direct editor-owned reusable workers, verified by coordinator CIM inspection.
+No user-owned process was stopped. All SDK operations remain wrapper-bounded.
+
+### Previous Planning Checkpoint
+
+**Functional work planned; awaiting current weekly allowance (2026-11-20).**
+Owner prioritizes wonky-but-functional MVP development over polish and reports
+98% five-hour remaining. The last weekly report was 63%; a fresh confirmation
+is pending under the AGENTS.md usage guard. No implementation or SDK/QA run has
+started for this new cycle. The immediate sequence is recorded in the existing
+`docs/mvp-plan.md`: rule reconciliation, connected content, explicit mechanical
+coverage. Resume with reconciliation's proposal/audit and designer review path.
+The advisor found no RED scope issue, but requires preserving prior provenance,
+explicit reviewed schema successors, materialized rule revisions/idempotency,
+and protection against rebuild silently undoing accepted reconciliation.
+
+### Previous Verified Cycle
+
+**Bounded cycle complete; execution is stopped (2026-11-20).** Owner reports five-hour reset and
+63% weekly remaining. Two implementation iterations: reusable card-game workflow
+coverage (`dfb90c1`, cumulative 15) and preservation of schema proposals across
+Working Rule updates (`1ae8f05`, cumulative 16). Five new Wretched tests pass
+locally. The API and prepared expanded-checkpoint probe built successfully.
+
+The live-path investigation found that PUT Working Rules deleted the saved
+schema proposal, preventing the later no-schema-change workflow from reloading
+it. The API now retains its original binding and source maps, rejects stale
+review/activation, and requires an updated proposal. The desktop reloads retained
+schema work after formalization and explains when its rule binding is older.
+Independent consolidated QA PASSED 21 Publication tests (including the five
+card-game cases) and six headless schema/planning regressions. The actual
+214-rule/r3, five-entry checkpoint passed isolated API/Mongo restart/reload and
+cleanup: 15 source notes including the 12 original inputs and saved designer
+answer, 13 sessions/146 draft statements, eight content proposals/eight decisions,
+five applications, three ordered schema transitions, and a Ready publication.
+Stale review/activation attempts returned 409 without mutating active state;
+normal reviewed rule-context activation then succeeded. The rejected duplicate
+spell remained outside canonical data. Zero model calls this cycle.
+Evidence: `artifacts/qa/20261120-checkpoint-1ae8f05/report.md`.
+
+The first API attempt exposed a historical enum-string parsing mismatch in the
+temporary replay harness only. After the permitted typed-read correction, one
+fresh isolated run passed. No production assertions or records were relaxed.
+QA-owned API/container resources were removed. These checks close the retained
+schema-work and expanded-checkpoint persistence gaps, not final MVP sufficiency.
+The Wretched check is reusable fixture coverage, not new live SRD ingestion.
+
+Advisor assessment: GREEN for direction and the closed persistence checkpoint;
+YELLOW observations remain for content breadth, final owner UI rehearsal, and a
+smaller second-game live workflow. Next priority is a curated D&D content tranche
+and reader artifact using existing generation/review/application/publication,
+not further persistence retesting or balance work. No owner decision is needed.
+
+Editing the test project caused VS Code to start nine reusable MSBuild workers.
+Coordinator CIM inspection verified each as a direct child of editor PID 23640;
+all were preserved. Current known editor baseline is ten dotnet processes.
+
+### Previous Verified Cycle
+
 **Larger owner-authorized cycle complete; execution is stopped.** The owner reported 89% five-hour
 remaining and renewed authorization after reporting weekly allowance clear.
 The live isolated API/Mongo check at `00eccae` passed: the 12-source, 144-draft,
@@ -696,17 +792,16 @@ remains available for any later owner-action stop.
 
 ## Latest Verified Application Revision
 
-- **Latest scoped verified production revision:** `3f25d3d`, including `6f4257a`.
-  Independent QA passed 29 Content and 16 Publication tests and the connected
-  local-model D&D generation/application/publication slice: 214 rules, five
-  canonical entries across three types, one duplicate suggestion rejected.
-  SchemaValidation passed 23 tests; the Wretched lifecycle check remains partial.
-  The separate API/Mongo restart check at `00eccae` passed for the captured
-  212-rule/r2 state. These scoped results do not establish final corpus
-  completeness, a connected 214-rule/r3 database reload, or desktop usability.
-- **Current evidence:** `artifacts/qa/20261119-mvp-multitype-00eccae/report.md`,
-  `artifacts/qa/20261119-mvp-persistence-00eccae/report.md`, and
-  `artifacts/qa/20261119-mvp-wretched-3f25d3d/report.md`.
+- **Latest scoped verified production revision:** `9ee34f3`, including `299a8f9`.
+  Independent QA passed 121 deterministic/domain/DTO/headless checks for the
+  new reconciliation and connected-content functionality. New prompt behavior
+  and the reviewed-proposal guard have not yet received live-model/server checks.
+  The previous `1ae8f05` actual API/Mongo checkpoint verified 214 rules/r3 and five
+  entries across three types. Neither result establishes final content
+  sufficiency, owner UI rehearsal, or a new second-game live ingestion run.
+- **Current evidence:** `artifacts/qa/20261120-functional-9ee34f3/report.md`,
+  `artifacts/qa/20261120-checkpoint-1ae8f05/report.md`, and
+  `artifacts/qa/20261119-mvp-multitype-00eccae/report.md`.
   Earlier intake/schema/publication evidence remains under
   `artifacts/qa/20261119-srd51-corpus/` and
   `artifacts/qa/20261119-srd51-evolution-6c073fa/`.
@@ -1250,10 +1345,12 @@ case. Balance evaluation is the first stretch goal rather than an MVP gate.
 ## Next Action Required
 
 Wait for authorization of another bounded cycle and current allowance readings.
-The provenance guard, cached rule-context continuation, 212-rule/r2 API/Mongo
-restart, and 214-rule/r3 multi-type content publication now pass. Next finish the
-small Wretched application/publication probe and persist/reload the newer
-214-rule/r3 multi-type checkpoint with its complete expansion source/session
-evidence. Then expand the demonstration's content breadth and prepare owner
-rehearsal. Balance evaluation is deferred under decision 0016. Reuse captures;
+The basic reconciliation and connected-content paths are implemented and pass
+deterministic QA. Next use these paths on actual corpus-derived content: confirm
+new prompt behavior, resolve an intentionally selected real overlap when needed,
+generate/review connected entries, and publish a rehearsal artifact. Exercise the
+new guarded server write when doing that integration check; do not repeat the
+entire old ingestion checkpoint. A smaller live second-game workflow remains before
+claiming final MVP completion. Balance evaluation is deferred under decision
+0016. Reuse successful captures;
 do not rerun intake or claim MVP completion from the verified partial path.
