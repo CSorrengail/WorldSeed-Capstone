@@ -33,7 +33,7 @@ public static class SchemaTranslationResponseSchema
                     "version": { "type": "string", "minLength": 1 },
                     "entityTypes": { "type": "array", "maxItems": 3, "items": { "$ref": "#/$defs/entityType" } },
                     "valueTypes": { "type": "array", "maxItems": 3, "items": { "$ref": "#/$defs/valueType" } },
-                    "relationships": { "type": "array", "maxItems": 3, "items": { "type": "object" } },
+                    "relationships": { "type": "array", "maxItems": 3, "items": { "$ref": "#/$defs/relationship" } },
                     "rules": { "type": "array", "maxItems": 3, "items": { "type": "object" } },
                     "procedures": { "type": "array", "maxItems": 3, "items": { "type": "object" } },
                     "validations": { "type": "array", "maxItems": 3, "items": { "type": "object" } }
@@ -69,7 +69,26 @@ public static class SchemaTranslationResponseSchema
               "properties": {
                 "kind": { "type": "string", "enum": ["primitive", "definedValueType", "collection", "map", "union", "reference"] },
                 "name": { "type": "string" },
-                "valueTypeId": { "type": "string" }
+                "valueTypeId": { "type": "string" },
+                "allowedEntityTypeIds": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }
+              },
+              "allOf": [{ "if": { "properties": { "kind": { "const": "reference" } } }, "then": { "required": ["allowedEntityTypeIds"] } }]
+            },
+            "relationshipEnd": {
+              "type": "object", "required": ["entityTypeId"],
+              "properties": {
+                "entityTypeId": { "type": "string", "minLength": 1 },
+                "minimumPerOppositeInstance": { "type": "integer", "minimum": 0 },
+                "maximumPerOppositeInstance": { "type": ["integer", "null"], "minimum": 0 }
+              }
+            },
+            "relationship": {
+              "type": "object", "required": ["metadata", "from", "to"],
+              "properties": {
+                "metadata": { "$ref": "#/$defs/metadata" },
+                "from": { "$ref": "#/$defs/relationshipEnd" },
+                "to": { "$ref": "#/$defs/relationshipEnd" },
+                "attributes": { "type": "array", "items": { "$ref": "#/$defs/property" } }
               }
             },
             "property": {

@@ -8,6 +8,24 @@ namespace WorldSeed.SchemaTranslation.Tests;
 public class SchemaTranslationServiceTests
 {
     [Fact]
+    public async Task Reference_and_relationship_delta_uses_existing_entity_endpoints_and_explicit_contracts()
+    {
+        var rules = CreateWorkingRuleSet();
+        var baseline = JsonNode.Parse("""{"id":"dangerous-magic","name":"Dangerous Magic","version":"0.1.0","entityTypes":[{"metadata":{"id":"caster","name":"Caster"},"properties":[]},{"metadata":{"id":"companion","name":"Companion"},"properties":[]}]}""")!.AsObject();
+        var model = new FakeModel("""
+            {"action":"presentProposal","proposal":{"summary":"Adds optional companion links.","schema":{"id":"dangerous-magic","name":"Dangerous Magic","version":"0.1.0","entityTypes":[{"metadata":{"id":"caster","name":"Caster"},"properties":[{"metadata":{"id":"companion","name":"Companion"},"valueType":{"kind":"reference","allowedEntityTypeIds":["companion"]},"required":false,"nullable":true}]}],"relationships":[{"metadata":{"id":"accompanies","name":"Accompanies"},"from":{"entityTypeId":"caster","minimumPerOppositeInstance":0},"to":{"entityTypeId":"companion","minimumPerOppositeInstance":0,"maximumPerOppositeInstance":1},"attributes":[]}]},"definitionSources":[{"definitionId":"caster","workingRuleIds":["casting-adds-mark"]},{"definitionId":"accompanies","workingRuleIds":["casting-adds-mark"]}]}}
+            """);
+        var change = SchemaChangeRequestService.Create(rules.ProjectId, "Companion Links", "Casters may reference and accompany a companion.", SchemaChangeRequestOrigin.Designer, DateTimeOffset.UtcNow);
+        var result = await new SchemaTranslationService(model).TranslateAsync(new(rules, baseline, ChangeRequest: change));
+        Assert.Equal(SchemaTranslationAction.PresentProposal, result.Action);
+        Assert.Equal("reference", result.Proposal!.Schema["entityTypes"]![0]!["properties"]![0]!["valueType"]!["kind"]!.GetValue<string>());
+        Assert.Contains("never for entityTypes", model.Request!.Messages[0].Content);
+        var definitions = model.Request.ResponseSchema!["$defs"]!;
+        Assert.Contains("from", definitions["relationship"]!["required"]!.AsArray().Select(item => item!.GetValue<string>()));
+        Assert.NotNull(definitions["valueReference"]!["properties"]!["allowedEntityTypeIds"]);
+    }
+
+    [Fact]
     public async Task Returns_a_valid_noncanonical_schema_proposal_with_working_rule_mappings()
     {
         var model = new FakeModel("""{"action":"presentProposal","proposal":{"summary":"A caster schema.","schema":{"id":"dangerous-magic","name":"Dangerous Magic","version":"0.1.0","entityTypes":[{"metadata":{"id":"caster","name":"Caster"}}]},"definitionSources":[{"definitionId":"caster","workingRuleIds":["casting-adds-mark"]}]}}""");
