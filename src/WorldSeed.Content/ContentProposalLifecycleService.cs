@@ -4,7 +4,7 @@ namespace WorldSeed.Content;
 
 public static class ContentProposalLifecycleService
 {
-    public static ContentProposal Create(string projectId, string entityTypeId, JsonObject candidate, string activeSchemaId, int activeSchemaRevision, string workingRuleSetId, int workingRuleSetRevision, DateTimeOffset now, ContentProposal? replaces = null, IReadOnlyList<ContentSchemaGap>? schemaGaps = null, string? designerRequest = null, ContentGenerationContext? generationContext = null, IReadOnlyList<ContentSimilarityWarning>? similarityWarnings = null)
+    public static ContentProposal Create(string projectId, string entityTypeId, JsonObject candidate, string activeSchemaId, int activeSchemaRevision, string workingRuleSetId, int workingRuleSetRevision, DateTimeOffset now, ContentProposal? replaces = null, IReadOnlyList<ContentSchemaGap>? schemaGaps = null, string? designerRequest = null, ContentGenerationContext? generationContext = null, IReadOnlyList<ContentSimilarityWarning>? similarityWarnings = null, IReadOnlyList<JsonObject>? proposedRelationships = null)
     {
         Require(projectId, "A project is required.");
         Require(entityTypeId, "An entity type is required.");
@@ -19,7 +19,8 @@ public static class ContentProposalLifecycleService
             "content-proposal-" + Guid.NewGuid().ToString("N"), projectId, entityTypeId, (JsonObject)candidate.DeepClone(),
             activeSchemaId, activeSchemaRevision, workingRuleSetId, workingRuleSetRevision,
             (replaces?.Version ?? 0) + 1, now, replaces?.Id, schemaGaps?.ToArray(), string.IsNullOrWhiteSpace(designerRequest) ? replaces?.DesignerRequest : designerRequest.Trim(),
-            generationContext ?? replaces?.GenerationContext, similarityWarnings?.ToArray() ?? replaces?.SimilarityWarnings);
+            generationContext ?? replaces?.GenerationContext, similarityWarnings?.ToArray() ?? replaces?.SimilarityWarnings,
+            (proposedRelationships ?? replaces?.ProposedRelationships)?.Select(link => (JsonObject)link.DeepClone()).ToArray());
     }
 
     public static ContentProposalDecision Decide(ContentProposal proposal, ContentProposalDecisionKind kind, string? note, DateTimeOffset now, ContentProposal? replacement = null)

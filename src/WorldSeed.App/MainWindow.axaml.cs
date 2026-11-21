@@ -2881,7 +2881,9 @@ public partial class MainWindow : Window
 
         ContentProposalEditor.Text = PrettyJson(selected.Candidate.ToJsonString());
         ContentSchemaGapText.Text = FormatContentSchemaGaps(selected.SchemaGaps);
-        ContentGenerationContextText.Text = FormatContentGenerationContext(selected);
+        ContentGenerationContextText.Text = FormatContentGenerationContext(selected) +
+            "\n\nRelated Canonical IDs\n" + string.Join(", ", selected.GenerationContext?.RelatedEntityIds ?? []) +
+            "\n\nProposed Relationships (Included In This Review)\n" + PrettyJson(System.Text.Json.JsonSerializer.Serialize(selected.ProposedRelationships ?? []));
         OpenSchemaForContentGapButton.IsVisible = selected.SchemaGaps is { Count: > 0 };
         ContentProposalDecisionHistoryText.Text = FormatContentProposalHistory(selected);
         RefreshContentEvaluationView(selected);
@@ -3454,14 +3456,16 @@ public partial class MainWindow : Window
             var schema = ParseJsonObject(activeSchema.SchemaJson, "The active schema is not valid JSON.");
             var canonicalContext = CanonicalContentContext(selectedType.Id);
             var decisionContext = DesignerDecisionContext(selectedType.Id);
-            var result = await new ContentProposalGenerationService(capture).GenerateAsync(new ContentProposalGenerationRequest(project.Id, selectedType.Id, schema, workingRuleSet.Rules, requestText, canonicalContext, decisionContext));
+            var relatedContext = _projectGameData is not null && _projectGameData.ActiveGameSchemaId == activeSchema.Id && _projectGameData.ActiveGameSchemaRevision == activeSchema.Revision
+                ? ContentReferenceContext.Select(schema, selectedType.Id, ParseJsonObject(_projectGameData.DataJson, "Canonical Game Data Is Invalid.")) : [];
+            var result = await new ContentProposalGenerationService(capture).GenerateAsync(new ContentProposalGenerationRequest(project.Id, selectedType.Id, schema, workingRuleSet.Rules, requestText, canonicalContext, decisionContext, relatedContext));
             if (!string.Equals(_project?.Id, project.Id, StringComparison.Ordinal)
                 || !string.Equals(_activeGameSchema?.Id, activeSchema.Id, StringComparison.Ordinal)
                 || _activeGameSchema?.Revision != activeSchema.Revision
                 || !string.Equals(_workingRuleSet?.Id, workingRuleSet.Id, StringComparison.Ordinal)
                 || _workingRuleSet?.Revision != workingRuleSet.Revision)
                 throw new InvalidOperationException("The project, active schema, or Working Rule Set changed while the local model was generating. Nothing was saved; start the proposal again in the current workspace.");
-            var proposal = ContentProposalLifecycleService.Create(project.Id, selectedType.Id, result.Candidate, activeSchema.Id, activeSchema.Revision, workingRuleSet.Id, workingRuleSet.Revision, DateTimeOffset.UtcNow, replaces, result.SchemaGaps, designerRequest, result.GenerationContext, result.SimilarityWarnings);
+            var proposal = ContentProposalLifecycleService.Create(project.Id, selectedType.Id, result.Candidate, activeSchema.Id, activeSchema.Revision, workingRuleSet.Id, workingRuleSet.Revision, DateTimeOffset.UtcNow, replaces, result.SchemaGaps, designerRequest, result.GenerationContext, result.SimilarityWarnings, result.ProposedRelationships);
             await _contentProposals.SaveProposalAsync(proposal);
             _contentProposalItems.Insert(0, proposal);
             ContentProposalRequestText.Text = designerRequest;
@@ -3571,7 +3575,9 @@ public partial class MainWindow : Window
             .AppendLine("Existing Candidate:")
             .AppendLine(PrettyJson(proposal.Candidate.ToJsonString()))
             .AppendLine()
-            .AppendLine("Use newly available fields when they represent the original request. Preserve compatible content, omit unsupported fields, and report any remaining schema gaps.");
+            .AppendLine("Existing Proposed Relationships:")
+            .AppendLine(System.Text.Json.JsonSerializer.Serialize(proposal.ProposedRelationships ?? []))
+            .AppendLine("Use newly available fields when they represent the original request. Preserve compatible content and links, update link endpoints if the candidate ID changes, omit unsupported fields, and report any remaining schema gaps.");
         return text.ToString().Trim();
     }
 
@@ -3792,7 +3798,9 @@ public partial class MainWindow : Window
             .AppendLine(PrettyJson(proposal.Candidate.ToJsonString()))
             .AppendLine()
             .AppendLine("Designer Revision Guidance:")
-            .AppendLine(guidance);
+            .AppendLine(guidance)
+            .AppendLine("Existing Proposed Relationships (Preserve Unless The Guidance Changes Them; Update Endpoints If The Candidate ID Changes):")
+            .AppendLine(System.Text.Json.JsonSerializer.Serialize(proposal.ProposedRelationships ?? []));
         if (evaluation is { MechanicalViolations.Count: > 0 })
         {
             text.AppendLine().AppendLine("Mechanical Violations To Correct:");
@@ -3864,10 +3872,9 @@ public partial class MainWindow : Window
     {
         profile = _contentBalanceProfiles.FirstOrDefault(item => string.Equals(item.ActiveGameSchemaId, proposal.ActiveGameSchemaId, StringComparison.Ordinal) && item.ActiveGameSchemaRevision == proposal.ActiveGameSchemaRevision && string.Equals(item.Profile.EntityTypeId, proposal.EntityTypeId, StringComparison.Ordinal));
         if (_activeGameSchema is null || !string.Equals(proposal.ActiveGameSchemaId, _activeGameSchema.Id, StringComparison.Ordinal) || proposal.ActiveGameSchemaRevision != _activeGameSchema.Revision) return null;
-        var data = GameDataService.CreateEmpty(_activeGameSchema, DateTimeOffset.UtcNow);
-        var root = ParseJsonObject(data.DataJson, "WorldSeed could not prepare an evaluation document.");
-        ((JsonArray)root["entityInstances"]!).Add(proposal.Candidate.DeepClone());
-        var evaluated = data with { DataJson = root.ToJsonString() };
+        var data = _projectGameData is not null && _projectGameData.ProjectId == proposal.ProjectId && _projectGameData.ActiveGameSchemaId == _activeGameSchema.Id && _projectGameData.ActiveGameSchemaRevision == _activeGameSchema.Revision
+            ? _projectGameData : GameDataService.CreateEmpty(_activeGameSchema, DateTimeOffset.UtcNow);
+        var evaluated = ContentApplicationService.Preview(proposal, data, DateTimeOffset.UtcNow);
         if (profile is not null) return new ContentEvaluationService().Evaluate(new ContentEvaluationRequest(_activeGameSchema, evaluated, profile.Profile));
         var validation = GameDataService.Validate(_activeGameSchema, evaluated);
         return new ContentEvaluationResult(validation.Issues.Select(issue => new MechanicalViolation(issue.Path, issue.Message)).ToArray(), []);
@@ -4247,6 +4254,7 @@ public partial class MainWindow : Window
         _schemaClarifications.Clear();
         _workingRules.Clear();
         WorkingRuleList.ItemsSource = Array.Empty<WorkingRuleListItem>();
+        RefreshReconciliationView();
         WorkingRuleList.SelectedIndex = -1;
         WorkingRulesSummaryText.Text = "Create completed source drafts, then build one project-wide working proposal.";
         WorkingRulesStatusText.Text = "No project-level working proposal is loaded.";

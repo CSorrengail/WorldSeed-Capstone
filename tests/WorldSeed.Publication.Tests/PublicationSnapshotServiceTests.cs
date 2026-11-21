@@ -337,6 +337,26 @@ public sealed class PublicationSnapshotServiceTests
         Assert.Contains("glass-fox", edition.ManifestJson);
     }
 
+    [Fact]
+    public void Reader_uses_content_labels_for_references_and_relationships_while_manifest_keeps_ids()
+    {
+        var (rules, schema, data) = Fixture();
+        var definition = JsonNode.Parse(schema.SchemaJson)!.AsObject();
+        definition["entityTypes"]![0]!["properties"]!.AsArray().Add(JsonNode.Parse("""{"metadata":{"id":"mentor","name":"Mentor"},"valueType":{"kind":"reference","allowedEntityTypeIds":["creature"]},"required":false,"nullable":false}"""));
+        definition["relationships"] = JsonNode.Parse("""[{"metadata":{"id":"guides","name":"Guides"},"from":{"entityTypeId":"creature"},"to":{"entityTypeId":"creature"},"attributes":[]}]""");
+        var root = JsonNode.Parse(data.DataJson)!.AsObject();
+        root["entityInstances"]![0]!["values"]!["mentor"] = "private-target";
+        root["entityInstances"]!.AsArray().Add(JsonNode.Parse("""{"id":"private-target","entityTypeId":"creature","values":{"name":"Old Friend","role":"scout"}}"""));
+        root["relationshipInstances"] = JsonNode.Parse("""[{"id":"private-link","relationshipDefinitionId":"guides","fromEntityInstanceId":"glass-fox","toEntityInstanceId":"private-target","attributeValues":{}}]""");
+        var snapshot = PublicationSnapshotService.Create("Game", rules, schema with { SchemaJson = definition.ToJsonString() }, data with { DataJson = root.ToJsonString() }, Now);
+        var edition = PublicationEditionService.CreateInitial(snapshot, Now);
+        Assert.Contains("**Mentor:** Old Friend", edition.Markdown);
+        Assert.Contains("Guides: Glass Fox → Old Friend", edition.Markdown);
+        Assert.DoesNotContain("private-", edition.Markdown);
+        Assert.DoesNotContain("glass-fox", edition.Markdown);
+        Assert.Contains("private-link", edition.ManifestJson);
+    }
+
     private static (WorkingRuleSet Rules, ActiveGameSchema Schema, ProjectGameData Data) Fixture()
     {
         var rule = new WorkingRule("rule-1", "Creature Rule", WorkingRuleKind.Rule, "Creatures have a role.", [], [], [], [], null, [], []);

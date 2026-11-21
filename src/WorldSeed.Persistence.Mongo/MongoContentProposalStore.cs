@@ -64,7 +64,8 @@ internal sealed record ContentProposalDocument(
     ContentSchemaGap[]? SchemaGaps = null,
     string? DesignerRequest = null,
     ContentGenerationContext? GenerationContext = null,
-    ContentSimilarityWarning[]? SimilarityWarnings = null)
+    ContentSimilarityWarning[]? SimilarityWarnings = null,
+    BsonDocument[]? ProposedRelationships = null)
 {
     public static ContentProposalDocument FromDomain(ContentProposal proposal) => new(
         proposal.Id,
@@ -81,7 +82,8 @@ internal sealed record ContentProposalDocument(
         proposal.SchemaGaps?.ToArray(),
         proposal.DesignerRequest,
         proposal.GenerationContext,
-        proposal.SimilarityWarnings?.ToArray());
+        proposal.SimilarityWarnings?.ToArray(),
+        proposal.ProposedRelationships?.Select(link => BsonDocument.Parse(link.ToJsonString())).ToArray());
 
     public ContentProposal ToDomain()
     {
@@ -104,6 +106,7 @@ internal sealed record ContentProposalDocument(
             SchemaGaps,
             DesignerRequest,
             GenerationContext,
-            SimilarityWarnings);
+            SimilarityWarnings,
+            ProposedRelationships?.Select(link => JsonNode.Parse(link.ToJson(new JsonWriterSettings { OutputMode = JsonOutputMode.RelaxedExtendedJson }))!.AsObject()).ToArray());
     }
 }

@@ -378,6 +378,10 @@ projects.MapPut("/{projectId}/content-proposals/{proposalId}", async (string pro
 {
     if (!string.Equals(projectId, proposal.ProjectId, StringComparison.Ordinal) || !string.Equals(proposalId, proposal.Id, StringComparison.Ordinal)) return Results.BadRequest("The URL identifiers must match the proposal.");
     if (await projectsStore.LoadAsync(projectId, cancellationToken) is null) return Results.NotFound("The project does not exist.");
+    var existing = await store.LoadProposalAsync(projectId, proposalId, cancellationToken);
+    if (existing is not null && (await store.ListDecisionsAsync(projectId, cancellationToken)).Any(decision => decision.ProposalId == proposalId) &&
+        !JsonNode.DeepEquals(System.Text.Json.JsonSerializer.SerializeToNode(existing), System.Text.Json.JsonSerializer.SerializeToNode(proposal)))
+        return Results.Conflict("A reviewed proposal cannot be overwritten. Save a new proposal version for review.");
     await store.SaveProposalAsync(proposal, cancellationToken); return Results.NoContent();
 });
 projects.MapPost("/{projectId}/content-proposals/{proposalId}/decisions", async (string projectId, string proposalId, ContentProposalDecision decision, IContentProposalStore store, CancellationToken cancellationToken) =>

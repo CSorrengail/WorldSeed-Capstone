@@ -44,8 +44,9 @@ public sealed class ContentProposalDocumentTests
             createdAt,
             SchemaGaps: [new ContentSchemaGap("reach", "No reach property exists.", "Add reach to the schema.")],
             DesignerRequest: "Create an ember wolf with reach.",
-            GenerationContext: new ContentGenerationContext(["seed-1"], ["decision-1"]),
-            SimilarityWarnings: [new ContentSimilarityWarning("seed-1", "Similar values.")]);
+            GenerationContext: new ContentGenerationContext(["seed-1"], ["decision-1"], ["related-1"]),
+            SimilarityWarnings: [new ContentSimilarityWarning("seed-1", "Similar values.")],
+            ProposedRelationships: [JsonNode.Parse("""{"id":"link","relationshipDefinitionId":"uses","fromEntityInstanceId":"proposal-1","toEntityInstanceId":"related-1"}""")!.AsObject()]);
 
         var document = ContentProposalDocument.FromDomain(proposal);
 
@@ -63,6 +64,8 @@ public sealed class ContentProposalDocumentTests
         Assert.Equal(proposal.DesignerRequest, restored.DesignerRequest);
         Assert.Equal("seed-1", Assert.Single(restored.GenerationContext!.CanonicalEntityIds));
         Assert.Equal("decision-1", Assert.Single(restored.GenerationContext.DesignerDecisionIds));
+        Assert.Equal("related-1", Assert.Single(restored.GenerationContext.RelatedEntityIds!));
+        Assert.True(JsonNode.DeepEquals(proposal.ProposedRelationships![0], Assert.Single(restored.ProposedRelationships!)));
         Assert.Equal("seed-1", Assert.Single(restored.SimilarityWarnings!).CanonicalEntityId);
     }
 

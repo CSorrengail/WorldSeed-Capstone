@@ -24,6 +24,6 @@ internal static class ContentEvaluationPresenter
                         ? $"Passed: Profile {profile.Profile.Id} Found No Advisory Balance Concerns."
                         : $"Advisory Concerns From {profile.Profile.Id}:\n" + string.Join("\n", evaluation.BalanceConcerns.Select(concern => $"- {concern.Message} Observed {concern.ObservedValue}; References: {string.Join(", ", concern.References.Select(reference => reference.Label + "=" + reference.Value))}."));
 
-        return new ContentEvaluationPresentation(mechanical, balance);
+        return new ContentEvaluationPresentation(mechanical + "\nChecks Cover Declared Schema Constraints And Reference Integrity. Prose-Only Conditions Still Require Designer Review.", balance);
     }
 }

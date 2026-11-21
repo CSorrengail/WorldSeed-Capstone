@@ -170,6 +170,12 @@ public static class PublicationSnapshotService
         var entityTypes = (schema["entityTypes"] as JsonArray)?.OfType<JsonObject>()
             .Where(entity => DefinitionId(entity) is not null)
             .OrderBy(entity => DisplayName(entity), StringComparer.Ordinal).ToArray() ?? [];
+        var readerLabels = entries.GroupBy(entry => entry["entityTypeId"]!.GetValue<string>()).SelectMany(group => group.Select((entry, index) => new
+        {
+            Id = entry["id"]!.GetValue<string>(),
+            Label = ((entry["values"] as JsonObject)?.Where(property => IsLabelProperty(property.Key) && property.Value is not null)
+                .Select(property => StringValue(property.Value!)).FirstOrDefault(label => !string.IsNullOrWhiteSpace(label))) ?? $"Entry {index + 1}"
+        })).ToDictionary(item => item.Id, item => item.Label, StringComparer.Ordinal);
         foreach (var entityType in entityTypes)
         {
             var entityTypeId = DefinitionId(entityType)!;
@@ -192,7 +198,7 @@ public static class PublicationSnapshotService
                     properties.TryGetValue(property.Key, out var definition);
                     var displayName = definition is null ? property.Key : DisplayName(definition);
                     body.AppendLine($"- **{Escape(displayName)}:** {RenderValue(property.Value)}");
-                    readerBody.AppendLine($"- **{Escape(displayName)}:** {RenderReaderValue(property.Value, definition, valueTypeDefinitions)}");
+                    readerBody.AppendLine($"- **{Escape(displayName)}:** {RenderReaderValue(property.Value, definition, valueTypeDefinitions, readerLabels)}");
                 }
                 units.Add(new PublicationUnit($"content-entry:{entityTypeId}:{entryId}", PublicationUnitKind.ContentEntry, heading, contentTypeUnitId, [new("game-data-entry", entryId), new("schema-entity-type", entityTypeId)], body.ToString().TrimEnd(), readerBody.ToString().TrimEnd()));
             }
@@ -202,7 +208,15 @@ public static class PublicationSnapshotService
         foreach (var relationship in relationships)
         {
             var relationshipId = relationship["id"]?.GetValue<string>() ?? "unknown";
-            units.Add(new PublicationUnit($"relationship:{relationshipId}", PublicationUnitKind.Relationship, relationshipId, null, [new("game-data-relationship", relationshipId)], $"- `{Escape(relationshipId)}`: {RenderValue(relationship)}"));
+            var definition = (schema["relationships"] as JsonArray)?.OfType<JsonObject>().FirstOrDefault(item => DefinitionId(item) == relationship["relationshipDefinitionId"]?.GetValue<string>());
+            var label = definition is null ? "Relationship" : DisplayName(definition);
+            var from = readerLabels.GetValueOrDefault(relationship["fromEntityInstanceId"]?.GetValue<string>() ?? "", "Entry");
+            var to = readerLabels.GetValueOrDefault(relationship["toEntityInstanceId"]?.GetValue<string>() ?? "", "Entry");
+            var reader = new StringBuilder($"- {Escape(label)}: {Escape(from)} → {Escape(to)}.");
+            foreach (var attribute in (definition?["attributes"] as JsonArray)?.OfType<JsonObject>() ?? [])
+                if (DefinitionId(attribute) is { } id && relationship["attributeValues"] is JsonObject values && values.TryGetPropertyValue(id, out var value))
+                    reader.Append($" {Escape(DisplayName(attribute))}: {RenderReaderValue(value, attribute, valueTypeDefinitions, readerLabels)}.");
+            units.Add(new PublicationUnit($"relationship:{relationshipId}", PublicationUnitKind.Relationship, label, null, [new("game-data-relationship", relationshipId)], $"- `{Escape(relationshipId)}`: {RenderValue(relationship)}", reader.ToString()));
         }
 
         var entityNames = entityTypes.ToDictionary(entity => DefinitionId(entity)!, DisplayName, StringComparer.Ordinal);
@@ -321,26 +335,28 @@ public static class PublicationSnapshotService
         _ => $"`{value.ToJsonString()}`"
     };
 
-    private static string RenderReaderValue(JsonNode? value, JsonObject? property, IReadOnlyDictionary<string, JsonObject> valueTypes)
-        => RenderReaderTypedValue(value, property?["valueType"] as JsonObject, valueTypes, 0);
+    private static string RenderReaderValue(JsonNode? value, JsonObject? property, IReadOnlyDictionary<string, JsonObject> valueTypes, IReadOnlyDictionary<string, string>? labels = null)
+        => RenderReaderTypedValue(value, property?["valueType"] as JsonObject, valueTypes, 0, labels);
 
-    private static string RenderReaderTypedValue(JsonNode? value, JsonObject? type, IReadOnlyDictionary<string, JsonObject> valueTypes, int depth)
+    private static string RenderReaderTypedValue(JsonNode? value, JsonObject? type, IReadOnlyDictionary<string, JsonObject> valueTypes, int depth, IReadOnlyDictionary<string, string>? labels)
     {
         if (value is null) return "null";
         if (depth >= 32) return "(Nested Value)";
         var kind = type?["kind"]?.GetValue<string>();
+        if (kind == "reference" && value is JsonValue reference && reference.TryGetValue<string>(out var targetId))
+            return labels?.TryGetValue(targetId, out var targetLabel) == true ? Escape(targetLabel) : "(Unresolved Reference)";
         if (kind == "collection" && value is JsonArray collection)
-            return string.Join(", ", collection.Select(item => RenderReaderTypedValue(item, type?["itemType"] as JsonObject, valueTypes, depth + 1)));
+            return string.Join(", ", collection.Select(item => RenderReaderTypedValue(item, type?["itemType"] as JsonObject, valueTypes, depth + 1, labels)));
         if (kind == "definedValueType" && type?["valueTypeId"]?.GetValue<string>() is { } valueTypeId && valueTypes.TryGetValue(valueTypeId, out var definition))
         {
             var definitionKind = definition["kind"]?.GetValue<string>();
             if (definitionKind == "alias")
-                return RenderReaderTypedValue(value, definition["targetType"] as JsonObject, valueTypes, depth + 1);
+                return RenderReaderTypedValue(value, definition["targetType"] as JsonObject, valueTypes, depth + 1, labels);
             if (definitionKind == "record" && value is JsonObject record)
             {
                 var fields = (definition["properties"] as JsonArray)?.OfType<JsonObject>() ?? [];
                 return string.Join("; ", fields.Where(field => DefinitionId(field) is { } id && record.ContainsKey(id))
-                    .Select(field => $"{Escape(DisplayName(field))}: {RenderReaderTypedValue(record[DefinitionId(field)!], field["valueType"] as JsonObject, valueTypes, depth + 1)}"));
+                    .Select(field => $"{Escape(DisplayName(field))}: {RenderReaderTypedValue(record[DefinitionId(field)!], field["valueType"] as JsonObject, valueTypes, depth + 1, labels)}"));
             }
             if (definitionKind == "enumeration")
             {

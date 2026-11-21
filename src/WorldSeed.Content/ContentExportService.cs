@@ -23,6 +23,7 @@ public static class ContentExportService
             ["workingRuleSetId"] = proposal.WorkingRuleSetId, ["workingRuleSetRevision"] = proposal.WorkingRuleSetRevision,
             ["proposalId"] = proposal.Id, ["proposalVersion"] = proposal.Version,
             ["designerRequest"] = proposal.DesignerRequest,
+            ["relationshipInstances"] = new JsonArray((proposal.ProposedRelationships ?? []).Select(link => link.DeepClone()).ToArray()),
             ["generationContext"] = proposal.GenerationContext is null ? null : JsonSerializer.SerializeToNode(proposal.GenerationContext, JsonOptions),
             ["similarityWarnings"] = proposal.SimilarityWarnings is null ? null : JsonSerializer.SerializeToNode(proposal.SimilarityWarnings, JsonOptions),
             ["schemaGapAnalysis"] = new JsonObject

@@ -22,7 +22,8 @@ public sealed record ContentProposal(
     IReadOnlyList<ContentSchemaGap>? SchemaGaps = null,
     string? DesignerRequest = null,
     ContentGenerationContext? GenerationContext = null,
-    IReadOnlyList<ContentSimilarityWarning>? SimilarityWarnings = null);
+    IReadOnlyList<ContentSimilarityWarning>? SimilarityWarnings = null,
+    IReadOnlyList<JsonObject>? ProposedRelationships = null);
 
 /// <summary>An advisory model observation that a designer request exceeds the active game-owned schema.</summary>
 public sealed record ContentSchemaGap(string RequestedConcept, string Reason, string? SuggestedSchemaChange = null);
@@ -30,7 +31,8 @@ public sealed record ContentSchemaGap(string RequestedConcept, string Reason, st
 /// <summary>The bounded canonical and decision context supplied to one generation request.</summary>
 public sealed record ContentGenerationContext(
     IReadOnlyList<string> CanonicalEntityIds,
-    IReadOnlyList<string> DesignerDecisionIds);
+    IReadOnlyList<string> DesignerDecisionIds,
+    IReadOnlyList<string>? RelatedEntityIds = null);
 
 /// <summary>An advisory deterministic similarity observation; it never rejects content by itself.</summary>
 public sealed record ContentSimilarityWarning(string CanonicalEntityId, string Reason);

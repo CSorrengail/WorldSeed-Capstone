@@ -13,7 +13,8 @@ public sealed record ContentProposalGenerationRequest(
     IReadOnlyList<WorkingRule> Rules,
     string DesignerRequest,
     IReadOnlyList<JsonObject>? CanonicalEntries = null,
-    IReadOnlyList<ContentGenerationDecisionContext>? DesignerDecisions = null);
+    IReadOnlyList<ContentGenerationDecisionContext>? DesignerDecisions = null,
+    IReadOnlyList<JsonObject>? RelatedEntries = null);
 
 public sealed record ContentGenerationDecisionContext(string DecisionId, ContentProposalDecisionKind Kind, string? Note);
 public sealed record ContentProposalGenerationResult(
@@ -21,7 +22,8 @@ public sealed record ContentProposalGenerationResult(
     string RawModelOutput,
     IReadOnlyList<ContentSchemaGap>? SchemaGaps,
     ContentGenerationContext? GenerationContext = null,
-    IReadOnlyList<ContentSimilarityWarning>? SimilarityWarnings = null);
+    IReadOnlyList<ContentSimilarityWarning>? SimilarityWarnings = null,
+    IReadOnlyList<JsonObject>? ProposedRelationships = null);
 public sealed class ContentProposalGenerationFormatException(string message) : Exception(message);
 
 /// <summary>Turns one model response into a reviewable entity candidate; it never persists or applies it.</summary>
@@ -37,6 +39,8 @@ public sealed class ContentProposalGenerationService(ILanguageModelClient client
         if (request.Rules.Count == 0) throw new ArgumentException("At least one selected Working Rule is required.", nameof(request));
         var canonicalEntries = request.CanonicalEntries?.Take(MaximumCanonicalEntries + 1).ToArray() ?? [];
         var designerDecisions = request.DesignerDecisions?.Take(MaximumDesignerDecisions + 1).ToArray() ?? [];
+        var related = request.RelatedEntries?.Take(ContentReferenceContext.MaximumEntries + 1).ToArray() ?? [];
+        if (related.Length > ContentReferenceContext.MaximumEntries) throw new ArgumentException("Too many related canonical entries.");
         if (canonicalEntries.Length > MaximumCanonicalEntries) throw new ArgumentException($"Generation context supports at most {MaximumCanonicalEntries} canonical entries.", nameof(request));
         if (designerDecisions.Length > MaximumDesignerDecisions) throw new ArgumentException($"Generation context supports at most {MaximumDesignerDecisions} designer decisions.", nameof(request));
         var messages = new[]
@@ -46,18 +50,22 @@ public sealed class ContentProposalGenerationService(ILanguageModelClient client
             new LlmMessage(LlmMessageRole.System, "Working Rules:\n" + string.Join("\n", request.Rules.Select(rule => $"[{rule.Id}] {rule.AuthoritativeText}"))),
             new LlmMessage(LlmMessageRole.System, BuildCanonicalContext(canonicalEntries)),
             new LlmMessage(LlmMessageRole.System, BuildDecisionContext(designerDecisions)),
+            new LlmMessage(LlmMessageRole.System, "Related canonical entries (existing IDs only; not permission to edit them):\n" + new JsonArray(related.Select(item => item.DeepClone()).ToArray()).ToJsonString() +
+                "\nRelevant relationship definitions:\n" + new JsonArray(ContentReferenceContext.Relationships(request.ActiveSchema, request.EntityTypeId).Select(item => item.DeepClone()).ToArray()).ToJsonString() +
+                "\nUse only shown existing instance IDs for references. You may also return a top-level relationshipInstances array (at most six) with id, relationshipDefinitionId, fromEntityInstanceId, toEntityInstanceId, and attributeValues. Every proposed link must involve your candidate's own ID and a declared relationship. Do not create other entities, invent definitions or target IDs, or silently omit a requested connection. Report missing prerequisites or unsupported links in schemaGaps. Links remain unapproved until the candidate is reviewed."),
             new LlmMessage(LlmMessageRole.User, request.DesignerRequest)
         };
         var response = await _client.CompleteAsync(new LlmChatRequest(messages, Temperature: 0.2, MaxOutputTokens: 1800, RequireJsonObject: true), cancellationToken);
         var parsed = ParseResponse(response.Content, request.EntityTypeId);
         var candidateId = parsed.Candidate["id"]!.GetValue<string>();
-        if (canonicalEntries.Any(entry => string.Equals(entry["id"]?.GetValue<string>(), candidateId, StringComparison.OrdinalIgnoreCase)))
+        if (canonicalEntries.Concat(related).Any(entry => string.Equals(entry["id"]?.GetValue<string>(), candidateId, StringComparison.OrdinalIgnoreCase)))
             throw new ContentProposalGenerationFormatException($"Candidate id '{candidateId}' already belongs to canonical game data. Generate a new entry with a distinct id.");
         var context = new ContentGenerationContext(
             canonicalEntries.Select(entry => entry["id"]?.GetValue<string>()).Where(id => !string.IsNullOrWhiteSpace(id)).Cast<string>().ToArray(),
-            designerDecisions.Select(decision => decision.DecisionId).ToArray());
+            designerDecisions.Select(decision => decision.DecisionId).ToArray(),
+            related.Select(item => item["id"]!.GetValue<string>()).Distinct().ToArray());
         var warnings = FindSimilarityWarnings(parsed.Candidate, canonicalEntries);
-        return new ContentProposalGenerationResult(parsed.Candidate, response.Content, parsed.SchemaGaps, context, warnings);
+        return new ContentProposalGenerationResult(parsed.Candidate, response.Content, parsed.SchemaGaps, context, warnings, parsed.ProposedRelationships);
     }
 
     public static JsonObject ParseCandidate(string content, string entityTypeId) => ParseResponse(content, entityTypeId).Candidate;
@@ -77,7 +85,14 @@ public sealed class ContentProposalGenerationService(ILanguageModelClient client
                 if (gapArray.Count > 12) throw new ContentProposalGenerationFormatException("The model reported too many schema gaps.");
                 gaps = gapArray.Select((node, index) => ParseSchemaGap(node, index)).ToArray();
             }
-            return new ContentProposalGenerationResult((JsonObject)candidate.DeepClone(), content, gaps);
+            JsonObject[]? links = root["relationshipInstances"] is null ? null : root["relationshipInstances"] is JsonArray array && array.Count <= 6
+                ? array.Select(item => item is JsonObject link ? (JsonObject)link.DeepClone() : throw new ContentProposalGenerationFormatException("Relationship instances must be objects.")).ToArray()
+                : throw new ContentProposalGenerationFormatException("relationshipInstances must be an array with at most six links.");
+            foreach (var link in links ?? [])
+                if (link["fromEntityInstanceId"]?.GetValue<string>() != candidate["id"]!.GetValue<string>() &&
+                    link["toEntityInstanceId"]?.GetValue<string>() != candidate["id"]!.GetValue<string>())
+                    throw new ContentProposalGenerationFormatException("A proposed relationship must involve the new candidate.");
+            return new ContentProposalGenerationResult((JsonObject)candidate.DeepClone(), content, gaps, ProposedRelationships: links);
         }
         catch (JsonException) { throw new ContentProposalGenerationFormatException("The model did not return valid JSON."); }
     }
@@ -222,7 +237,7 @@ public sealed class ContentProposalGenerationService(ILanguageModelClient client
             }
         }
         if (kind == "collection") return $"JSON array whose items are {DescribeRuntimeValue(type?["itemType"] as JsonObject, valueTypes, depth + 1).TrimEnd('.')}.";
-        if (kind == "reference") return "JSON string containing an existing allowed entity-instance ID.";
+        if (kind == "reference") return $"JSON string containing an existing instance ID of these allowed types: {type?["allowedEntityTypeIds"]?.ToJsonString()}.";
         if (kind == "map") return "JSON object whose keys and values follow the declared map types.";
         if (kind == "union") return "a JSON value matching one declared union option.";
         return "JSON value matching the declared schema type.";

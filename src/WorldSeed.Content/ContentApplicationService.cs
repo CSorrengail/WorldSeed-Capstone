@@ -24,7 +24,8 @@ public sealed record ContentApplication(
     ContentApplicationStatus Status,
     DateTimeOffset CreatedAt,
     DateTimeOffset? AppliedAt = null,
-    DateTimeOffset? ResultingGameDataUpdatedAt = null);
+    DateTimeOffset? ResultingGameDataUpdatedAt = null,
+    string? RelationshipInstancesJson = null);
 
 public interface IContentApplicationStore
 {
@@ -65,14 +66,18 @@ public static class ContentApplicationService
         if (entities.OfType<JsonObject>().Any(entity => string.Equals(entity["id"]?.GetValue<string>(), candidateId, StringComparison.OrdinalIgnoreCase)))
             throw new InvalidOperationException($"Canonical Game Data already contains entity id '{candidateId}'. WorldSeed will not overwrite or merge it automatically.");
 
-        entities.Add(proposal.Candidate.DeepClone());
-        var updated = gameData with { DataJson = root.ToJsonString(), UpdatedAt = now };
+        foreach (var link in proposal.ProposedRelationships ?? [])
+            if (link["fromEntityInstanceId"]?.GetValue<string>() != candidateId && link["toEntityInstanceId"]?.GetValue<string>() != candidateId)
+                throw new InvalidOperationException("Proposed relationships must involve this candidate.");
+        var updated = Preview(proposal, gameData, now);
         var validation = GameDataService.Validate(activeSchema, updated);
         if (!validation.IsValid)
             throw new InvalidOperationException("The approved proposal is not mechanically valid against the current schema: " + string.Join(" ", validation.Issues.Select(issue => $"{issue.Path}: {issue.Message}")));
 
         var snapshot = proposal.Candidate.ToJsonString();
-        var fingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(snapshot))).ToLowerInvariant();
+        var linksJson = proposal.ProposedRelationships is { Count: > 0 }
+            ? new JsonArray(proposal.ProposedRelationships.Select(link => link.DeepClone()).ToArray()).ToJsonString() : null;
+        var fingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(snapshot + (linksJson is null ? "" : "\n" + linksJson)))).ToLowerInvariant();
         var application = new ContentApplication(
             $"content-application-{proposal.Id}-v{proposal.Version}",
             proposal.ProjectId,
@@ -87,7 +92,7 @@ public static class ContentApplicationService
             activeSchema.Revision,
             gameData.Id,
             ContentApplicationStatus.Pending,
-            now);
+            now, RelationshipInstancesJson: linksJson);
         return new ContentApplicationPreparation(application, updated);
     }
 
@@ -109,6 +114,25 @@ public static class ContentApplicationService
         var existing = (root?["entityInstances"] as JsonArray)?.OfType<JsonObject>()
             .FirstOrDefault(entity => string.Equals(entity["id"]?.GetValue<string>(), application.EntityInstanceId, StringComparison.OrdinalIgnoreCase));
         var snapshot = JsonNode.Parse(application.CandidateJson);
-        return existing is not null && snapshot is not null && JsonNode.DeepEquals(existing, snapshot);
+        var expectedLinks = application.RelationshipInstancesJson is null ? null : JsonNode.Parse(application.RelationshipInstancesJson) as JsonArray;
+        var actualLinks = root?["relationshipInstances"] as JsonArray;
+        return existing is not null && snapshot is not null && JsonNode.DeepEquals(existing, snapshot) &&
+            (expectedLinks?.All(expected => actualLinks?.Any(actual => JsonNode.DeepEquals(actual, expected)) == true) ?? true);
+    }
+
+    /// <summary>Review in canonical context without changing its original document.</summary>
+    public static ProjectGameData Preview(ContentProposal proposal, ProjectGameData gameData, DateTimeOffset now)
+    {
+        if (proposal.ProjectId != gameData.ProjectId || proposal.ActiveGameSchemaId != gameData.ActiveGameSchemaId ||
+            proposal.ActiveGameSchemaRevision != gameData.ActiveGameSchemaRevision)
+            throw new InvalidOperationException("The proposal and canonical context belong to different schema revisions or projects.");
+        var root = JsonNode.Parse(gameData.DataJson)!.AsObject();
+        var entities = root["entityInstances"]!.AsArray();
+        if (!entities.Any(entity => JsonNode.DeepEquals(entity, proposal.Candidate))) entities.Add(proposal.Candidate.DeepClone());
+        if (root["relationshipInstances"] is not JsonArray) root["relationshipInstances"] = new JsonArray();
+        var links = root["relationshipInstances"]!.AsArray();
+        foreach (var link in proposal.ProposedRelationships ?? [])
+            if (!links.Any(existing => JsonNode.DeepEquals(existing, link))) links.Add(link.DeepClone());
+        return gameData with { DataJson = root.ToJsonString(), UpdatedAt = now };
     }
 }
