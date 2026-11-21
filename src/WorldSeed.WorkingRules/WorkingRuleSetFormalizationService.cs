@@ -36,6 +36,8 @@ public sealed class WorkingRuleSetFormalizationService
     public async Task<WorkingRuleSetFormalizationResult> CreateProposalAsync(DesignProject project, WorkingRuleSet? currentRuleSet = null, CancellationToken cancellationToken = default, bool addMissingOnly = false)
     {
         ArgumentNullException.ThrowIfNull(project);
+        if (!addMissingOnly && currentRuleSet?.Reconciliations?.Any(item => item.State == RuleReconciliationState.Applied) == true)
+            throw new InvalidOperationException("Rebuilding from source drafts would undo accepted rule updates. Use Add Missing Draft Rules or reconcile existing rules instead.");
         var sourceDrafts = CompletedDraftCatalog.Create(project, latestOnly: addMissingOnly);
         if (sourceDrafts.Count == 0) throw new ArgumentException("At least one completed source draft is required before creating project rules.", nameof(project));
         if (currentRuleSet is not null && !string.Equals(currentRuleSet.ProjectId, project.Id, StringComparison.Ordinal)) throw new ArgumentException("The current working rule set belongs to a different project.", nameof(currentRuleSet));
@@ -61,6 +63,7 @@ public sealed class WorkingRuleSetFormalizationService
             .Select(session => session.LatestTurn!.Draft!).ToArray();
         ruleSet = ruleSet with
         {
+            Reconciliations = currentRuleSet?.Reconciliations,
             OpenQuestions = DistinctNonBlank(ruleSet.OpenQuestions.Concat(includedDrafts.SelectMany(draft => draft.OpenQuestions))
                 .Concat(includedDrafts.SelectMany(draft => draft.Assumptions).Where(value => !string.IsNullOrWhiteSpace(value))
                     .Select(value => "Unconfirmed Source-Draft Assumption: " + value.Trim()))),

@@ -41,7 +41,8 @@ public sealed record WorkingRuleSet(
     IReadOnlyList<WorkingRuleConcept> Concepts,
     IReadOnlyList<string> OpenQuestions,
     IReadOnlyList<string> Exclusions,
-    IReadOnlyList<string> Conflicts);
+    IReadOnlyList<string> Conflicts,
+    IReadOnlyList<RuleReconciliation>? Reconciliations = null);
 
 public interface IWorkingRuleSetStore
 {

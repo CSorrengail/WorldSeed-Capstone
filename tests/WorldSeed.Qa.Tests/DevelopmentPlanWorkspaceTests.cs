@@ -194,6 +194,46 @@ public sealed class DevelopmentPlanWorkspaceTests
         finally { window.Close(); }
     }
 
+    [AvaloniaFact]
+    public async Task Rule_reconciliation_is_reviewed_saved_and_prepared_without_automatic_schema_activation()
+    {
+        var inventory = Inventory(); var now = inventory.CapturedAt;
+        var handler = new DevelopmentPlanApiHandler(inventory);
+        var first = new WorkingRule("first", "Promise One", WorkingRuleKind.Rule, "Record promises.", [], [], [], [], null, [], []);
+        handler.WorkingRules = new WorkingRuleSet("rules", inventory.ProjectId, "0.1", "Story", null, 1, now, now,
+            [first, first with { Id = "second", Name = "Promise Two", AuthoritativeText = "Record each promise once." }], [], [], [], []);
+        const string schema = """{"id":"story","name":"Story","version":"1","entityTypes":[{"metadata":{"id":"promise","name":"Promise"},"properties":[]}]}""";
+        handler.SavedSchema = new ProjectSchemaProposal("proposal", inventory.ProjectId, "0.1", "Keep", schema,
+            [new("promise", ["first", "second"])], "rules", 1, ["first", "second"], now, now);
+        handler.ActiveSchema = new ActiveGameSchema("active", inventory.ProjectId, "0.1", "Story", schema, "proposal", "rules", 1, 1, now, now);
+        using var model = new HttpClient(new SequencedOllamaHandler("""{"name":"Promises","kind":"rule","text":"Record each promise once.","rationale":"Remove duplicate wording.","question":null}""")) { BaseAddress = new Uri("http://model.invalid/") };
+        using var api = new HttpClient(handler) { BaseAddress = new Uri("http://qa.invalid/") };
+        var window = CreateWindow(model, api, inventory);
+        try
+        {
+            SetField(window, "_workingRuleSet", handler.WorkingRules);
+            SetField(window, "_activeGameSchema", handler.ActiveSchema);
+            typeof(MainWindow).GetMethod("RefreshWorkingRulesView", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(window, null);
+            var list = window.FindControl<ListBox>("WorkingRuleList")!;
+            list.SelectedItems!.Clear();
+            foreach (var item in list.ItemsSource!) list.SelectedItems.Add(item);
+            Assert.True(await window.ProposeReconciliationAsync());
+            Assert.Equal(2, handler.WorkingRules.Rules.Count);
+            Assert.Equal(1, handler.WorkingRules.Revision);
+            Assert.True(await window.DecideReconciliationAsync(true));
+            Assert.Single(handler.WorkingRules.Rules);
+            Assert.Equal(2, handler.WorkingRules.Revision);
+            Assert.Equal(RuleReconciliationState.Applied, handler.WorkingRules.Reconciliations!.Single().State);
+            Assert.True(await window.PrepareReconciliationSchemaAsync());
+            Assert.Equal(2, handler.SavedSchema.WorkingRuleSetRevision);
+            Assert.Equal(new[] { "first" }, handler.SavedSchema.DefinitionSources[0].WorkingRuleIds);
+            Assert.Equal(0, handler.ActivationCount);
+            Assert.Equal(1, handler.ActiveSchema.WorkingRuleSetRevision);
+            Assert.Equal(2, window.FindControl<TabControl>("WorkspaceTabs")!.SelectedIndex);
+        }
+        finally { window.Close(); }
+    }
+
     private static MainWindow CreateWindow(HttpClient model, HttpClient api, ProjectInventory inventory)
     {
         var window = new MainWindow(model, api);
@@ -270,6 +310,7 @@ public sealed class DevelopmentPlanWorkspaceTests
         public List<ExpansionRequest> ExpansionRequests { get; } = [];
         public List<ExpansionSchemaDecision> SchemaDecisions { get; } = [];
         public List<SchemaChangeRequest> SchemaChanges { get; } = [];
+        public WorkingRuleSet? WorkingRules { get; set; }
         public int SchemaChangeReads { get; private set; }
         public ExpansionProgressStage ProgressStage { get; set; } = ExpansionProgressStage.ReadyForClarification;
         public ActiveGameSchema? ActiveSchema { get; set; }
@@ -281,6 +322,16 @@ public sealed class DevelopmentPlanWorkspaceTests
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var path = request.RequestUri!.AbsolutePath;
+            if (path.EndsWith("/working-rules", StringComparison.Ordinal))
+            {
+                if (request.Method == HttpMethod.Get && WorkingRules is not null)
+                    return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(WorkingRules, options: Options) };
+                if (request.Method == HttpMethod.Put)
+                {
+                    WorkingRules = await request.Content!.ReadFromJsonAsync<WorkingRuleSet>(Options, cancellationToken);
+                    return new HttpResponseMessage(HttpStatusCode.NoContent);
+                }
+            }
             if (request.Method == HttpMethod.Get && path.EndsWith("/schema-change-requests", StringComparison.Ordinal))
             {
                 SchemaChangeReads++;

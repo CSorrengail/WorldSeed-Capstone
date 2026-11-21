@@ -1613,6 +1613,7 @@ public partial class MainWindow : Window
         WorkingRuleList.ItemsSource = _workingRules.Select(rule => new WorkingRuleListItem(rule)).ToArray();
         if (_schemaProposal is null) _schemaQueueRuleIds.Clear();
         WorkingRuleList.SelectedIndex = selected is null ? -1 : _workingRules.FindIndex(rule => rule.Id == selected);
+        RefreshReconciliationView();
         if (_workingRuleSet is null)
         {
             WorkingRulesSummaryText.Text = "Create completed source drafts, then build one project-wide working proposal.";
