@@ -21,7 +21,8 @@ public class DesignSessionServiceTests
         Assert.Equal(3, advanced.Messages.Count);
         Assert.Equal(LlmMessageRole.Assistant, advanced.Messages.Last().Role);
         Assert.Equal(RuleDraftAction.AskClarifyingQuestion, advanced.LatestTurn!.Action);
-        Assert.Contains("source-001", model.Request!.Messages[1].Content);
+        Assert.Contains(model.Request!.Messages, message => message.Content.Contains("[p1 | n1] Magic leaves marks."));
+        Assert.Equal("source-001", advanced.SourceNotes.Single().Id);
     }
 
     [Fact]

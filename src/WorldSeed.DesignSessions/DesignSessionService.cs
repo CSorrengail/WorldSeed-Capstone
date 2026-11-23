@@ -41,7 +41,7 @@ public sealed class DesignSessionService
     public async Task<DesignSession> AdvanceAsync(DesignSession session, CancellationToken cancellationToken = default)
         => await AdvanceAsync(session, null, false, cancellationToken);
 
-    public async Task<DesignSession> AdvanceAsync(DesignSession session, string? workflowInstruction, bool requireClarificationOnFirstTurn, CancellationToken cancellationToken = default)
+    public async Task<DesignSession> AdvanceAsync(DesignSession session, string? workflowInstruction, bool requireClarificationOnFirstTurn, CancellationToken cancellationToken = default, IProgress<RuleDraftProgress>? progress = null)
     {
         ArgumentNullException.ThrowIfNull(session);
         ValidateSession(session);
@@ -51,7 +51,7 @@ public sealed class DesignSessionService
              !session.SourceNotes.Skip(1).Any(source => string.Equals(source.OriginalText, session.Messages[^1].Content, StringComparison.Ordinal))))
             throw new RuleDraftFormatException("An expansion requires an explicit designer answer saved as source material before continuing.");
         var conversation = new RuleDraftConversation(session.ProjectId, session.SourceNotes.Select(source => source.Id).ToArray(), session.Messages, session.SourceNotes.ToDictionary(source => source.Id, source => source.OriginalText, StringComparer.Ordinal), WorkflowInstruction: workflowInstruction, AllowDesignOptions: requireClarificationOnFirstTurn, RequireDesignChoices: requireClarificationOnFirstTurn && firstTurn);
-        var result = await _ruleDrafting.AdvanceWithTranscriptAsync(conversation, cancellationToken);
+        var result = await _ruleDrafting.AdvanceWithTranscriptAsync(conversation, cancellationToken, progress);
         if (firstTurn && requireClarificationOnFirstTurn && result.Turn.Action != RuleDraftAction.AskClarifyingQuestion)
             throw new RuleDraftFormatException("An expansion request must begin with clarification before it can produce draft rules.");
         var messages = session.Messages.Append(new LlmMessage(LlmMessageRole.Assistant, result.RawModelResponse)).ToArray();

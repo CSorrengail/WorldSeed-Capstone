@@ -136,7 +136,7 @@ public class RuleDraftingServiceTests
     }
 
     [Fact]
-    public async Task Retries_once_with_a_compact_prompt_when_the_initial_draft_is_truncated()
+    public async Task Retries_a_single_source_passage_without_reducing_its_output_budget()
     {
         var model = new SequenceModel(
             """{"action":"presentDraft","draft":{"title":"Incomplete""",
@@ -154,9 +154,9 @@ public class RuleDraftingServiceTests
 
         Assert.Equal("Combat", result.Turn.Draft!.Title);
         Assert.Equal(2, model.Requests.Count);
-        Assert.Equal(4800, model.Requests[0].MaxOutputTokens);
-        Assert.Equal(2400, model.Requests[1].MaxOutputTokens);
-        Assert.Contains(model.Requests[1].Messages, message => message.Content.Contains("previous response was cut off"));
+        Assert.Equal(RuleDraftingService.MaximumIntakeOutputTokens, model.Requests[0].MaxOutputTokens);
+        Assert.Equal(RuleDraftingService.MaximumIntakeOutputTokens, model.Requests[1].MaxOutputTokens);
+        Assert.Contains(model.Requests[1].Messages, message => message.Content.Contains("complete compact replacement for these target passages"));
     }
 
     [Fact]

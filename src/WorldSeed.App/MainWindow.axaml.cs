@@ -511,14 +511,19 @@ public partial class MainWindow : Window
     private async Task AdvanceAndSaveAsync(DesignSourceNote note, DesignSession session, DesignSessionService service, CapturingClient capture, string model)
     {
         DraftButton.IsEnabled = false; SubmitAnswersButton.IsEnabled = false;
-        StatusText.Text = $"Working on {note.Origin?.DisplayName ?? note.Id} with {model}. This can take a few seconds…";
+        StatusText.Text = $"Processing {note.Origin?.DisplayName ?? note.Id} with {model} in small passage batches…";
         try
         {
             var isExpansion = _expansionRequests.Any(item => item.SourceNoteId == note.Id);
             var result = await service.AdvanceAsync(
                 session,
                 isExpansion ? ExpansionRequestService.ClarificationInstruction : null,
-                requireClarificationOnFirstTurn: isExpansion);
+                requireClarificationOnFirstTurn: isExpansion,
+                progress: new Progress<RuleDraftProgress>(progress =>
+                {
+                    if (!DraftButton.IsEnabled && _project?.Id == session.ProjectId && SelectedNote?.Id == note.Id)
+                        StatusText.Text = $"Processing Source Passages {progress.CompletedPassages} Of {progress.TotalPassages}…";
+                }));
             if (_project is null || _project.Id != result.ProjectId) throw new InvalidOperationException("The selected project changed while drafting. Return to the original project before retrying.");
             _project = DesignProjectService.SaveSession(_project, result); await ProjectStore().SaveAsync(_project); await RefreshProjectsAsync(); RefreshNotes(); ShowSelectedSource();
             await LoadDevelopmentPlansAsync(_project.Id);

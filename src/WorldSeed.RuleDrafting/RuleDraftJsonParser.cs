@@ -7,7 +7,7 @@ public sealed class RuleDraftJsonParser
 {
     private readonly StructuredRuleDraftValidator _validator = new();
 
-    public RuleDraftTurn Parse(string content, IReadOnlySet<string> allowedSourceNoteIds, IReadOnlyDictionary<string, string>? sourceTextById = null, IReadOnlyList<SourcePassage>? sourcePassages = null, bool allowDesignOptions = false, bool requireDesignChoices = false)
+    public RuleDraftTurn Parse(string content, IReadOnlySet<string> allowedSourceNoteIds, IReadOnlyDictionary<string, string>? sourceTextById = null, IReadOnlyList<SourcePassage>? sourcePassages = null, bool allowDesignOptions = false, bool requireDesignChoices = false, bool allowEmptyDraft = false)
     {
         if (allowedSourceNoteIds is null || allowedSourceNoteIds.Count == 0) throw new ArgumentException("At least one allowed source note id is required.", nameof(allowedSourceNoteIds));
         JsonObject root;
@@ -51,7 +51,7 @@ public sealed class RuleDraftJsonParser
         if (draft is not null)
         {
             draft = RepairNearExcerpts(draft, sourceTextById);
-            var issues = _validator.Validate(draft, action == RuleDraftAction.PresentDraft, allowedSourceNoteIds, sourceTextById);
+            var issues = _validator.Validate(draft, action == RuleDraftAction.PresentDraft && !allowEmptyDraft, allowedSourceNoteIds, sourceTextById);
             if (issues.Count > 0) throw new RuleDraftFormatException(string.Join(" ", issues));
         }
         return new RuleDraftTurn(action, legacyQuestion ?? questions.FirstOrDefault(), questions, draft);
