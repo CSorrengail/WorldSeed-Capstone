@@ -101,6 +101,50 @@ public class BoundedSourceIntakeTests
     private static RuleDraftConversation Conversation(string source) => new("project", [SourceId],
         [new(LlmMessageRole.User, source)], new Dictionary<string, string> { [SourceId] = source });
 
+    [Fact]
+    public async Task Omitted_heading_retries_only_the_missing_passage_and_keeps_valid_rules()
+    {
+        var model = new ExtractionModel((request, call) =>
+        {
+            if (call == 1)
+            {
+                var rule = new JsonObject { ["id"] = "starting-level", ["name"] = "Starting Level", ["kind"] = "rule", ["text"] = "Begin at level 1.",
+                    ["sourceNoteIds"] = new JsonArray("n1"), ["sourceSupport"] = new JsonArray(new JsonObject { ["sourceNoteId"] = "n1", ["passageIds"] = new JsonArray("p2") }) };
+                return Response(new JsonArray(rule));
+            }
+            return Response([], new JsonArray(new JsonObject { ["passageId"] = "p1", ["disposition"] = "metadata", ["reason"] = "Section heading." }));
+        });
+        var result = await new RuleDraftingService(model).AdvanceAsync(Conversation("Advancement. Begin at level 1."));
+        Assert.Single(result.Draft!.Rules);
+        Assert.Equal("Begin at level 1.", result.Draft.Rules[0].Text);
+        Assert.Equal(new[] { 2, 1 }, model.Requests.Select(request => Targets(request).Count));
+        Assert.Contains("Section heading.", Assert.Single(result.Draft.Exclusions));
+        Assert.Empty(result.Draft.OpenQuestions);
+    }
+
+    [Fact]
+    public async Task Repeated_context_only_output_is_flagged_for_review_without_losing_valid_rules()
+    {
+        var model = new ExtractionModel((_, call) => Response(new JsonArray(new JsonObject
+        {
+            ["id"] = "starting-level", ["name"] = "Starting Level", ["kind"] = "rule", ["text"] = "Begin at level 1.",
+            ["sourceNoteIds"] = new JsonArray("n1"), ["sourceSupport"] = new JsonArray(new JsonObject { ["sourceNoteId"] = "n1", ["passageIds"] = new JsonArray("p2") })
+        })));
+        var result = await new RuleDraftingService(model).AdvanceAsync(Conversation("Advancement. Begin at level 1."));
+        Assert.Single(result.Draft!.Rules);
+        Assert.Contains("Extraction Needs Review:", Assert.Single(result.Draft.OpenQuestions));
+        Assert.Contains("Advancement.", result.Draft.OpenQuestions[0]);
+        Assert.Equal(2, model.Requests.Count);
+    }
+
+    [Fact]
+    public async Task Batches_have_following_context_without_drafting_it_twice()
+    {
+        var model = new ExtractionModel();
+        await new RuleDraftingService(model).AdvanceAsync(Conversation(string.Join(" ", Enumerable.Range(1, 8).Select(index => $"Rule {index} applies."))));
+        Assert.Contains(model.Requests[0].Messages, message => message.Content.StartsWith("Read-only neighboring context:") && message.Content.Contains("Rule 7 applies.") && message.Content.Contains("Rule 8 applies."));
+    }
+
     private static List<(string Id, string Note, string Text)> Targets(LlmChatRequest request) => Regex.Matches(
         request.Messages.Single(message => message.Content.StartsWith("Target passages:\n")).Content,
         @"\[(p\d+) \| (n\d+)\] ([^\n]+)").Select(match => (match.Groups[1].Value, match.Groups[2].Value, match.Groups[3].Value)).ToList();

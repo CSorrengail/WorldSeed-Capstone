@@ -68,12 +68,14 @@ public sealed partial class RuleDraftingService
         if (uniqueQuestions.Length > 0) transcript["clarifyingQuestions"] = JsonSerializer.SerializeToNode(uniqueQuestions);
         return new RuleDraftingResult(turn, transcript.ToJsonString());
 
-        async Task ProcessAsync(IntakePart[] batch)
+        async Task ProcessAsync(IntakePart[] batch, bool coverageRetry = false)
         {
             cancellationToken.ThrowIfCancellationRequested();
             progress?.Report(new(completed, parts.Length));
             var first = Array.IndexOf(parts, batch[0]);
+            var last = Array.IndexOf(parts, batch[^1]);
             var context = parts.Take(1).Concat(parts.Skip(Math.Max(0, first - 2)).Take(Math.Min(first, 2)))
+                .Concat(parts.Skip(last + 1).Take(2))
                 .Where(part => !batch.Contains(part)).DistinctBy(part => part.Fragment.Id).Select(part => part.Fragment).ToArray();
             var available = batch.Select(part => part.Fragment).Concat(context).Concat(answers).DistinctBy(passage => passage.Id).ToArray();
             var passageAliases = available.Select((passage, index) => (Alias: "p" + (index + 1), Passage: passage))
@@ -98,6 +100,7 @@ public sealed partial class RuleDraftingService
                 new(LlmMessageRole.System, "Saved designer answers:\n" + Format(answers))
             };
             if (!string.IsNullOrWhiteSpace(conversation.WorkflowInstruction)) messages.Add(new(LlmMessageRole.System, conversation.WorkflowInstruction));
+            if (coverageRetry) messages.Add(new(LlmMessageRole.System, "A prior draft omitted these target passages. Process ONLY these targets, using neighbors solely for context. A heading, navigation, or license notice is metadata, not a new game rule. If no rule can be extracted, return draft.rules: [] and passageNotes: [{\"passageId\":\"p1\",\"disposition\":\"metadata\",\"reason\":\"Explain why\"}] using the actual target IDs. Never substitute rules from neighboring context."));
             foreach (var message in conversation.Messages.Where(message => message.Role == LlmMessageRole.User && !sources.Values.Contains(message.Content, StringComparer.Ordinal)))
                 messages.Add(new(LlmMessageRole.User, message.Content));
             messages.Add(new(LlmMessageRole.User, "Extract the target source passages into complete, faithful rules now. Return the specified JSON only."));
@@ -105,6 +108,7 @@ public sealed partial class RuleDraftingService
             {
                 if (++calls > parts.Length * 4 + 4) throw new RuleDraftFormatException("The model repeatedly failed bounded source extraction. No completed draft was saved.");
                 var response = await _client.CompleteAsync(new(messages, Temperature: 0.1, MaxOutputTokens: MaximumIntakeOutputTokens, ResponseSchema: schema), cancellationToken);
+                var accepted = false;
                 try
                 {
                     var root = JsonNode.Parse(response.Content) as JsonObject ?? throw new RuleDraftFormatException("The model did not return a JSON object.");
@@ -125,10 +129,15 @@ public sealed partial class RuleDraftingService
                         var draft = parsed.Draft!;
                         if (draft.Rules.Count > 8) throw new RuleDraftFormatException("The bounded draft exceeded its rule budget.");
                         var notes = ReadPassageNotes(root, passageAliases, batch);
-                        var missing = batch.Where(part => !draft.Rules.SelectMany(rule => rule.SourceSupport).Any(support =>
+                        bool Supports(RuleSourceSupport support, IntakePart part) =>
                             support.PassageId == part.Fragment.Id || support.PassageId == part.Original.Id ||
-                            support.PassageId is null && support.SourceNoteId == part.Original.SourceNoteId && part.Fragment.Text.Contains(support.Excerpt, StringComparison.Ordinal)) && !notes.ContainsKey(part.Fragment.Id)).ToArray();
-                        if (missing.Length > 0) throw new RuleDraftFormatException("The bounded draft did not account for all target passages.");
+                            support.PassageId is null && support.SourceNoteId == part.Original.SourceNoteId && part.Fragment.Text.Contains(support.Excerpt, StringComparison.Ordinal);
+                        // Do not duplicate context-only rules when repairing an omitted heading.
+                        draft = draft with { Rules = draft.Rules.Where(rule => rule.SourceSupport.Any(support => batch.Any(part => Supports(support, part)))).ToArray() };
+                        var missing = batch.Where(part => !draft.Rules.SelectMany(rule => rule.SourceSupport).Any(support => Supports(support, part)) && !notes.ContainsKey(part.Fragment.Id)).ToArray();
+                        if (coverageRetry)
+                            foreach (var part in missing)
+                                notes[part.Fragment.Id] = ("unresolved", $"[{part.Original.Id}] Extraction Needs Review: The model did not account for this source passage after a focused retry. Original Text: {part.Fragment.Text}");
                         var restored = draft with
                         {
                             Rules = draft.Rules.Select(rule => rule with { SourceSupport = rule.SourceSupport.Select(support =>
@@ -140,24 +149,31 @@ public sealed partial class RuleDraftingService
                             OpenQuestions = draft.OpenQuestions.Concat(notes.Values.Where(note => note.Kind == "unresolved").Select(note => note.Text)).ToArray()
                         };
                         drafts.Add(restored);
+                        accepted = true;
+                        if (missing.Length > 0 && !coverageRetry)
+                        {
+                            completed += batch.Length - missing.Length;
+                            await ProcessAsync(missing, coverageRetry: true);
+                            return;
+                        }
                     }
                     completed += batch.Length; progress?.Report(new(completed, parts.Length)); return;
                 }
-                catch (JsonException) when (batch.Length > 1)
-                { await SplitAsync(batch); return; }
-                catch (RuleDraftFormatException ex) when (batch.Length > 1 && !ex.Message.Contains("task instead", StringComparison.Ordinal))
-                { await SplitAsync(batch); return; }
-                catch (Exception ex) when (attempt == 0 && (ex is JsonException or RuleDraftFormatException))
+                catch (JsonException) when (!accepted && batch.Length > 1)
+                { await SplitAsync(batch, coverageRetry); return; }
+                catch (RuleDraftFormatException ex) when (!accepted && batch.Length > 1 && !ex.Message.Contains("task instead", StringComparison.Ordinal))
+                { await SplitAsync(batch, coverageRetry); return; }
+                catch (Exception ex) when (!accepted && attempt == 0 && (ex is JsonException or RuleDraftFormatException))
                 { messages.Add(new(LlmMessageRole.System, "Return a complete compact replacement for these target passages. Account for each target, use only provided citation IDs, and close the JSON object. Error: " + ex.Message)); }
                 catch (JsonException)
                 { throw new RuleDraftFormatException("The model returned incomplete or invalid JSON even for a single source passage. No completed draft was saved."); }
             }
             throw new RuleDraftFormatException("The model could not extract this bounded source passage. No completed draft was saved.");
         }
-        async Task SplitAsync(IntakePart[] batch)
+        async Task SplitAsync(IntakePart[] batch, bool coverageRetry)
         {
             var middle = batch.Length / 2;
-            await ProcessAsync(batch[..middle]); await ProcessAsync(batch[middle..]);
+            await ProcessAsync(batch[..middle], coverageRetry); await ProcessAsync(batch[middle..], coverageRetry);
         }
     }
 

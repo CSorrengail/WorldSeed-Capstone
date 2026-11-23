@@ -49,6 +49,12 @@ public sealed class DesignIdeaSourceTests
             Assert.Equal("Creatures may inherit a habitat move.", source.OriginalText);
             Assert.Equal("Designer Idea: Habitat Moves", source.Origin?.DisplayName);
             Assert.Equal(0, window.FindControl<ListBox>("SourceNotesList")!.SelectedIndex);
+            var list = window.FindControl<ListBox>("SourceNotesList")!;
+            var row = Assert.IsType<Grid>(list.ItemTemplate!.Build(list.Items[0]));
+            var status = Assert.IsType<TextBlock>(row.Children[0]);
+            Assert.Equal("○", status.Text);
+            Assert.Equal("Not started", ToolTip.GetTip(status));
+            Assert.Equal("Designer Idea: Habitat Moves", Assert.IsType<TextBlock>(row.Children[1]).Text);
             Assert.Contains("Creatures may inherit", window.FindControl<TextBlock>("SourceText")!.Text);
             Assert.Contains("Start the selected source", window.FindControl<TextBlock>("StatusText")!.Text);
         }

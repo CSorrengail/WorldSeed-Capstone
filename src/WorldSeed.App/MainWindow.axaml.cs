@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Templates;
 using Avalonia.Interactivity;
 using Avalonia.Input;
 using Avalonia.Layout;
@@ -136,6 +137,17 @@ public partial class MainWindow : Window
         _projectInventoriesClient = new HttpProjectInventoryClient(_apiHttp);
         _developmentPlansClient = new HttpDevelopmentPlanClient(_apiHttp);
         InitializeComponent();
+        SourceNotesList.ItemTemplate = new FuncDataTemplate<SourceListItem>((item, _) =>
+        {
+            if (item is null) return new TextBlock();
+            var row = new Grid { ColumnDefinitions = new ColumnDefinitions("24,*"), ColumnSpacing = 6 };
+            var icon = new TextBlock { Text = item.Status == "Draft ready" ? "✓" : item.Status == "Not started" ? "○" : "!", VerticalAlignment = VerticalAlignment.Center };
+            ToolTip.SetTip(icon, item.Status);
+            var name = new TextBlock { Text = item.Note.Origin?.DisplayName ?? item.Note.Id, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center };
+            ToolTip.SetTip(name, item.Note.Origin?.DisplayName ?? item.Note.Id);
+            Grid.SetColumn(name, 1); row.Children.Add(icon); row.Children.Add(name);
+            return row;
+        });
         ContentExpansionQueueList.SelectionChanged += ContentExpansionQueueList_SelectionChanged;
         _settings = _settingsStore.Load();
         _inactivityTimer.Tick += InactivityTimer_Tick;
@@ -527,7 +539,11 @@ public partial class MainWindow : Window
             if (_project is null || _project.Id != result.ProjectId) throw new InvalidOperationException("The selected project changed while drafting. Return to the original project before retrying.");
             _project = DesignProjectService.SaveSession(_project, result); await ProjectStore().SaveAsync(_project); await RefreshProjectsAsync(); RefreshNotes(); ShowSelectedSource();
             await LoadDevelopmentPlansAsync(_project.Id);
-            StatusText.Text = result.LatestTurn!.Action == RuleDraftAction.PresentDraft ? "Validated draft saved in this project. Review each rule and its exact source excerpt." : "Clarification needed; the project was saved locally. Answer the questions in the Conversation panel.";
+            StatusText.Text = result.LatestTurn!.Action == RuleDraftAction.PresentDraft
+                ? result.LatestTurn.Draft?.OpenQuestions.Count > 0
+                    ? "Draft Saved With Unresolved Material. Review The Conversation Panel And Source Evidence."
+                    : "Validated draft saved in this project. Review each rule and its exact source excerpt."
+                : "Clarification needed; the project was saved locally. Answer the questions in the Conversation panel.";
         }
         catch (RuleDraftFormatException ex) { AppLog.Error("Validate model draft", ex); StatusText.Text = "The model returned text WorldSeed could not safely use. Nothing was saved."; DraftText.Text = $"Format detail: {ex.Message}\n\nRaw model output (for diagnosis):\n{Preview(capture.Last?.Content)}"; }
         catch (Exception ex) { AppLog.Error("Draft source", ex); StatusText.Text = "Drafting failed before a usable result was produced."; DraftText.Text = $"{ex.GetType().Name}: {ex.Message}\n\nDiagnostic log: {AppLog.CurrentPath}"; }
@@ -559,6 +575,13 @@ public partial class MainWindow : Window
             return;
         }
         QuestionHeading.Text = "Draft ready";
+        var extractionWarnings = turn.Draft?.OpenQuestions.ToArray() ?? [];
+        if (extractionWarnings.Length > 0)
+        {
+            QuestionHeading.Text = "Draft Saved — Some Source Passages Need Review";
+            foreach (var warning in extractionWarnings)
+                QuestionsPanel.Children.Add(new TextBlock { Text = warning, TextWrapping = TextWrapping.Wrap });
+        }
         var firstRule = _projectRules.FindIndex(item => item.SessionId == session.Id);
         if (firstRule >= 0) RuleList.SelectedIndex = firstRule;
     }
@@ -4403,7 +4426,7 @@ public partial class MainWindow : Window
     }
 
     private DesignSession? SessionFor(DesignSourceNote note) => _project?.Sessions.SingleOrDefault(session => session.SourceNotes.Any(source => source.Id == note.Id));
-    private string StatusFor(DesignSourceNote note) => SessionFor(note) is not { LatestTurn: { } turn } ? "Not started" : turn.Action == RuleDraftAction.PresentDraft ? "Draft ready" : "Needs answers";
+    private string StatusFor(DesignSourceNote note) => SessionFor(note) is not { LatestTurn: { } turn } ? "Not started" : turn.Action != RuleDraftAction.PresentDraft ? "Needs answers" : turn.Draft?.OpenQuestions.Count > 0 ? "Extraction needs review" : "Draft ready";
     private static string FormatDraft(StructuredRuleDraft draft) => $"{draft.Title}\n{draft.Intent}\n\n" + string.Join("\n\n", draft.Rules.Select(rule => $"{rule.Name} ({rule.Kind})\n{rule.Text}\n\nSource evidence:\n{string.Join("\n", rule.SourceSupport.Select(support => $"• {support.SourceNoteId}: “{support.Excerpt}”"))}"));
     private static string FormatRule(RuleStatement rule) => $"{rule.Name}\nType: {rule.Kind}\n\nProposed rule\n{rule.Text}\n\nSource evidence\n{string.Join("\n", rule.SourceSupport.Select(support => $"• {support.SourceNoteId}: “{support.Excerpt}”"))}";
     private static string FormatWorkingRule(WorkingRule rule) => $"{rule.Name}\nType: {rule.Kind}\n\nWorking rule\n{rule.AuthoritativeText}\n\nDerived from source drafts\n{string.Join("\n", rule.SourceDraftRules.Select(reference => $"- {reference.SessionId} / {reference.RuleId}"))}\n\nExact source evidence\n{string.Join("\n", rule.Evidence.Select(evidence => $"- {evidence.SourceNoteId} ({evidence.PassageId ?? "source text"}): {evidence.Excerpt}"))}\n\nOpen questions\n{(rule.OpenQuestions.Count == 0 ? "None" : string.Join("\n", rule.OpenQuestions.Select(question => $"- {question}")))}\n\nSchema hints\n{(rule.SchemaHints.Count == 0 ? "None" : string.Join("\n", rule.SchemaHints.Select(hint => $"- {hint.Kind}: {hint.SuggestedName} - {hint.Rationale}")))}";
