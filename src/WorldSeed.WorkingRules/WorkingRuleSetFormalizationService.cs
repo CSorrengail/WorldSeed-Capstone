@@ -25,12 +25,14 @@ public sealed class WorkingRuleSetFormalizationService
     private readonly WorkingRuleSetJsonParser _parser;
     private readonly WorkingRuleSetValidator _validator = new();
     private readonly TimeProvider _timeProvider;
+    private readonly IWorkingRulePreparationStore? _preparations;
 
-    public WorkingRuleSetFormalizationService(ILanguageModelClient client, WorkingRuleSetJsonParser? parser = null, TimeProvider? timeProvider = null)
+    public WorkingRuleSetFormalizationService(ILanguageModelClient client, WorkingRuleSetJsonParser? parser = null, TimeProvider? timeProvider = null, IWorkingRulePreparationStore? preparations = null)
     {
         _client = client ?? throw new ArgumentNullException(nameof(client));
         _parser = parser ?? new WorkingRuleSetJsonParser();
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _preparations = preparations;
     }
 
     public async Task<WorkingRuleSetFormalizationResult> CreateProposalAsync(DesignProject project, WorkingRuleSet? currentRuleSet = null, CancellationToken cancellationToken = default, bool addMissingOnly = false, IProgress<WorkingRuleSetProgress>? progress = null)
@@ -50,13 +52,32 @@ public sealed class WorkingRuleSetFormalizationService
         }
 
         var citations = DraftCitationCatalog.Create(sourceDrafts);
-        var parsedBatches = new List<WorkingRuleSet>();
+        var checkpoint = _preparations is null ? null : await _preparations.LoadAsync(project.Id, cancellationToken);
+        if (checkpoint is not null) WorkingRulePreparationBinding.Validate(checkpoint, project, currentRuleSet, addMissingOnly);
+        checkpoint ??= new WorkingRulePreparation(project.Id, WorkingRulePreparationBinding.Fingerprint(project, currentRuleSet, addMissingOnly), addMissingOnly,
+            _timeProvider.GetUtcNow(), _timeProvider.GetUtcNow(), []);
+        if (_preparations is not null) await _preparations.SaveAsync(checkpoint, cancellationToken);
+        var parsedBatches = checkpoint.Batches.Select(batch => batch.RuleSet).ToList();
         var rawResponses = new List<string>();
+        rawResponses.AddRange(checkpoint.Batches.Select(batch => batch.RawResponse));
         var tracker = new PreparationProgress(progress, citations.Count);
+        var prepared = parsedBatches.SelectMany(batch => batch.Rules).SelectMany(rule => rule.SourceDraftRules).ToHashSet();
+        if (prepared.Count > 0) { tracker.Complete(prepared); tracker.Report("Resuming Saved Checkpoint"); }
+        async Task SaveBatchAsync(WorkingRuleSet batch, string raw)
+        {
+            var next = checkpoint with { UpdatedAt = _timeProvider.GetUtcNow(), Batches = checkpoint.Batches.Append(new PreparedWorkingRuleBatch(batch, raw)).ToArray() };
+            // Await durable storage before counting the work as checkpointed or issuing another model call.
+            if (_preparations is not null) await _preparations.SaveAsync(next, cancellationToken);
+            checkpoint = next; parsedBatches.Add(batch);
+            var references = batch.Rules.SelectMany(rule => rule.SourceDraftRules).ToArray();
+            prepared.UnionWith(references); tracker.Complete(references);
+            if (_preparations is not null) tracker.Report("Checkpoint Saved");
+        }
         foreach (var batch in citations.Chunk(MaxCitationsPerBatch))
         {
             tracker.BatchNumber++;
-            parsedBatches.AddRange(await FormalizeBatchAsync(project, batch, rawResponses, cancellationToken, tracker));
+            var remaining = batch.Where(citation => !prepared.Contains(citation.Draft.Reference)).ToArray();
+            if (remaining.Length > 0) await FormalizeBatchAsync(project, remaining, rawResponses, cancellationToken, tracker, SaveBatchAsync);
         }
 
         tracker.Report("Validating Project Rules");
@@ -80,7 +101,7 @@ public sealed class WorkingRuleSetFormalizationService
         return new WorkingRuleSetFormalizationResult(ruleSet, string.Join("\n\n", rawResponses), parsedBatches.Count);
     }
 
-    private async Task<IReadOnlyList<WorkingRuleSet>> FormalizeBatchAsync(DesignProject project, IReadOnlyList<DraftCitation> citations, ICollection<string> rawResponses, CancellationToken cancellationToken, PreparationProgress tracker, bool singleRetry = false, string activity = "Processing Batch")
+    private async Task FormalizeBatchAsync(DesignProject project, IReadOnlyList<DraftCitation> citations, ICollection<string> rawResponses, CancellationToken cancellationToken, PreparationProgress tracker, Func<WorkingRuleSet, string, Task> saveBatch, bool singleRetry = false, string activity = "Processing Batch")
     {
         var messages = new List<LlmMessage>
         {
@@ -101,28 +122,27 @@ public sealed class WorkingRuleSetFormalizationService
         catch (WorkingRuleSetFormatException) when (citations.Count > 1)
         {
             var midpoint = citations.Count / 2;
-            var first = await FormalizeBatchAsync(project, citations.Take(midpoint).ToArray(), rawResponses, cancellationToken, tracker, activity: "Retrying Invalid Batch");
-            var second = await FormalizeBatchAsync(project, citations.Skip(midpoint).ToArray(), rawResponses, cancellationToken, tracker, activity: "Retrying Invalid Batch");
-            return first.Concat(second).ToArray();
+            await FormalizeBatchAsync(project, citations.Take(midpoint).ToArray(), rawResponses, cancellationToken, tracker, saveBatch, activity: "Retrying Invalid Batch");
+            await FormalizeBatchAsync(project, citations.Skip(midpoint).ToArray(), rawResponses, cancellationToken, tracker, saveBatch, activity: "Retrying Invalid Batch");
+            return;
         }
         catch (WorkingRuleSetFormatException) when (!singleRetry)
-        { return await FormalizeBatchAsync(project, citations, rawResponses, cancellationToken, tracker, singleRetry: true, activity: "Retrying Rule"); }
+        { await FormalizeBatchAsync(project, citations, rawResponses, cancellationToken, tracker, saveBatch, singleRetry: true, activity: "Retrying Rule"); return; }
         catch (WorkingRuleSetFormatException exception)
         { throw new WorkingRuleSetFormatException($"Could not prepare source rule '{citations[0].Draft.Rule.Name}' after a focused retry. Existing project rules were not changed. Model detail: {exception.Message}"); }
 
         var covered = ruleSet.Rules.SelectMany(rule => rule.SourceDraftRules).ToHashSet();
-        tracker.Complete(covered);
+        await saveBatch(ruleSet, response.Content);
         var missing = citations.Where(citation => !covered.Contains(citation.Draft.Reference)).ToArray();
-        if (missing.Length == 0) return [ruleSet];
+        if (missing.Length == 0) return;
         // Parsing validates all references; a nonempty result therefore reduces
         // the remaining input. Keep it and request only omitted rules.
         if (missing.Length < citations.Count)
         {
-            var recovered = await FormalizeBatchAsync(project, missing, rawResponses, cancellationToken, tracker, activity: "Recovering Missing Rules");
-            return new[] { ruleSet }.Concat(recovered).ToArray();
+            await FormalizeBatchAsync(project, missing, rawResponses, cancellationToken, tracker, saveBatch, activity: "Recovering Missing Rules");
+            return;
         }
         EnsureBatchCoverage(ruleSet, citations);
-        return [ruleSet];
     }
 
     private sealed class PreparationProgress(IProgress<WorkingRuleSetProgress>? sink, int total)

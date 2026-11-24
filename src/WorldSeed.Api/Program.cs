@@ -20,6 +20,7 @@ builder.Services.AddSingleton<MongoDesignProjectStore>();
 builder.Services.AddSingleton<IDesignProjectStore>(services => services.GetRequiredService<MongoDesignProjectStore>());
 builder.Services.AddSingleton<MongoWorkingRuleSetStore>();
 builder.Services.AddSingleton<IWorkingRuleSetStore>(services => services.GetRequiredService<MongoWorkingRuleSetStore>());
+builder.Services.AddSingleton<IWorkingRulePreparationStore, MongoWorkingRulePreparationStore>();
 builder.Services.AddSingleton<MongoProjectSchemaProposalStore>();
 builder.Services.AddSingleton<IProjectSchemaProposalStore>(services => services.GetRequiredService<MongoProjectSchemaProposalStore>());
 builder.Services.AddSingleton<MongoProjectSchemaChangeRequestStore>();
@@ -97,8 +98,9 @@ projects.MapPut("/{projectId}", async (string projectId, DesignProject project, 
     await store.SaveAsync(project, cancellationToken);
     return Results.NoContent();
 });
-projects.MapDelete("/{projectId}", async (string projectId, IDesignProjectStore store, IWorkingRuleSetStore ruleSets, IProjectSchemaProposalStore schemaProposals, IProjectSchemaChangeRequestStore schemaChangeRequests, IActiveGameSchemaStore activeSchemas, IProjectGameDataStore gameData, ISchemaTransitionStore schemaTransitions, IContentProposalStore contentProposals, IContentApplicationStore contentApplications, IContentBalanceProfileStore balanceProfiles, IPublicationSnapshotStore publications, IPublicationEditionStore publicationEditions, IPublicationEditorialStore publicationEditorial, IProjectInventoryStore inventories, IDevelopmentPlanStore developmentPlans, IExpansionRequestStore expansionRequests, IContentExpansionRunStore contentExpansionRuns, IEvaluationAssistanceStore evaluationAssistance, CancellationToken cancellationToken) =>
+projects.MapDelete("/{projectId}", async (string projectId, IDesignProjectStore store, IWorkingRuleSetStore ruleSets, IProjectSchemaProposalStore schemaProposals, IProjectSchemaChangeRequestStore schemaChangeRequests, IActiveGameSchemaStore activeSchemas, IProjectGameDataStore gameData, ISchemaTransitionStore schemaTransitions, IContentProposalStore contentProposals, IContentApplicationStore contentApplications, IContentBalanceProfileStore balanceProfiles, IPublicationSnapshotStore publications, IPublicationEditionStore publicationEditions, IPublicationEditorialStore publicationEditorial, IProjectInventoryStore inventories, IDevelopmentPlanStore developmentPlans, IExpansionRequestStore expansionRequests, IContentExpansionRunStore contentExpansionRuns, IEvaluationAssistanceStore evaluationAssistance, IWorkingRulePreparationStore preparations, CancellationToken cancellationToken) =>
 {
+    await preparations.DeleteAsync(projectId, cancellationToken);
     await evaluationAssistance.DeleteAsync(projectId, cancellationToken);
     await contentExpansionRuns.DeleteAsync(projectId, cancellationToken);
     await expansionRequests.DeleteAsync(projectId, cancellationToken);
@@ -506,6 +508,45 @@ projects.MapPut("/{projectId}/content-balance-profiles/{profileId}", async (stri
     try { _ = ContentBalanceProfileService.Create(projectId, profile.ActiveGameSchemaId, profile.ActiveGameSchemaRevision, profile.Profile, profile.CreatedAt, profile with { Id = "", Revision = 0, CreatedAt = default, UpdatedAt = default }); }
     catch (ArgumentException ex) { return Results.BadRequest(ex.Message); }
     await store.SaveAsync(profile, cancellationToken); return Results.NoContent();
+});
+
+projects.MapGet("/{projectId}/working-rule-preparation", async (string projectId, IWorkingRulePreparationStore store, CancellationToken cancellationToken) =>
+{
+    var checkpoint = await store.LoadAsync(projectId, cancellationToken);
+    return checkpoint is null ? Results.NotFound() : Results.Ok(checkpoint);
+});
+projects.MapPut("/{projectId}/working-rule-preparation", async (string projectId, WorkingRulePreparation checkpoint, IDesignProjectStore projectsStore, IWorkingRuleSetStore rules, IWorkingRulePreparationStore store, CancellationToken cancellationToken) =>
+{
+    if (checkpoint.ProjectId != projectId) return Results.BadRequest("Project IDs Must Match.");
+    var project = await projectsStore.LoadAsync(projectId, cancellationToken);
+    if (project is null) return Results.NotFound();
+    try { WorkingRulePreparationBinding.Validate(checkpoint, project, await rules.LoadAsync(projectId, cancellationToken), checkpoint.AddMissingOnly); }
+    catch (InvalidOperationException ex) { return Results.Conflict(ex.Message); }
+    await store.SaveAsync(checkpoint, cancellationToken);
+    return Results.NoContent();
+});
+projects.MapDelete("/{projectId}/working-rule-preparation", async (string projectId, IWorkingRulePreparationStore store, CancellationToken cancellationToken) =>
+{
+    await store.DeleteAsync(projectId, cancellationToken);
+    return Results.NoContent();
+});
+projects.MapPost("/{projectId}/working-rule-preparation/apply", async (string projectId, string fingerprint, WorkingRuleSet ruleSet, IDesignProjectStore projectsStore, IWorkingRuleSetStore rules, IWorkingRulePreparationStore store, WorkingRuleSetValidator validator, CancellationToken cancellationToken) =>
+{
+    var project = await projectsStore.LoadAsync(projectId, cancellationToken);
+    var checkpoint = await store.LoadAsync(projectId, cancellationToken);
+    if (project is null || checkpoint is null) return Results.NotFound("Project Or Checkpoint Not Found.");
+    if (ruleSet.ProjectId != projectId || checkpoint.InputFingerprint != fingerprint) return Results.Conflict("Checkpoint Binding Changed. Reload The Project.");
+    var current = await rules.LoadAsync(projectId, cancellationToken);
+    try { WorkingRulePreparationBinding.Validate(checkpoint, project, current, checkpoint.AddMissingOnly); }
+    catch (InvalidOperationException ex) { return Results.Conflict(ex.Message); }
+    var required = WorkingRulePreparationBinding.SelectDrafts(project, current, checkpoint.AddMissingOnly).Select(draft => draft.Reference).ToHashSet();
+    var prepared = checkpoint.Batches.SelectMany(batch => batch.RuleSet.Rules).SelectMany(rule => rule.SourceDraftRules).ToHashSet();
+    var proposed = ruleSet.Rules.SelectMany(rule => rule.SourceDraftRules).ToHashSet();
+    if (!required.IsSubsetOf(prepared) || !required.IsSubsetOf(proposed)) return Results.BadRequest("The Checkpoint Is Not Complete. Saved Project Rules Were Not Changed.");
+    var validation = validator.Validate(ruleSet, project);
+    if (!validation.IsValid) return Results.BadRequest(validation.Issues);
+    await rules.SaveAsync(ruleSet, cancellationToken);
+    return Results.NoContent(); // Desktop clears the checkpoint after this save is acknowledged.
 });
 
 projects.MapGet("/{projectId}/working-rules", async (string projectId, IWorkingRuleSetStore store, CancellationToken cancellationToken) =>

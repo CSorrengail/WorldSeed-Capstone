@@ -133,6 +133,96 @@ public class WorkingRuleSetFormalizationServiceTests
     }
 
     [Fact]
+    public async Task Checkpoint_retains_partial_batch_and_resumes_only_missing_rules_after_interruption()
+    {
+        var project = CreateProjectWithCompletedDrafts(4);
+        var store = new CheckpointStore();
+        await Assert.ThrowsAsync<OperationCanceledException>(() => new WorkingRuleSetFormalizationService(new InterruptingModel(), preparations: store).CreateProposalAsync(project));
+        Assert.Single((await store.LoadAsync(project.Id))!.Batches);
+        var model = new SequencedModel([ResponseFor("d002", "d003", "d004")]);
+        var result = await new WorkingRuleSetFormalizationService(model, preparations: store).CreateProposalAsync(project);
+        Assert.Equal(4, result.RuleSet.Rules.Count);
+        Assert.Single(model.Requests);
+        Assert.DoesNotContain("[d001]", model.Requests[0].Messages[1].Content);
+        Assert.Equal(2, (await store.LoadAsync(project.Id))!.Batches.Count);
+    }
+
+    [Fact]
+    public async Task Completed_checkpoint_can_be_revalidated_without_any_model_calls()
+    {
+        var project = CreateProjectWithCompletedDrafts(1);
+        var store = new CheckpointStore();
+        await new WorkingRuleSetFormalizationService(new CapturingModel(ResponseFor("d001")), preparations: store).CreateProposalAsync(project);
+        var model = new SequencedModel([]);
+        var result = await new WorkingRuleSetFormalizationService(model, preparations: store).CreateProposalAsync(project);
+        Assert.Single(result.RuleSet.Rules);
+        Assert.Empty(model.Requests);
+    }
+
+    [Fact]
+    public async Task Later_model_error_keeps_earlier_checkpointed_batches_for_resume()
+    {
+        var project = CreateProjectWithCompletedDrafts(5);
+        var store = new CheckpointStore();
+        var failing = new SequencedModel([ResponseFor("d001", "d002", "d003", "d004"), "{}", "{}"]);
+        await Assert.ThrowsAsync<WorkingRuleSetFormatException>(() => new WorkingRuleSetFormalizationService(failing, preparations: store).CreateProposalAsync(project));
+        Assert.Equal(4, Assert.Single((await store.LoadAsync(project.Id))!.Batches).RuleSet.Rules.Count);
+        var resumed = new SequencedModel([ResponseFor("d005")]);
+        var result = await new WorkingRuleSetFormalizationService(resumed, preparations: store).CreateProposalAsync(project);
+        Assert.Equal(5, result.RuleSet.Rules.Count);
+        Assert.Single(resumed.Requests);
+        Assert.DoesNotContain("[d001]", resumed.Requests[0].Messages[1].Content);
+    }
+
+    [Fact]
+    public async Task Changed_sources_or_project_rules_refuse_old_checkpoint_before_model_call()
+    {
+        var project = CreateProjectWithCompletedDrafts(1);
+        var store = new CheckpointStore();
+        await new WorkingRuleSetFormalizationService(new CapturingModel(ResponseFor("d001")), preparations: store).CreateProposalAsync(project);
+        var model = new SequencedModel([]);
+        var changed = project with { Sessions = [project.Sessions[0] with { LatestTurn = project.Sessions[0].LatestTurn! with
+        { Draft = project.Sessions[0].LatestTurn!.Draft! with { Rules = [project.Sessions[0].LatestTurn!.Draft!.Rules[0] with { Text = "Changed source rule." }] } } }] };
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new WorkingRuleSetFormalizationService(model, preparations: store).CreateProposalAsync(changed));
+        var current = new WorkingRuleSet("existing", project.Id, "0.1", "Rules", null, 2, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, [], [], [], [], []);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new WorkingRuleSetFormalizationService(model, preparations: store).CreateProposalAsync(project, current));
+        Assert.Empty(model.Requests);
+    }
+
+    [Fact]
+    public async Task Checkpoint_storage_failure_stops_before_processing_more_rules()
+    {
+        var project = CreateProjectWithCompletedDrafts(4);
+        var store = new CheckpointStore { FailSaveNumber = 2 };
+        var model = new SequencedModel([ResponseFor("d001"), ResponseFor("d002", "d003", "d004")]);
+        await Assert.ThrowsAsync<IOException>(() => new WorkingRuleSetFormalizationService(model, preparations: store).CreateProposalAsync(project));
+        Assert.Single(model.Requests);
+        Assert.Empty((await store.LoadAsync(project.Id))!.Batches);
+    }
+
+    private sealed class CheckpointStore : IWorkingRulePreparationStore
+    {
+        private string? _json;
+        private int _saves;
+        public int FailSaveNumber { get; init; }
+        public Task<WorkingRulePreparation?> LoadAsync(string projectId, CancellationToken cancellationToken = default)
+            => Task.FromResult(_json is null ? null : JsonSerializer.Deserialize<WorkingRulePreparation>(_json));
+        public Task SaveAsync(WorkingRulePreparation preparation, CancellationToken cancellationToken = default)
+        {
+            if (++_saves == FailSaveNumber) throw new IOException("Simulated database outage.");
+            _json = JsonSerializer.Serialize(preparation); return Task.CompletedTask;
+        }
+        public Task DeleteAsync(string projectId, CancellationToken cancellationToken = default) { _json = null; return Task.CompletedTask; }
+    }
+    private sealed class InterruptingModel : ILanguageModelClient
+    {
+        private int _calls;
+        public Task<LlmChatResponse> CompleteAsync(LlmChatRequest request, CancellationToken cancellationToken = default)
+            => ++_calls == 1 ? Task.FromResult(new LlmChatResponse(ResponseFor("d001"), "fake", null))
+                : Task.FromException<LlmChatResponse>(new OperationCanceledException("Simulated process interruption."));
+    }
+
+    [Fact]
     public async Task Recovers_omitted_citations_without_reprocessing_valid_rules()
     {
         var model = new SequencedModel([ResponseFor("d001"), ResponseFor("d002"), ResponseFor("d003", "d004")]);
