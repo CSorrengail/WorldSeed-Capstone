@@ -194,6 +194,9 @@ public sealed class ProjectInventoryWorkspaceTests
             Assert.Contains("Waiting For Local Model", status.Text);
             Assert.True(window.FindControl<ProgressBar>("WorkingRulesActivityBar")!.IsVisible);
             Assert.False(window.FindControl<Button>("BuildWorkingRulesButton")!.IsEnabled);
+            SetField(window, "_lastInteractionAt", DateTimeOffset.UtcNow.AddDays(-1));
+            typeof(MainWindow).GetMethod("InactivityTimer_Tick", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, [null, EventArgs.Empty]);
+            Assert.True((DateTimeOffset)typeof(MainWindow).GetField("_lastInteractionAt", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window)! > DateTimeOffset.UtcNow.AddMinutes(-1));
             var before = status.Text;
             await Task.Delay(1200);
             Avalonia.Threading.Dispatcher.UIThread.RunJobs();
@@ -220,6 +223,38 @@ public sealed class ProjectInventoryWorkspaceTests
         }
     }
 
+    [AvaloniaFact]
+    public async Task Reloaded_checkpoint_offers_resume_blocks_stale_inputs_and_can_be_discarded()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var source = new DesignSourceNote("source", "Promises connect participants.", now);
+        var draft = new WorldSeed.RuleDrafting.StructuredRuleDraft("Promises", "Describe promises.",
+            [new("draft", "Promise", WorldSeed.RuleDrafting.RuleStatementKind.Rule, source.OriginalText, [source.Id], [new(source.Id, source.OriginalText)])], [], [], [], []);
+        var project = DesignProjectService.Create("checkpoint", "Checkpoint") with
+        { SourceNotes = [source], Sessions = [new("session", "checkpoint", "local", now, now, [source], [], new(WorldSeed.RuleDrafting.RuleDraftAction.PresentDraft, null, [], draft))] };
+        var checkpoint = new WorldSeed.WorkingRules.WorkingRulePreparation(project.Id,
+            WorldSeed.WorkingRules.WorkingRulePreparationBinding.Fingerprint(project, null, true), true, now, now, []);
+        using var api = new HttpClient(new InventoryHandler(CreateInventory(project.Id), checkpoint)) { BaseAddress = new Uri("http://qa.invalid/") };
+        using var model = new HttpClient(new WaitingModelHandler());
+        var window = new MainWindow(model, api);
+        try
+        {
+            SetField(window, "_project", project);
+            async Task Refresh() => await (Task)typeof(MainWindow).GetMethod("RefreshWorkingRulePreparationAsync", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, [project.Id])!;
+            await Refresh();
+            Assert.True(window.FindControl<Border>("WorkingRulesCheckpointPanel")!.IsVisible);
+            Assert.True(window.FindControl<Button>("ResumeWorkingRulesButton")!.IsEnabled);
+            SetField(window, "_project", project with { Name = "Changed" });
+            await Refresh();
+            Assert.False(window.FindControl<Button>("ResumeWorkingRulesButton")!.IsEnabled);
+            Assert.Contains("Outdated", window.FindControl<TextBlock>("WorkingRulesCheckpointText")!.Text);
+            await window.DiscardWorkingRuleCheckpointAsync();
+            Assert.False(window.FindControl<Border>("WorkingRulesCheckpointPanel")!.IsVisible);
+            Assert.Equal(source.OriginalText, ((DesignProject)typeof(MainWindow).GetField("_project", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window)!).SourceNotes[0].OriginalText);
+        }
+        finally { window.Close(); }
+    }
+
     private static ProjectInventory CreateInventory(string projectId)
     {
         var now = DateTimeOffset.Parse("2026-11-13T18:00:00Z");
@@ -238,18 +273,26 @@ public sealed class ProjectInventoryWorkspaceTests
     private static void SetField(MainWindow window, string name, object value) =>
         typeof(MainWindow).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(window, value);
 
-    private sealed class InventoryHandler(ProjectInventory inventory) : HttpMessageHandler
+    private sealed class InventoryHandler(ProjectInventory inventory, WorldSeed.WorkingRules.WorkingRulePreparation? checkpoint = null) : HttpMessageHandler
     {
         public int CreateRequests { get; private set; }
+        private WorldSeed.WorkingRules.WorkingRulePreparation? _preparation = checkpoint;
 
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
+            if (request.RequestUri!.AbsolutePath.EndsWith("/working-rule-preparation", StringComparison.Ordinal))
+            {
+                if (request.Method == HttpMethod.Get) return _preparation is null ? new(HttpStatusCode.NotFound) : new(HttpStatusCode.OK) { Content = JsonContent.Create(_preparation) };
+                if (request.Method == HttpMethod.Put) _preparation = await request.Content!.ReadFromJsonAsync<WorldSeed.WorkingRules.WorkingRulePreparation>(cancellationToken: cancellationToken);
+                if (request.Method == HttpMethod.Delete) _preparation = null;
+                return new(HttpStatusCode.NoContent);
+            }
             if (request.Method == HttpMethod.Post && request.RequestUri!.AbsolutePath.EndsWith("/inventories", StringComparison.Ordinal))
             {
                 CreateRequests++;
-                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(inventory) });
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(inventory) };
             }
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
         }
     }
 }

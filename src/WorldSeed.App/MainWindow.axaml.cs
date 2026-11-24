@@ -34,6 +34,9 @@ public partial class MainWindow : Window
     private readonly bool _autoCloseOnOpen;
     private readonly IDesignProjectStore _projectStore;
     private readonly IWorkingRuleSetStore _workingRuleStore;
+    private readonly HttpWorkingRulePreparationStore _workingRulePreparations;
+    private WorkingRulePreparation? _workingRulePreparation;
+    private bool _isPreparingWorkingRules;
     private readonly IProjectSchemaProposalStore _schemaProposalStore;
     private readonly IProjectSchemaChangeRequestStore _schemaChangeRequestStore;
     private readonly HttpGameDataWorkspaceClient _gameDataWorkspace;
@@ -127,6 +130,7 @@ public partial class MainWindow : Window
         _autoCloseOnOpen = autoCloseOnOpen;
         _projectStore = new HttpDesignProjectStore(_apiHttp);
         _workingRuleStore = new HttpWorkingRuleSetStore(_apiHttp);
+        _workingRulePreparations = new HttpWorkingRulePreparationStore(_apiHttp);
         _schemaProposalStore = new HttpProjectSchemaProposalStore(_apiHttp);
         _schemaChangeRequestStore = new HttpProjectSchemaChangeRequestStore(_apiHttp);
         _gameDataWorkspace = new HttpGameDataWorkspaceClient(_apiHttp);
@@ -179,6 +183,7 @@ public partial class MainWindow : Window
 
     private void InactivityTimer_Tick(object? sender, EventArgs e)
     {
+        if (_isPreparingWorkingRules) { RegisterInteraction(); return; }
         if (_settingsDialogOpen || _settings.IdleTimeoutMinutes == 0) return;
         var timeout = TimeSpan.FromMinutes(_settings.IdleTimeoutMinutes);
         if (DateTimeOffset.UtcNow - _lastInteractionAt < timeout) return;
@@ -653,6 +658,7 @@ public partial class MainWindow : Window
 
     internal async Task BuildWorkingRulesAsync(bool addMissingOnly)
     {
+        if (_isPreparingWorkingRules) return;
         if (_project is null || ModelSelector.SelectedItem is not string model)
         {
             WorkingRulesStatusText.Text = "Select a project and a local model on the Sources tab first.";
@@ -660,7 +666,11 @@ public partial class MainWindow : Window
         }
         BuildWorkingRulesButton.IsEnabled = false;
         AddMissingWorkingRulesButton.IsEnabled = false;
+        _isPreparingWorkingRules = true;
+        ResumeWorkingRulesButton.IsEnabled = false; DiscardWorkingRulesCheckpointButton.IsEnabled = false;
         WorkingRulesActivityBar.IsVisible = true;
+        var project = _project;
+        var startingRules = _workingRuleSet;
         var projectId = _project.Id;
         var active = true;
         var elapsed = System.Diagnostics.Stopwatch.StartNew();
@@ -673,7 +683,7 @@ public partial class MainWindow : Window
             var clock = elapsed.Elapsed.ToString(@"hh\:mm\:ss");
             WorkingRulesStatusText.Text = finalStage is not null ? $"{finalStage}. Elapsed: {clock}."
                 : latest is null ? $"Preparing Project Rules With {model}. Elapsed: {clock}."
-                : $"{latest.PreparedRules} / {latest.TotalRules} Source Rules Prepared (Not Yet Saved). Batch {latest.BatchNumber} / {latest.TotalBatches}.\n{latest.Activity}. Model Requests: {latest.RequestNumber}. Elapsed: {clock}."
+                : $"{latest.PreparedRules} / {latest.TotalRules} Source Rules Prepared (Checkpointed Separately From Project Rules). Batch {latest.BatchNumber} / {latest.TotalBatches}.\n{latest.Activity}. Model Requests: {latest.RequestNumber}. Elapsed: {clock}."
                   + (latest.RequestRuleCount > 0 ? $"\nWaiting For Local Model: {requestElapsed.Elapsed.ToString(@"hh\:mm\:ss")} ({latest.RequestRuleCount} Rules In This Request)." : "");
         }
         var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
@@ -688,7 +698,7 @@ public partial class MainWindow : Window
         var capture = new CapturingClient(new OllamaChatClient(_http, OllamaDefaults.CreateProfile("local", "Local", model)));
         try
         {
-            var result = await new WorkingRuleSetFormalizationService(capture).CreateProposalAsync(_project, _workingRuleSet, addMissingOnly: addMissingOnly, progress: progress);
+            var result = await new WorkingRuleSetFormalizationService(capture, preparations: _workingRulePreparations).CreateProposalAsync(project, startingRules, addMissingOnly: addMissingOnly, progress: progress);
             if (_project?.Id != projectId) throw new InvalidOperationException("The Selected Project Changed While Preparing Rules. Return To The Original Project And Retry.");
             if (result.BatchCount == 0)
             {
@@ -696,9 +706,11 @@ public partial class MainWindow : Window
                 return;
             }
             finalStage = "Saving Prepared Project Rules"; ShowProgress();
-            await WorkingRuleStore().SaveAsync(result.RuleSet);
+            await _workingRulePreparations.ApplyAsync(result.RuleSet, WorkingRulePreparationBinding.Fingerprint(project, startingRules, addMissingOnly));
             finalStage = "Project Rules Saved; Refreshing Workspace"; ShowProgress();
             _workingRuleSet = result.RuleSet;
+            try { await _workingRulePreparations.DeleteAsync(projectId); }
+            catch (Exception ex) { AppLog.Error("Clear saved rules checkpoint", ex); }
             await LoadDevelopmentPlansAsync(_project.Id);
             await LoadSchemaProposalAsync(_project.Id);
             _schemaTransitionReview = null;
@@ -715,7 +727,7 @@ public partial class MainWindow : Window
         catch (WorkingRuleSetFormatException ex)
         {
             AppLog.Error("Validate working rule proposal", ex);
-            WorkingRulesStatusText.Text = "The Model Could Not Prepare Every Source Rule, Even After Recovery. Existing Project Rules Were Not Changed. See The Rule Detail Below.";
+            WorkingRulesStatusText.Text = "The Model Could Not Prepare Every Source Rule, Even After Recovery. Checkpointed Work Was Kept; Project Rules Were Not Changed. Resume To Retry The Remaining Rules.";
             WorkingRuleText.Text = $"Format detail: {ex.Message}\n\nRaw model output (for diagnosis):\n{Preview(capture.Last?.Content)}";
         }
         catch (LlmClientException ex) when (ex.InnerException is TaskCanceledException)
@@ -740,7 +752,9 @@ public partial class MainWindow : Window
         {
             active = false; timer.Stop();
             WorkingRulesActivityBar.IsVisible = false;
+            _isPreparingWorkingRules = false; RegisterInteraction();
             BuildWorkingRulesButton.IsEnabled = true; AddMissingWorkingRulesButton.IsEnabled = true;
+            await RefreshWorkingRulePreparationAsync(projectId);
         }
     }
 
@@ -756,6 +770,7 @@ public partial class MainWindow : Window
         {
             _workingRuleSet = await WorkingRuleStore().LoadAsync(projectId);
             RefreshWorkingRulesView();
+            await RefreshWorkingRulePreparationAsync(projectId);
         }
         catch (Exception ex)
         {
@@ -1715,6 +1730,11 @@ public partial class MainWindow : Window
 
     private void RefreshWorkingRulesView()
     {
+        if (_workingRulePreparation?.ProjectId != _project?.Id)
+        {
+            _workingRulePreparation = null;
+            WorkingRulesCheckpointPanel.IsVisible = false;
+        }
         var selected = WorkingRuleList.SelectedIndex is var index && index >= 0 && index < _workingRules.Count ? _workingRules[index].Id : null;
         _workingRules.Clear();
         if (_workingRuleSet is not null) _workingRules.AddRange(_workingRuleSet.Rules);
