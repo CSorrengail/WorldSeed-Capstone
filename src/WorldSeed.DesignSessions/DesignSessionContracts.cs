@@ -9,6 +9,9 @@ public sealed record SourceNoteOrigin(string DisplayName, int? SegmentNumber = n
 
 public sealed record DesignSourceNote(string Id, string OriginalText, DateTimeOffset CapturedAt, SourceNoteOrigin? Origin = null);
 
+/// <summary>An explicit designer classification; original material remains preserved.</summary>
+public sealed record SourceReviewDecision(string ReviewText, string? PassageId, DateTimeOffset RecordedAt);
+
 /// <summary>Persistent, pre-canonical design work. It contains no API key and makes no approval decision.</summary>
 public sealed record DesignSession(
     string Id,
@@ -18,7 +21,8 @@ public sealed record DesignSession(
     DateTimeOffset UpdatedAt,
     IReadOnlyList<DesignSourceNote> SourceNotes,
     IReadOnlyList<LlmMessage> Messages,
-    RuleDraftTurn? LatestTurn);
+    RuleDraftTurn? LatestTurn,
+    IReadOnlyList<SourceReviewDecision>? SourceReviewDecisions = null);
 
 public interface IDesignSessionStore
 {

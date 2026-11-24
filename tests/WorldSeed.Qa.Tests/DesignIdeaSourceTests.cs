@@ -5,6 +5,8 @@ using System.Net.Http.Json;
 using System.Reflection;
 using WorldSeed.App;
 using WorldSeed.DesignSessions;
+using WorldSeed.RuleDrafting;
+using WorldSeed.LlmIntegration;
 
 namespace WorldSeed.Qa.Tests;
 
@@ -57,6 +59,51 @@ public sealed class DesignIdeaSourceTests
             Assert.Equal("Designer Idea: Habitat Moves", Assert.IsType<TextBlock>(row.Children[1]).Text);
             Assert.Contains("Creatures may inherit", window.FindControl<TextBlock>("SourceText")!.Text);
             Assert.Contains("Start the selected source", window.FindControl<TextBlock>("StatusText")!.Text);
+        }
+        finally { window.Close(); }
+    }
+
+    [AvaloniaFact]
+    public async Task Reloaded_source_review_has_inputs_above_source_and_persists_non_game_resolution()
+    {
+        var handler = new ProjectCaptureHandler();
+        using var api = new HttpClient(handler) { BaseAddress = new Uri("http://qa.invalid/") };
+        using var model = new HttpClient(new OfflineHandler());
+        var window = new MainWindow(model, api);
+        try
+        {
+            var source = new DesignSourceNote("source", "A rule. License notice.", DateTimeOffset.UtcNow);
+            var review = "[source:p002] Extraction Needs Review: License notice.";
+            var draft = new StructuredRuleDraft("Rules", "Organize rules.", [], [], [], [review], []);
+            var now = DateTimeOffset.UtcNow;
+            var session = new DesignSession("session", "idea-project", "local", now, now, [source], [new(LlmMessageRole.User, source.OriginalText)], new(RuleDraftAction.PresentDraft, null, [], draft));
+            var project = DesignProjectService.AddSources(DesignProjectService.Create("idea-project", "Project"), [source]);
+            project = DesignProjectService.SaveSession(project, session);
+            project = System.Text.Json.JsonSerializer.Deserialize<DesignProject>(System.Text.Json.JsonSerializer.Serialize(DesignProjectService.EndIncompleteSessions(project)))!;
+            typeof(MainWindow).GetField("_project", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(window, project);
+            typeof(MainWindow).GetMethod("RefreshNotes", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, null);
+
+            var panel = window.FindControl<StackPanel>("QuestionsPanel")!;
+            Assert.Single(panel.Children.OfType<TextBox>());
+            Assert.Contains(panel.Children.OfType<Button>(), button => Equals(button.Content, "Mark As Non-Game Material"));
+            var submit = window.FindControl<Button>("SubmitAnswersButton")!;
+            Assert.True(submit.IsVisible);
+            Assert.Equal("Save Answers And Retry Source", submit.Content);
+            Assert.Equal("Retry Selected Source", window.FindControl<Button>("DraftButton")!.Content);
+            var parent = Assert.IsType<StackPanel>(panel.Parent);
+            Assert.True(parent.Children.IndexOf(panel) < parent.Children.IndexOf(window.FindControl<TextBlock>("SourceText")!));
+            var selector = window.FindControl<ComboBox>("ModelSelector")!;
+            selector.ItemsSource = new[] { "fake" }; selector.SelectedIndex = 0;
+            typeof(MainWindow).GetMethod("SubmitAnswers_Click", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, [null, new Avalonia.Interactivity.RoutedEventArgs()]);
+            Assert.Contains("answer every question", window.FindControl<TextBlock>("StatusText")!.Text);
+            Assert.Empty(handler.SavedProjects);
+
+            await window.MarkSourceReviewAsNonGameMaterialAsync(session.Id, review);
+            var saved = Assert.Single(handler.SavedProjects);
+            Assert.Empty(saved.Sessions[0].LatestTurn!.Draft!.OpenQuestions);
+            Assert.Single(saved.Sessions[0].SourceReviewDecisions!);
+            Assert.Equal(source.OriginalText, saved.SourceNotes[0].OriginalText);
+            Assert.False(submit.IsVisible);
         }
         finally { window.Close(); }
     }

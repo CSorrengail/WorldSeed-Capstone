@@ -493,9 +493,15 @@ public partial class MainWindow : Window
     {
         var note = SelectedNote;
         if (_project is null || note is null || ModelSelector.SelectedItem is not string model) { StatusText.Text = "Select a project, one source file, and a local model."; return; }
-        if (SessionFor(note) is not null) { StatusText.Text = "This source already has a session. Answer its questions or review its draft."; return; }
         var service = CreateService(model, out var capture);
-        await AdvanceAndSaveAsync(note, service.Start($"session-{Guid.NewGuid():N}", _project.Id, "local", note), service, capture, model);
+        var existing = SessionFor(note);
+        if (existing?.LatestTurn?.Action == RuleDraftAction.AskClarifyingQuestion)
+        {
+            ShowSelectedSource();
+            StatusText.Text = "Answer The Saved Questions Above The Original Source Text, Then Continue.";
+            return;
+        }
+        await AdvanceAndSaveAsync(note, existing ?? service.Start($"session-{Guid.NewGuid():N}", _project.Id, "local", note), service, capture, model);
     }
 
     private async void SubmitAnswers_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
@@ -504,6 +510,7 @@ public partial class MainWindow : Window
         var session = note is null ? null : SessionFor(note);
         if (_project is null || note is null || session is null || ModelSelector.SelectedItem is not string model) return;
         var answers = _answerInputs.Select(input => input.Text?.Trim() ?? "").ToArray();
+        if (_activeQuestions.Count == 0 || answers.Length != _activeQuestions.Count) return;
         if (answers.Any(string.IsNullOrWhiteSpace)) { StatusText.Text = "Please answer every question before continuing."; return; }
         var text = string.Join("\n\n", _activeQuestions.Zip(answers, (question, answer) => $"Question: {question}\nAnswer: {answer}"));
         var service = CreateService(model, out var capture);
@@ -553,6 +560,8 @@ public partial class MainWindow : Window
     private void ShowSelectedSource()
     {
         QuestionsPanel.Children.Clear(); _answerInputs.Clear(); _activeQuestions = []; SubmitAnswersButton.IsVisible = false;
+        SubmitAnswersButton.Content = "Submit Answers And Continue";
+        DraftButton.Content = "Start Selected Source";
         RefreshRules();
         var note = SelectedNote;
         if (note is null) { SourceText.Text = "Select a source file to inspect its original note."; QuestionHeading.Text = ""; DraftText.Text = "A validated draft will appear here with its source excerpts."; return; }
@@ -560,6 +569,7 @@ public partial class MainWindow : Window
         var session = SessionFor(note);
         if (session?.LatestTurn is null) { QuestionHeading.Text = "No session yet"; DraftText.Text = "Start this source when ready. It will remain separate from other imported files."; return; }
         var turn = session.LatestTurn;
+        DraftButton.Content = turn.Action == RuleDraftAction.AskClarifyingQuestion ? "Resume Selected Source" : "Retry Selected Source";
         if (turn.Action == RuleDraftAction.AskClarifyingQuestion)
         {
             _activeQuestions = turn.ClarifyingQuestions.Count > 0 ? turn.ClarifyingQuestions : turn.ClarifyingQuestion is null ? [] : [turn.ClarifyingQuestion];
@@ -579,11 +589,49 @@ public partial class MainWindow : Window
         if (extractionWarnings.Length > 0)
         {
             QuestionHeading.Text = "Draft Saved — Some Source Passages Need Review";
+            _activeQuestions = extractionWarnings;
             foreach (var warning in extractionWarnings)
+            {
                 QuestionsPanel.Children.Add(new TextBlock { Text = warning, TextWrapping = TextWrapping.Wrap });
+                var input = new TextBox { PlaceholderText = "Clarify This Material, Or Mark It As Non-Game Material Below", AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 58 };
+                _answerInputs.Add(input); QuestionsPanel.Children.Add(input);
+                var nonGame = new Button { Content = "Mark As Non-Game Material" };
+                nonGame.Click += async (_, _) =>
+                {
+                    if (!DraftButton.IsEnabled) return;
+                    nonGame.IsEnabled = false;
+                    try { await MarkSourceReviewAsNonGameMaterialAsync(session.Id, warning); }
+                    catch (Exception ex) { AppLog.Error("Classify source review", ex); StatusText.Text = "Could Not Save The Review Decision. Try Again."; }
+                    finally { nonGame.IsEnabled = true; }
+                };
+                QuestionsPanel.Children.Add(nonGame);
+            }
+            SubmitAnswersButton.Content = "Save Answers And Retry Source";
+            SubmitAnswersButton.IsVisible = true;
         }
         var firstRule = _projectRules.FindIndex(item => item.SessionId == session.Id);
         if (firstRule >= 0) RuleList.SelectedIndex = firstRule;
+    }
+
+    public async Task MarkSourceReviewAsNonGameMaterialAsync(string sessionId, string reviewText)
+    {
+        var project = _project ?? throw new InvalidOperationException("Select A Project First.");
+        var typedAnswers = _activeQuestions.Zip(_answerInputs, (question, input) => (question, input.Text))
+            .ToDictionary(item => item.question, item => item.Text, StringComparer.Ordinal);
+        var session = project.Sessions.Single(item => item.Id == sessionId);
+        var updated = DesignProjectService.SaveSession(project, DesignSessionService.MarkReviewAsNonGameMaterial(session, reviewText));
+        DraftButton.IsEnabled = false; SubmitAnswersButton.IsEnabled = false;
+        try
+        {
+            await ProjectStore().SaveAsync(updated);
+            if (_project?.Id != project.Id) return;
+            _project = updated; RefreshNotes(); ShowSelectedSource();
+            if (SelectedNote is { } selected && SessionFor(selected)?.Id == sessionId)
+                for (var index = 0; index < _activeQuestions.Count; index++)
+                    if (typedAnswers.TryGetValue(_activeQuestions[index], out var text)) _answerInputs[index].Text = text;
+            StatusText.Text = "Review Decision Saved. Original Material And Existing Rules Were Preserved.";
+        }
+        finally { DraftButton.IsEnabled = true; SubmitAnswersButton.IsEnabled = true; }
     }
 
     private void RefreshRules()

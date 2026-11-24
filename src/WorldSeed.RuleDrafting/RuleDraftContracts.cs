@@ -39,6 +39,7 @@ public sealed record RuleDraftConversation(
     IReadOnlyList<SourcePassage>? SourcePassages = null,
     string? WorkflowInstruction = null,
     bool AllowDesignOptions = false,
-    bool RequireDesignChoices = false);
+    bool RequireDesignChoices = false,
+    IReadOnlySet<string>? ExcludedPassageIds = null);
 
 public sealed class RuleDraftFormatException(string message) : Exception(message);

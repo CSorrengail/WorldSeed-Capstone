@@ -20,7 +20,7 @@ public sealed partial class RuleDraftingService
         CancellationToken cancellationToken, IProgress<RuleDraftProgress>? progress)
     {
         var primaryId = conversation.SourceMaterialIds[0];
-        var originals = passages.Where(passage => passage.SourceNoteId == primaryId).ToArray();
+        var originals = passages.Where(passage => passage.SourceNoteId == primaryId && conversation.ExcludedPassageIds?.Contains(passage.Id) is not true).ToArray();
         if (originals.Length == 0) throw new RuleDraftFormatException("No source passages are available for this note.");
         var answers = passages.Where(passage => passage.SourceNoteId != primaryId).ToArray();
         if (answers.Sum(passage => passage.Text.Length) > 8000)
