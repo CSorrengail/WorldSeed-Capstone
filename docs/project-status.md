@@ -24,6 +24,124 @@ preserved at `backup/main-before-test-doc-squash-20261107`.
 
 ## Current Development Task
 
+**Project-rule omission recovery and contextual help (2026-11-24), cumulative
+iteration 24, `f65bbf0`.** Owner reports all Sources now process, but Add Missing
+Draft Rules failed when a valid four-rule response covered only one input.
+Owner supplied 87% five-hour / 42% weekly. Formalization now retains valid batch
+rules and requests only omitted citations; invalid multi-rule batches split and
+single-rule failures receive one retry before a named error. Complete coverage
+remains mandatory before persistence. No source reprocessing is required.
+Rules actions now say Add New Source Rules, Rebuild Project Rules, and Reload
+Saved Rules. Reusable hover-help icons explain source drafts, project rules,
+active schemas, content types, and content proposals at relevant headings.
+Developer and independent QA checks passed 14 formalization tests and 4 headless
+source/help tests on `f65bbf0`. Evidence is in ignored
+`artifacts/qa/20261124-project-rule-recovery-help/report.md`. No live model/corpus
+or user-data changes. Next action: close the app, rebuild desktop/API, and retry
+Add New Source Rules on the existing project. Do not rerun Sources for this fix.
+The accumulated intake/review/rules notes are batched into one documentation
+checkpoint rather than one documentation commit per run.
+
+**Source review actions (2026-11-24), cumulative iteration 23, `6132432`.** Owner
+supplied 98% five-hour / 43% weekly. Saved draft OpenQuestions now have answer
+inputs and Save Answers And Retry Source; each item can instead be explicitly
+classified as non-game material. Decisions persist with source anchors and time,
+original text/rules remain intact, and whole metadata passages are excluded on
+retry. Partial-fragment decisions do not exclude unrelated facts in the same
+catalog passage. Existing source retries reuse the session and saved answers;
+pending interview turns resume their questions. Review controls appear above
+original text. Existing close policy for incomplete interviews is unchanged.
+Developer checks: 11 session tests (including two new review cases) and 3 headless
+source UI tests passed. Independent QA passed 2 review service cases and 3 headless
+cases on final revision `6132432`; report is in ignored
+`artifacts/qa/20261124-source-review-actions/report.md`. No live model/corpus/user-data test. Owner must rebuild desktop/API
+before testing existing project notices. Notes are included in the consolidated
+November 24 documentation checkpoint.
+
+**Intake coverage and source status follow-up (2026-11-23), cumulative iteration
+22, revision `b708816`.** Owner reported omitted-passage failures and requested
+a hoverable source-status icon. Valid batch rules are now retained while only
+omitted passages are retried. A repeated omission is preserved with original text
+in OpenQuestions and visibly flagged for review in Sources; it is not fabricated
+as a rule or claimed complete. Context includes two following passages as well
+as preceding context. Source rows now use a fixed status glyph and tooltip.
+Sentence anchors remain unchanged for persisted citation compatibility. Combining
+batch output is still aggregation, not a whole-document semantic reconciliation;
+distant dependencies and semantic completeness remain manual verification risks.
+Developer checks passed all 26 drafting tests and 2 source headless checks.
+Independent QA passed 9 intake and 2 source headless cases at `b708816`;
+evidence: ignored `artifacts/qa/20261123-intake-coverage-icons/report.md`.
+No live corpus rerun; owner app was left running. Rebuild after closing it.
+
+**Fresh-source intake repair (2026-11-23), cumulative iteration 21.** Owner supplied
+95% five-hour / 47% weekly and requested this fix with minimal QA; owner will
+perform the live corpus retest. Functional revision `13585c5` replaces ordinary
+whole-note drafting with bounded passage extraction, compact transport citations
+restored to durable source IDs, adaptive subdivision for invalid/incomplete JSON,
+and explicit extraction instructions with generic task-question refusal. Source
+progress is shown in the desktop. Expansion interviews retain their existing path.
+Developer checks: all 23 RuleDrafting tests and 9 DesignSessionService tests passed;
+Debug desktop build passed with zero warnings/errors. Independent QA passed all
+six new bounded-intake cases and scoped review at `13585c5`; evidence is in ignored
+`artifacts/qa/20261123-bounded-intake/report.md`. No live model, user-data,
+Docker, or UI run was performed for this repair. The owner must rebuild and retry
+Ancestry, Classes And Training, and Advancement before this corpus intake is called
+verified. More bounded model calls per source are expected; no partial completed
+draft is saved if any batch fails. Notes are included in the consolidated
+November 24 documentation checkpoint.
+
+Previous cycle evidence follows; it does not verify this fresh-source repair.
+
+**Live integration cycle complete; ready for owner manual bug passes (2026-11-20).** Owner supplied
+61% five-hour / 53% weekly and authorized the next bounded cycle. Six local
+`gemma3:12b` calls were made, then the enforced call budget stopped further model
+work. Two production fixes are committed: `2abe3ad` (cumulative iteration 19)
+and `268a985` (cumulative 20). No user project/database was changed.
+
+The actual captured D&D rules reconciled successfully: spell definition plus
+cantrip casting became one faithful rule (214 to 213 active rules), with both
+originals/evidence archived, and a compatible explicit schema review/activation
+to r4. Existing five entries remained intact. A clearly QA-authored optional
+magic-item/spell-reference relationship extension initially failed three model
+responses because references/relationship endpoints were malformed. `2abe3ad`
+adds explicit native response contracts and examples; the next call succeeded,
+and compatible r5 preserved all existing entries. This extension is not asserted
+as an official SRD rule.
+
+The sixth call produced a structurally valid item referencing the actual spell,
+but omitted its explicitly requested link and invented a once-per-day frequency.
+The probe refused approval/application: this is diagnostic proposal evidence,
+not a sixth canonical entry. `268a985` requires structured relationship output
+and rejects explicitly requested links omitted without reported gaps. Its new
+native content contract has NOT received a subsequent live-model check because
+the six-call budget is exhausted. Independent QA PASSED 77 targeted checks:
+Schema Translation 30, Content 34, focused headless workspaces 13. No additional
+model calls were made by QA. Its scope did not include live API/Mongo, launcher,
+or actual desktop interaction. Evidence:
+`artifacts/qa/20261120-manual-ready-9ee34f3/`.
+
+Final tested revision is `268a985`. QA report:
+`artifacts/qa/20261120-live-integration-268a985/report.md`. The normal Debug
+desktop executable was rebuilt successfully with zero warnings/errors using the
+bounded wrapper. No application was launched and no user process was stopped.
+The advisor assessment is GREEN for manual discovery testing, with YELLOW limits
+for the untested post-fix model behavior and normal API/launcher/GUI paths.
+This is not final MVP acceptance or rehearsal readiness.
+
+Manual handoff will use the current desktop/API build and the owner's existing
+projects; ignored QA state files are not represented as GUI-importable projects.
+Do not seed or overwrite the owner's normal database to hide that distinction.
+Owner should close WorldSeed normally and run `RunWorldSeed.bat --rebuild` once
+before testing so the Docker API and desktop agree. The application/database
+were not updated through the normal launcher during isolated QA.
+
+All probe processes exited. Coordinator verified the eight remaining dotnet
+processes as editor host 23640 and seven direct editor-owned reusable workers;
+none were killed. Local commits are retained; documentation notes await the next
+periodic consolidated batch.
+
+### Previous Verified Cycle
+
 **Functional implementation cycle complete; execution is stopped (2026-11-20).** Owner confirmed weekly
 allowance is fine after reporting 98% five-hour remaining and explicitly asked
 for functional completion over polish. Two implementation iterations are
@@ -792,14 +910,19 @@ remains available for any later owner-action stop.
 
 ## Latest Verified Application Revision
 
-- **Latest scoped verified production revision:** `9ee34f3`, including `299a8f9`.
-  Independent QA passed 121 deterministic/domain/DTO/headless checks for the
-  new reconciliation and connected-content functionality. New prompt behavior
-  and the reviewed-proposal guard have not yet received live-model/server checks.
+- **Latest scoped verified production revision:** `268a985`, including `2abe3ad`.
+  Independent QA passed 77 targeted schema/content/headless checks after live
+  integration exposed malformed schema translation and a silently omitted link.
+  Live reconciliation and post-fix schema translation passed; the post-fix
+  content contract has not had another model call. Earlier `9ee34f3` passed 121
+  domain/DTO/headless checks for reconciliation and connected content.
+  The reviewed-proposal API guard remains source-reviewed rather than live tested.
   The previous `1ae8f05` actual API/Mongo checkpoint verified 214 rules/r3 and five
   entries across three types. Neither result establishes final content
   sufficiency, owner UI rehearsal, or a new second-game live ingestion run.
-- **Current evidence:** `artifacts/qa/20261120-functional-9ee34f3/report.md`,
+- **Current evidence:** `artifacts/qa/20261120-live-integration-268a985/report.md`,
+  `artifacts/qa/20261120-manual-ready-9ee34f3/`,
+  `artifacts/qa/20261120-functional-9ee34f3/report.md`,
   `artifacts/qa/20261120-checkpoint-1ae8f05/report.md`, and
   `artifacts/qa/20261119-mvp-multitype-00eccae/report.md`.
   Earlier intake/schema/publication evidence remains under
@@ -1344,13 +1467,13 @@ case. Balance evaluation is the first stretch goal rather than an MVP gate.
 
 ## Next Action Required
 
-Wait for authorization of another bounded cycle and current allowance readings.
-The basic reconciliation and connected-content paths are implemented and pass
-deterministic QA. Next use these paths on actual corpus-derived content: confirm
-new prompt behavior, resolve an intentionally selected real overlap when needed,
-generate/review connected entries, and publish a rehearsal artifact. Exercise the
-new guarded server write when doing that integration check; do not repeat the
-entire old ingestion checkpoint. A smaller live second-game workflow remains before
+Owner manual bug passes may begin after closing the app normally and rebuilding
+both services/client once with `RunWorldSeed.bat --rebuild`. Use existing projects
+or fresh disposable projects created in the GUI; QA state JSON is not importable.
+Next coordinator cycle should handle reported functional blockers and confirm
+post-fix connected-generation output/guarded server writes. Do not repeat the
+old ingestion checkpoint. Continue content breadth and eventual reader artifact
+work once those paths are usable. A smaller live second-game workflow remains before
 claiming final MVP completion. Balance evaluation is deferred under decision
 0016. Reuse successful captures;
 do not rerun intake or claim MVP completion from the verified partial path.

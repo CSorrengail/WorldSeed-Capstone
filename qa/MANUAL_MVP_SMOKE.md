@@ -1,5 +1,65 @@
 # Normal Launcher MVP Smoke Check
 
+For the latest manual bug-hunting pass, close WorldSeed normally and run
+`RunWorldSeed.bat --rebuild` once to update both the desktop and Docker API. Later
+launches can use the normal command. Use an existing project or a disposable
+project you create in the app; ignored QA state JSON is not a GUI import format.
+Manual checks are bug-hunting evidence, not a claim that the complete MVP or
+presentation has already been accepted.
+
+## Project Rules And Hover Help — 2026-11-24
+
+Close WorldSeed and run `RunWorldSeed.bat --rebuild` once. Keep existing Sources;
+they do not need to be processed again for this change.
+
+- **Missing-rule recovery:** In Rules, use **Add New Source Rules** (formerly
+  Add Missing Draft Rules). Expect omitted model citations to be retried
+  automatically. Saved project rules must account for every new source rule;
+  existing rules should remain intact. A persistent model failure names the
+  input rule and leaves saved project rules unchanged.
+- **Terminology help:** Hover the `ⓘ` icons beside Working Rule Set,
+  Source-Draft Rules, Proposal Setup, Active Schema, and Content Types. Expect
+  short explanations of what that workspace uses and what its artifacts mean.
+  Rules also offers **Rebuild Project Rules** and **Reload Saved Rules**; rebuilding
+  replaces from sources and is distinct from adding only new source rules.
+
+## Fresh Source Intake Repair — 2026-11-23
+
+Close the app and run `RunWorldSeed.bat --rebuild` once before these checks.
+
+### Saved Review Actions — 2026-11-24
+
+- **Answer a saved review:** Select Skills/Tools/Checks or Gear/Weapons/Magic.
+  Review items should appear above the source text with answer boxes. Enter
+  clarifications and use **Save Answers And Retry Source**. Expect saved answers
+  and a regenerated draft; unresolved material can still be flagged honestly.
+- **License material:** On Travel/Exploration/Environment, use **Mark As Non-Game
+  Material** for the license notice. Expect that notice to leave the review list
+  immediately, with original text and valid rules preserved. Reopen the project
+  and retry: its classification should remain saved.
+- **Retry:** **Retry Selected Source** should process an existing saved draft
+  using its answers, without the old “already has a session” refusal. A pending
+  interview instead shows **Resume Selected Source** and its answer controls.
+
+- **Missing passages:** Retry Experience And Levels and Fights And Turns. Expect
+  valid rules to survive an omitted passage. Any omission remaining after the
+  focused retry must appear with original text in Conversation as needing review,
+  rather than a fatal coverage error or a claim of complete extraction.
+- **Source status:** Hover the fixed icon left of a filename. Expect status in
+  the tooltip: `○` not started, `✓` draft ready, `!` answers or review needed.
+  The filename no longer has a status suffix.
+- **Bounded extraction:** Retry Ancestry and Advancement from a fresh source
+  session. Expect passage progress followed by a combined draft, without the
+  previous whole-file truncation. Compare the rules against the source facts;
+  passage coverage alone does not prove semantic completeness. Larger files now
+  require several model calls, so processing may take longer.
+- **Task questions:** Retry Classes And Training. Expect extracted rules or
+  questions about specific missing mechanics, never what to do with the text or
+  which aspect interests you. Answer any genuine clarification and continue.
+- **Source evidence:** Select rules from the beginning and end of a processed
+  file. Expect original excerpts and permanent source references, with no
+  temporary `n1`/`p1` aliases in saved rule evidence.
+
 Use an existing disposable or test project that already has a Working Rule Set,
 an active schema with a content type. A game-specific balance profile is optional;
 balance evaluation is the first stretch goal under decision 0016.
@@ -49,3 +109,5 @@ Each row is independent; API/infrastructure checks belong to QA.
 | Connected content (`9ee34f3`) | With an existing target entry and a schema-defined reference/link, request a new entry using that target. Inspect Related Canonical IDs and Proposed Relationships before approval/application. | Valid targets resolve during preview; entry and approved links apply together. Invalid targets or cardinality prevent application. |
 | Connected reader output | Publish the approved connected content. | References and links use content labels; technical IDs remain in the manifest. |
 | Mechanical coverage label | Inspect Mechanical Validation in Content Review. | The result identifies declared schema/reference checks and explicitly leaves prose-only conditions for designer review. |
+| Reference/link schema translation (`2abe3ad`) | Request an optional reference to an existing content type and an explicitly named relationship in Schema. | Entity references use actual entity types; the relationship uses declared endpoints. Existing entries survive a compatible update. |
+| Omitted-link refusal (`268a985`) | In Content Review, explicitly request a declared relationship by name. Inspect proposed links and the item effect before approval. | A link omitted without a reported gap is refused; the app must not silently save it as a complete proposal. Reject or revise unrequested mechanics such as invented usage limits. |
