@@ -110,6 +110,28 @@ public class WorkingRuleSetFormalizationServiceTests
     }
 
     [Fact]
+    public async Task Recovers_omitted_citations_without_reprocessing_valid_rules()
+    {
+        var model = new SequencedModel([ResponseFor("d001"), ResponseFor("d002"), ResponseFor("d003", "d004")]);
+        var result = await new WorkingRuleSetFormalizationService(model).CreateProposalAsync(CreateProjectWithCompletedDrafts(4), addMissingOnly: true);
+        Assert.Equal(4, result.RuleSet.Rules.Count);
+        Assert.Equal(4, result.RuleSet.Rules.SelectMany(rule => rule.SourceDraftRules).Distinct().Count());
+        Assert.Equal(3, model.Requests.Count);
+        Assert.DoesNotContain("[d001]", model.Requests[1].Messages[1].Content);
+        Assert.DoesNotContain("[d002]", model.Requests[2].Messages[1].Content);
+    }
+
+    [Fact]
+    public async Task Retries_a_bad_single_rule_once_then_reports_the_named_rule()
+    {
+        var model = new SequencedModel(["{}", "{}"]);
+        var error = await Assert.ThrowsAsync<WorkingRuleSetFormatException>(() => new WorkingRuleSetFormalizationService(model).CreateProposalAsync(CreateProject()));
+        Assert.Equal(2, model.Requests.Count);
+        Assert.Contains("after a focused retry", error.Message);
+        Assert.Contains("Existing project rules were not changed", error.Message);
+    }
+
+    [Fact]
     public async Task Incremental_recovery_preserves_existing_rules_and_avoids_id_collisions()
     {
         var project = CreateProjectWithCompletedDrafts(2);

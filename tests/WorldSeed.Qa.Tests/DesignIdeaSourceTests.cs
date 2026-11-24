@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
+using Avalonia.LogicalTree;
 using System.Net;
 using System.Net.Http.Json;
 using System.Reflection;
@@ -12,6 +13,25 @@ namespace WorldSeed.Qa.Tests;
 
 public sealed class DesignIdeaSourceTests
 {
+    [AvaloniaFact]
+    public void Rule_actions_and_workspace_help_use_plain_language()
+    {
+        using var api = new HttpClient(new OfflineHandler());
+        using var model = new HttpClient(new OfflineHandler());
+        var window = new MainWindow(model, api);
+        try
+        {
+            Assert.Equal("Add New Source Rules", window.FindControl<Button>("AddMissingWorkingRulesButton")!.Content);
+            Assert.Equal("Rebuild Project Rules", window.FindControl<Button>("BuildWorkingRulesButton")!.Content);
+            var icons = window.GetLogicalDescendants().OfType<HelpIcon>().ToArray();
+            Assert.True(icons.Length >= 6);
+            Assert.Contains(icons, icon => icon.HelpText.Contains("A proposal is a saved candidate"));
+            Assert.Contains(icons, icon => icon.HelpText.Contains("project-wide rules"));
+            Assert.All(icons, icon => Assert.Equal(icon.HelpText, Assert.IsType<TextBlock>(ToolTip.GetTip(icon)).Text));
+        }
+        finally { window.Close(); }
+    }
+
     [AvaloniaFact]
     public void Dialog_requires_a_title_and_idea_then_preserves_exact_text()
     {

@@ -682,13 +682,13 @@ public partial class MainWindow : Window
             SchemaQuestionPanel.IsVisible = false;
             RefreshWorkingRulesView();
             RefreshSchemaView();
-            WorkingRulesStatusText.Text = $"Saved working proposal revision {_workingRuleSet.Revision} from {result.BatchCount} validated batch(es). It remains a project working proposal, not a game schema.";
+            WorkingRulesStatusText.Text = $"Saved Project Rules Revision {_workingRuleSet.Revision} From {result.BatchCount} Validated Batches. Next: Review These Rules, Then Use Them In Schema.";
             AppLog.Info($"Saved working rule set revision {_workingRuleSet.Revision} for project '{_project.Id}'.");
         }
         catch (WorkingRuleSetFormatException ex)
         {
             AppLog.Error("Validate working rule proposal", ex);
-            WorkingRulesStatusText.Text = "The model returned a proposal WorldSeed could not safely use. Nothing was saved.";
+            WorkingRulesStatusText.Text = "The Model Could Not Prepare Every Source Rule, Even After Recovery. Existing Project Rules Were Not Changed. See The Rule Detail Below.";
             WorkingRuleText.Text = $"Format detail: {ex.Message}\n\nRaw model output (for diagnosis):\n{Preview(capture.Last?.Content)}";
         }
         catch (LlmClientException ex) when (ex.InnerException is TaskCanceledException)
@@ -730,7 +730,7 @@ public partial class MainWindow : Window
             AppLog.Error("Load working rule set", ex);
             _workingRuleSet = null;
             RefreshWorkingRulesView();
-            WorkingRulesStatusText.Text = "Could not load the saved working proposal. See the diagnostic log.";
+            WorkingRulesStatusText.Text = "Could Not Load Saved Project Rules. See The Diagnostic Log.";
         }
     }
 
@@ -1692,9 +1692,9 @@ public partial class MainWindow : Window
         RefreshReconciliationView();
         if (_workingRuleSet is null)
         {
-            WorkingRulesSummaryText.Text = "Create completed source drafts, then build one project-wide working proposal.";
-            WorkingRulesStatusText.Text = "No project-level working proposal is loaded.";
-            WorkingRuleText.Text = "Build or load a proposal to inspect its project-level rules and exact evidence.";
+            WorkingRulesSummaryText.Text = "Process Sources, Then Use Add New Source Rules To Prepare Your Project Rules.";
+            WorkingRulesStatusText.Text = "No Project Rules Are Loaded.";
+            WorkingRuleText.Text = "Add New Source Rules Or Reload Saved Rules To Inspect Their Wording And Original Evidence.";
             return;
         }
         WorkingRulesSummaryText.Text = $"{_workingRuleSet.Name} - revision {_workingRuleSet.Revision}. {_workingRuleSet.Rules.Count} rule(s), {_workingRuleSet.Concepts.Count} concept(s).";
@@ -2237,7 +2237,7 @@ public partial class MainWindow : Window
                 StatusText.Text = progress?.Stage switch
                 {
                     ExpansionProgressStage.ClarificationInProgress => $"Expansion Request '{request.Title}' Is Waiting For Clarification Answers.",
-                    ExpansionProgressStage.DraftReady => $"Expansion Request '{request.Title}' Has A Reviewable Source Draft. Build The Working Proposal When Ready.",
+                    ExpansionProgressStage.DraftReady => $"Expansion Request '{request.Title}' Has A Reviewable Source Draft. Use Add New Source Rules In The Rules Tab When Ready.",
                     _ => $"Expansion Request '{request.Title}' Is Ready. Start The Selected Source To Begin Clarification; No Rules Or Schema Were Changed."
                 };
                 DevelopmentPlanStatusText.Text = "Expansion Request Opened On The Sources Tab.";
@@ -4332,8 +4332,8 @@ public partial class MainWindow : Window
         WorkingRuleList.ItemsSource = Array.Empty<WorkingRuleListItem>();
         RefreshReconciliationView();
         WorkingRuleList.SelectedIndex = -1;
-        WorkingRulesSummaryText.Text = "Create completed source drafts, then build one project-wide working proposal.";
-        WorkingRulesStatusText.Text = "No project-level working proposal is loaded.";
+        WorkingRulesSummaryText.Text = "Process Sources, Then Use Add New Source Rules To Prepare Your Project Rules.";
+        WorkingRulesStatusText.Text = "No Project Rules Are Loaded.";
         WorkingRuleText.Text = "Build or load a proposal to inspect its project-level rules and exact evidence.";
         _schemaQueueRuleIds.Clear();
         SchemaRuleGroupsPanel.Children.Clear();
