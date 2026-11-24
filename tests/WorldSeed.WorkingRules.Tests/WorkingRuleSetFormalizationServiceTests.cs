@@ -110,6 +110,29 @@ public class WorkingRuleSetFormalizationServiceTests
     }
 
     [Fact]
+    public async Task Progress_counts_unique_prepared_rules_and_reports_recovery_before_saving()
+    {
+        var model = new SequencedModel(["{", ResponseFor("d001"), "{}", ResponseFor("d002"), ResponseFor("d003", "d004")]);
+        var progress = new RecordedProgress();
+        await new WorkingRuleSetFormalizationService(model).CreateProposalAsync(CreateProjectWithCompletedDrafts(4), progress: progress);
+        Assert.Equal(0, progress.Values[0].PreparedRules);
+        Assert.Equal(4, progress.Values[^1].PreparedRules);
+        Assert.Equal("Ready To Save", progress.Values[^1].Activity);
+        Assert.Equal(5, progress.Values[^1].RequestNumber);
+        Assert.All(progress.Values, item => { Assert.Equal(4, item.TotalRules); Assert.Equal(1, item.TotalBatches); Assert.InRange(item.PreparedRules, 0, 4); });
+        Assert.Equal(progress.Values.Select(item => item.PreparedRules).Order(), progress.Values.Select(item => item.PreparedRules));
+        Assert.Contains(progress.Values, item => item.Activity == "Recovering Missing Rules");
+        Assert.Contains(progress.Values, item => item.Activity == "Retrying Rule");
+        Assert.Contains(progress.Values, item => item.Activity == "Retrying Invalid Batch");
+    }
+
+    private sealed class RecordedProgress : IProgress<WorkingRuleSetProgress>
+    {
+        public List<WorkingRuleSetProgress> Values { get; } = [];
+        public void Report(WorkingRuleSetProgress value) => Values.Add(value);
+    }
+
+    [Fact]
     public async Task Recovers_omitted_citations_without_reprocessing_valid_rules()
     {
         var model = new SequencedModel([ResponseFor("d001"), ResponseFor("d002"), ResponseFor("d003", "d004")]);

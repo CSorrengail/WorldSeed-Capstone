@@ -660,17 +660,44 @@ public partial class MainWindow : Window
         }
         BuildWorkingRulesButton.IsEnabled = false;
         AddMissingWorkingRulesButton.IsEnabled = false;
-        WorkingRulesStatusText.Text = $"Building bounded working-rule batches with {model}. Each batch is validated before it is combined...";
+        WorkingRulesActivityBar.IsVisible = true;
+        var projectId = _project.Id;
+        var active = true;
+        var elapsed = System.Diagnostics.Stopwatch.StartNew();
+        var requestElapsed = System.Diagnostics.Stopwatch.StartNew();
+        WorkingRuleSetProgress? latest = null;
+        string? finalStage = null;
+        void ShowProgress()
+        {
+            if (!active || _project?.Id != projectId) return;
+            var clock = elapsed.Elapsed.ToString(@"hh\:mm\:ss");
+            WorkingRulesStatusText.Text = finalStage is not null ? $"{finalStage}. Elapsed: {clock}."
+                : latest is null ? $"Preparing Project Rules With {model}. Elapsed: {clock}."
+                : $"{latest.PreparedRules} / {latest.TotalRules} Source Rules Prepared (Not Yet Saved). Batch {latest.BatchNumber} / {latest.TotalBatches}.\n{latest.Activity}. Model Requests: {latest.RequestNumber}. Elapsed: {clock}."
+                  + (latest.RequestRuleCount > 0 ? $"\nWaiting For Local Model: {requestElapsed.Elapsed.ToString(@"hh\:mm\:ss")} ({latest.RequestRuleCount} Rules In This Request)." : "");
+        }
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        timer.Tick += (_, _) => ShowProgress();
+        var progress = new Progress<WorkingRuleSetProgress>(value =>
+        {
+            if (!active || finalStage is not null) return;
+            if (value.RequestNumber != latest?.RequestNumber) requestElapsed.Restart();
+            latest = value; ShowProgress();
+        });
+        ShowProgress(); timer.Start();
         var capture = new CapturingClient(new OllamaChatClient(_http, OllamaDefaults.CreateProfile("local", "Local", model)));
         try
         {
-            var result = await new WorkingRuleSetFormalizationService(capture).CreateProposalAsync(_project, _workingRuleSet, addMissingOnly: addMissingOnly);
+            var result = await new WorkingRuleSetFormalizationService(capture).CreateProposalAsync(_project, _workingRuleSet, addMissingOnly: addMissingOnly, progress: progress);
+            if (_project?.Id != projectId) throw new InvalidOperationException("The Selected Project Changed While Preparing Rules. Return To The Original Project And Retry.");
             if (result.BatchCount == 0)
             {
                 WorkingRulesStatusText.Text = "All Completed Draft Rules Already Have Working Rule Citations. No Changes Were Needed.";
                 return;
             }
+            finalStage = "Saving Prepared Project Rules"; ShowProgress();
             await WorkingRuleStore().SaveAsync(result.RuleSet);
+            finalStage = "Project Rules Saved; Refreshing Workspace"; ShowProgress();
             _workingRuleSet = result.RuleSet;
             await LoadDevelopmentPlansAsync(_project.Id);
             await LoadSchemaProposalAsync(_project.Id);
@@ -709,7 +736,12 @@ public partial class MainWindow : Window
             WorkingRulesStatusText.Text = "Working-rule formalization failed before a usable proposal was produced.";
             WorkingRuleText.Text = $"{ex.GetType().Name}: {ex.Message}\n\nDiagnostic log: {AppLog.CurrentPath}";
         }
-        finally { BuildWorkingRulesButton.IsEnabled = true; AddMissingWorkingRulesButton.IsEnabled = true; }
+        finally
+        {
+            active = false; timer.Stop();
+            WorkingRulesActivityBar.IsVisible = false;
+            BuildWorkingRulesButton.IsEnabled = true; AddMissingWorkingRulesButton.IsEnabled = true;
+        }
     }
 
     private async void ReloadWorkingRules_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)

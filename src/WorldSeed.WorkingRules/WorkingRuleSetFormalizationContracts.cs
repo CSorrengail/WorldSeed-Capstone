@@ -6,6 +6,10 @@ namespace WorldSeed.WorkingRules;
 /// <param name="BatchCount">Number of independently validated model batches assembled into the proposal.</param>
 public sealed record WorkingRuleSetFormalizationResult(WorkingRuleSet RuleSet, string RawModelResponse, int BatchCount);
 
+/// <summary>Preparation progress, not a claim that the database save has completed.</summary>
+public sealed record WorkingRuleSetProgress(int PreparedRules, int TotalRules, int BatchNumber,
+    int TotalBatches, int RequestNumber, int RequestRuleCount, string Activity);
+
 /// <summary>Indicates that a model response could not be safely converted into a traceable working rule set.</summary>
 public sealed class WorkingRuleSetFormatException(string message) : Exception(message);
 

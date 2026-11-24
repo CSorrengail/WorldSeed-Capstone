@@ -166,6 +166,60 @@ public sealed class ProjectInventoryWorkspaceTests
         finally { window.Close(); }
     }
 
+    [AvaloniaFact]
+    public async Task Rule_build_shows_live_wait_progress_and_cleans_up_after_failure()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var source = new DesignSourceNote("source", "Promises connect participants.", now);
+        var draft = new WorldSeed.RuleDrafting.StructuredRuleDraft("Promises", "Describe promises.",
+            [new("draft", "Promise", WorldSeed.RuleDrafting.RuleStatementKind.Rule, source.OriginalText, [source.Id], [new(source.Id, source.OriginalText)])], [], [], [], []);
+        var project = DesignProjectService.Create("progress", "Progress") with
+        {
+            SourceNotes = [source], Sessions = [new("session", "progress", "local", now, now, [source], [], new(WorldSeed.RuleDrafting.RuleDraftAction.PresentDraft, null, [], draft))]
+        };
+        using var handler = new WaitingModelHandler();
+        using var model = new HttpClient(handler);
+        using var api = new HttpClient(new InventoryHandler(CreateInventory(project.Id))) { BaseAddress = new Uri("http://qa.invalid/") };
+        var window = new MainWindow(model, api);
+        try
+        {
+            SetField(window, "_project", project);
+            var selector = window.FindControl<ComboBox>("ModelSelector")!;
+            selector.ItemsSource = new[] { "fake" }; selector.SelectedIndex = 0;
+            var operation = window.BuildWorkingRulesAsync(false);
+            await handler.Started.Task;
+            Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+            var status = window.FindControl<TextBlock>("WorkingRulesStatusText")!;
+            Assert.Contains("0 / 1 Source Rules Prepared", status.Text);
+            Assert.Contains("Waiting For Local Model", status.Text);
+            Assert.True(window.FindControl<ProgressBar>("WorkingRulesActivityBar")!.IsVisible);
+            Assert.False(window.FindControl<Button>("BuildWorkingRulesButton")!.IsEnabled);
+            var before = status.Text;
+            await Task.Delay(1200);
+            Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+            Assert.NotEqual(before, status.Text);
+            handler.Release.TrySetResult(true);
+            await operation;
+            Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+            Assert.Contains("Even After Recovery", status.Text);
+            Assert.False(window.FindControl<ProgressBar>("WorkingRulesActivityBar")!.IsVisible);
+            Assert.True(window.FindControl<Button>("BuildWorkingRulesButton")!.IsEnabled);
+        }
+        finally { handler.Release.TrySetResult(true); window.Close(); }
+    }
+
+    private sealed class WaitingModelHandler : HttpMessageHandler
+    {
+        public TaskCompletionSource<bool> Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource<bool> Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Started.TrySetResult(true);
+            await Release.Task.WaitAsync(cancellationToken);
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new { message = new { role = "assistant", content = "{}" }, done = true }) };
+        }
+    }
+
     private static ProjectInventory CreateInventory(string projectId)
     {
         var now = DateTimeOffset.Parse("2026-11-13T18:00:00Z");
