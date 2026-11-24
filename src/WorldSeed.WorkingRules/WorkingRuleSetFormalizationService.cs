@@ -81,7 +81,19 @@ public sealed class WorkingRuleSetFormalizationService
         }
 
         tracker.Report("Validating Project Rules");
-        var ruleSet = CombineBatches(project, currentRuleSet, parsedBatches, _timeProvider.GetUtcNow(), addMissingOnly);
+        var ruleSet = ComposeCheckpoint(project, currentRuleSet, checkpoint, _timeProvider.GetUtcNow());
+        var validation = _validator.Validate(ruleSet, project);
+        if (!validation.IsValid) throw new WorkingRuleSetFormatException(string.Join(" ", validation.Issues.Select(issue => issue.Message)));
+        tracker.Report("Ready To Save");
+        return new WorkingRuleSetFormalizationResult(ruleSet, string.Join("\n\n", rawResponses), parsedBatches.Count);
+    }
+
+    /// <summary>The desktop and API use the same deterministic composition; callers cannot swap checkpointed content at promotion.</summary>
+    public static WorkingRuleSet ComposeCheckpoint(DesignProject project, WorkingRuleSet? currentRuleSet, WorkingRulePreparation checkpoint, DateTimeOffset timestamp)
+    {
+        WorkingRulePreparationBinding.Validate(checkpoint, project, currentRuleSet, checkpoint.AddMissingOnly);
+        var sourceDrafts = WorkingRulePreparationBinding.SelectDrafts(project, currentRuleSet, checkpoint.AddMissingOnly);
+        var ruleSet = CombineBatches(project, currentRuleSet, checkpoint.Batches.Select(batch => batch.RuleSet).ToArray(), timestamp, checkpoint.AddMissingOnly);
         // Draft-level uncertainty is not part of the model's per-rule input. Carry it
         // forward directly rather than asking another model to rediscover or resolve it.
         var includedSessions = sourceDrafts.Select(draft => draft.Reference.SessionId).ToHashSet(StringComparer.Ordinal);
@@ -95,10 +107,7 @@ public sealed class WorkingRuleSetFormalizationService
                     .Select(value => "Unconfirmed Source-Draft Assumption: " + value.Trim()))),
             Exclusions = DistinctNonBlank(ruleSet.Exclusions.Concat(includedDrafts.SelectMany(draft => draft.Exclusions)))
         };
-        var validation = _validator.Validate(ruleSet, project);
-        if (!validation.IsValid) throw new WorkingRuleSetFormatException(string.Join(" ", validation.Issues.Select(issue => issue.Message)));
-        tracker.Report("Ready To Save");
-        return new WorkingRuleSetFormalizationResult(ruleSet, string.Join("\n\n", rawResponses), parsedBatches.Count);
+        return ruleSet;
     }
 
     private async Task FormalizeBatchAsync(DesignProject project, IReadOnlyList<DraftCitation> citations, ICollection<string> rawResponses, CancellationToken cancellationToken, PreparationProgress tracker, Func<WorkingRuleSet, string, Task> saveBatch, bool singleRetry = false, string activity = "Processing Batch")

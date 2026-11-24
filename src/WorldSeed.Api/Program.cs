@@ -543,6 +543,9 @@ projects.MapPost("/{projectId}/working-rule-preparation/apply", async (string pr
     var prepared = checkpoint.Batches.SelectMany(batch => batch.RuleSet.Rules).SelectMany(rule => rule.SourceDraftRules).ToHashSet();
     var proposed = ruleSet.Rules.SelectMany(rule => rule.SourceDraftRules).ToHashSet();
     if (!required.IsSubsetOf(prepared) || !required.IsSubsetOf(proposed)) return Results.BadRequest("The Checkpoint Is Not Complete. Saved Project Rules Were Not Changed.");
+    var expected = WorkingRuleSetFormalizationService.ComposeCheckpoint(project, current, checkpoint, ruleSet.UpdatedAt);
+    if (System.Text.Json.JsonSerializer.Serialize(expected) != System.Text.Json.JsonSerializer.Serialize(ruleSet))
+        return Results.BadRequest("The Submitted Rules Differ From The Saved Checkpoint. Resume Its Prepared Work Before Applying.");
     var validation = validator.Validate(ruleSet, project);
     if (!validation.IsValid) return Results.BadRequest(validation.Issues);
     await rules.SaveAsync(ruleSet, cancellationToken);

@@ -89,6 +89,9 @@ public sealed class WorkingRuleCheckpointIntegrationTests
             using (var stale = await http.PostAsJsonAsync(path + "/apply?fingerprint=" + loaded.InputFingerprint, result.RuleSet)) Assert.Equal(HttpStatusCode.Conflict, stale.StatusCode);
             Assert.Null(await new MongoWorkingRuleSetStore(database).LoadAsync(project.Id));
             await projects.SaveAsync(restoredProject);
+            var altered = result.RuleSet with { Rules = result.RuleSet.Rules.Select(rule => rule with { AuthoritativeText = "Changed after checkpoint." }).ToArray() };
+            using (var mismatch = await http.PostAsJsonAsync(path + "/apply?fingerprint=" + loaded.InputFingerprint, altered)) Assert.Equal(HttpStatusCode.BadRequest, mismatch.StatusCode);
+            Assert.Null(await new MongoWorkingRuleSetStore(database).LoadAsync(project.Id));
             using (var apply = await http.PostAsJsonAsync(path + "/apply?fingerprint=" + loaded.InputFingerprint, result.RuleSet)) Assert.Equal(HttpStatusCode.NoContent, apply.StatusCode);
             Assert.Equal(2, (await new MongoWorkingRuleSetStore(database).LoadAsync(project.Id))!.Rules.Count);
             using (var delete = await http.DeleteAsync(path)) Assert.Equal(HttpStatusCode.NoContent, delete.StatusCode);
