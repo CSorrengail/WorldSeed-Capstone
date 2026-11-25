@@ -101,6 +101,7 @@ public partial class MainWindow : Window
     private readonly HashSet<int> _completedStructurePlans = [];
     private readonly List<string> _structureFailures = [];
     private readonly HashSet<string> _failedStructureRuleIds = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _originalStructureQueueIds = new(StringComparer.Ordinal);
     private bool _applyingSchemaChange;
     private string? _lastSchemaTranslationFailureDetail;
     private string? _lastSchemaChangeClarificationQuestion;
@@ -1142,6 +1143,7 @@ public partial class MainWindow : Window
         _pendingStructureUsesQueue = usesQueue;
         _completedStructureRuleIds.Clear();
         _completedStructurePlans.Clear(); _structureFailures.Clear(); _failedStructureRuleIds.Clear();
+        _originalStructureQueueIds.Clear(); _originalStructureQueueIds.UnionWith(_schemaQueueRuleIds);
         RefreshSchemaQueueControls();
         var capture = new CapturingClient(new OllamaChatClient(_http, OllamaDefaults.CreateProfile("local", "Local", model)));
         try
@@ -1246,8 +1248,7 @@ public partial class MainWindow : Window
             }
             foreach (var ruleId in plan.WorkingRuleIds) _completedStructureRuleIds.Add(ruleId);
             _completedStructurePlans.Add(_pendingStructurePlanIndex);
-            if (_pendingStructureUsesQueue)
-                _schemaQueueRuleIds.RemoveAll(id => plan.WorkingRuleIds.Contains(id) && !_failedStructureRuleIds.Contains(id));
+            _schemaQueueRuleIds.RemoveAll(id => plan.WorkingRuleIds.Contains(id) && !_failedStructureRuleIds.Contains(id));
             _pendingStructurePlanIndex++;
             RefreshSchemaView();
         }
@@ -1267,15 +1268,15 @@ public partial class MainWindow : Window
         _pendingStructureUsesQueue = false;
         _completedStructureRuleIds.Clear();
         _completedStructurePlans.Clear(); _structureFailures.Clear(); _failedStructureRuleIds.Clear();
+        _originalStructureQueueIds.Clear();
     }
 
     private void RecordStructureFailure(SchemaStructurePlan plan, string detail)
     {
         _structureFailures.Add($"{plan.Name}: {detail}");
         _failedStructureRuleIds.UnionWith(plan.WorkingRuleIds);
-        if (_pendingStructureUsesQueue)
-            foreach (var id in plan.WorkingRuleIds)
-                if (!_schemaQueueRuleIds.Contains(id)) _schemaQueueRuleIds.Add(id);
+        foreach (var id in plan.WorkingRuleIds)
+            if ((_pendingStructureUsesQueue || _originalStructureQueueIds.Contains(id)) && !_schemaQueueRuleIds.Contains(id)) _schemaQueueRuleIds.Add(id);
     }
 
     private async Task ProcessSchemaQueueAsync()

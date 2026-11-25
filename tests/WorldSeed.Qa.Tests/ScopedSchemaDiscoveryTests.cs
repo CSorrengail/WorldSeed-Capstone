@@ -81,9 +81,10 @@ public sealed class ScopedSchemaDiscoveryTests
     }
 
     [AvaloniaTheory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Failed_structure_is_skipped_while_successes_are_saved_and_removed_from_queue(bool saveFailure)
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    [InlineData(false, false)]
+    public async Task Failed_structure_is_skipped_while_successes_are_saved_and_removed_from_queue(bool saveFailure, bool usesQueue)
     {
         var discovery = """{"plans":[{"id":"habitat","name":"Habitat","kind":"contentType","workingRuleIds":["habitat-definition"],"rationale":"Habitat."},{"id":"bad","name":"Middle Broken","kind":"contentType","workingRuleIds":["habitat-rule"],"rationale":"Fails."},{"id":"region","name":"Region","kind":"contentType","workingRuleIds":["unrelated-combat"],"rationale":"Region."}]}""";
         var handler = new SequencedOllamaHandler(saveFailure
@@ -96,7 +97,8 @@ public sealed class ScopedSchemaDiscoveryTests
         try
         {
             Queue(window, "habitat-definition", "habitat-rule", "unrelated-combat");
-            await window.BuildQueuedGameStructuresAsync();
+            if (usesQueue) await window.BuildQueuedGameStructuresAsync();
+            else await (Task)typeof(MainWindow).GetMethod("BuildGameStructuresAsync", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, null)!;
             Assert.Equal(2, store.SavedProposals.Count);
             var saved = store.SavedProposals[^1];
             Assert.Contains("habitat", saved.SchemaJson);
