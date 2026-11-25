@@ -42,6 +42,10 @@ public sealed class ScopedSchemaDiscoveryTests
             Assert.Single(apiHandler.Requests, request => request.StartsWith("PUT ", StringComparison.Ordinal));
             Assert.DoesNotContain(apiHandler.Requests, request => request.Contains("active-schema", StringComparison.Ordinal));
             Assert.Contains("Still Editable And Non-Canonical", window.FindControl<TextBlock>("SchemaStatusText")!.Text);
+            var log = File.ReadAllText(AppLog.CurrentPath);
+            Assert.Contains("MessageCharacters=", log);
+            Assert.Contains("SavedSchemaCharacters=", log);
+            Assert.DoesNotContain("Creatures may inherit one movement option from their habitat.", log);
         }
         finally { window.Close(); }
     }
@@ -51,7 +55,7 @@ public sealed class ScopedSchemaDiscoveryTests
     {
         var modelHandler = new SequencedOllamaHandler(
             DiscoveryResponse,
-            """{"action":"askClarifyingQuestion","clarifyingQuestion":"Should habitats be reusable entries?"}""",
+            """{"action":"askClarifyingQuestion","clarifyingQuestion":"Should habitats be reusable entries?","clarificationContext":{"workingRuleIds":["habitat-definition"],"detail":"Whether habitats have individual entries.","reason":"This determines whether to create a content type."}}""",
             ProposalResponse);
         var apiHandler = new SchemaProposalCaptureHandler();
         using var model = new HttpClient(modelHandler);
@@ -71,7 +75,8 @@ public sealed class ScopedSchemaDiscoveryTests
             await window.SubmitSchemaAnswerAsync();
 
             var saved = Assert.Single(apiHandler.SavedProposals);
-            Assert.Equal("Should habitats be reusable entries?", Assert.Single(saved.Clarifications!).Question);
+            Assert.Contains("Should habitats be reusable entries?", Assert.Single(saved.Clarifications!).Question);
+            Assert.Contains("habitat-definition", saved.Clarifications![0].Question);
             Assert.Contains("reusable entry", Assert.Single(saved.Clarifications!).Answer);
             Assert.Contains("Yes, each habitat", modelHandler.RequestBodies[2]);
             Assert.Empty(QueueIds(window));

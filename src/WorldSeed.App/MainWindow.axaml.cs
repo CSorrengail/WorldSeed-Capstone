@@ -1364,6 +1364,7 @@ public partial class MainWindow : Window
                 Concepts = _workingRuleSet.Concepts.Where(concept => rules.SelectMany(rule => rule.ConceptIds).Contains(concept.Id, StringComparer.Ordinal)).ToArray()
             };
             var clarifications = changeRequest?.Clarifications ?? _schemaClarifications;
+            AppLog.Info($"Schema Request {capture.DiagnosticId}: SavedSchemaCharacters={baseSchema?.ToJsonString().Length ?? 0}; SelectedRuleCount={rules.Count}; ContextWindowTokens=8192.");
             var turn = await new SchemaTranslationService(capture).TranslateAsync(new SchemaTranslationRequest(selectedRuleSet, baseSchema, clarifications, structureGoal, changeRequest));
             if (turn.Action == SchemaTranslationAction.AskClarifyingQuestion)
             {
@@ -4750,5 +4751,29 @@ public partial class MainWindow : Window
         public bool Included { get; set; } = included;
         public override string ToString() => $"{(Included ? "Included" : "Omitted")} - {Title}";
     }
-    private sealed class CapturingClient(ILanguageModelClient inner) : ILanguageModelClient { public LlmChatResponse? Last { get; private set; } public async Task<LlmChatResponse> CompleteAsync(LlmChatRequest request, CancellationToken cancellationToken = default) => Last = await inner.CompleteAsync(request, cancellationToken); }
+    private sealed class CapturingClient(ILanguageModelClient inner) : ILanguageModelClient
+    {
+        public string DiagnosticId { get; } = Guid.NewGuid().ToString("N")[..8];
+        public LlmChatResponse? Last { get; private set; }
+        public async Task<LlmChatResponse> CompleteAsync(LlmChatRequest request, CancellationToken cancellationToken = default)
+        {
+            Last = null;
+            var timer = System.Diagnostics.Stopwatch.StartNew();
+            AppLog.Info($"Model Request {DiagnosticId}: MessageCount={request.Messages.Count}; MessageCharacters={request.Messages.Sum(message => message.Content.Length)}; FormatCharacters={request.ResponseSchema?.ToJsonString().Length ?? 0}; OutputTokenLimit={request.MaxOutputTokens}.");
+            try
+            {
+                var response = await inner.CompleteAsync(request, cancellationToken);
+                Last = response;
+                var reason = response.FinishReason is "stop" or "length" ? response.FinishReason : response.FinishReason is null ? "unknown" : "other";
+                var model = response.Model.Length <= 120 && response.Model.All(character => char.IsLetterOrDigit(character) || "._:/-".Contains(character)) ? response.Model : "other";
+                AppLog.Info($"Model Response {DiagnosticId}: Model={model}; ElapsedMs={timer.ElapsedMilliseconds}; ResponseCharacters={response.Content.Length}; InputTokens={response.Usage?.InputTokens}; OutputTokens={response.Usage?.OutputTokens}; FinishReason={reason}.");
+                return response;
+            }
+            catch
+            {
+                AppLog.Info($"Model Request {DiagnosticId} Failed: ElapsedMs={timer.ElapsedMilliseconds}; No Usable Completion Metadata.");
+                throw;
+            }
+        }
+    }
 }

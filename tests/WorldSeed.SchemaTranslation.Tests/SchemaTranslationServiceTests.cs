@@ -42,7 +42,7 @@ public class SchemaTranslationServiceTests
         Assert.Contains("workingRuleIds", model.Request.Messages[0].Content);
         Assert.Equal(SchemaTranslationService.MaxOutputTokens, model.Request.MaxOutputTokens);
         Assert.NotNull(model.Request.ResponseSchema);
-        var allowedIds = model.Request.ResponseSchema!["properties"]!["proposal"]!["properties"]!["definitionSources"]!["items"]!["properties"]!["workingRuleIds"]!["items"]!["enum"]!.AsArray();
+        var allowedIds = ProposalBranch(model.Request.ResponseSchema!)["properties"]!["proposal"]!["properties"]!["definitionSources"]!["items"]!["properties"]!["workingRuleIds"]!["items"]!["enum"]!.AsArray();
         Assert.Equal(new[] { "casting-adds-mark" }, allowedIds.Select(value => value!.GetValue<string>()));
         Assert.False(model.Request.RequireJsonObject);
         Assert.DoesNotContain("Evidence", model.Request.Messages[1].Content);
@@ -51,7 +51,7 @@ public class SchemaTranslationServiceTests
     [Fact]
     public async Task Sends_designer_schema_clarifications_back_to_the_model()
     {
-        var model = new FakeModel("""{"action":"askClarifyingQuestion","clarifyingQuestion":"What weight categories are used?"}""");
+        var model = new FakeModel("""{"action":"askClarifyingQuestion","clarifyingQuestion":"What weight categories are used?","clarificationContext":{"workingRuleIds":["casting-adds-mark"],"detail":"Allowed categories.","reason":"The enumeration requires known entries."}}""");
         var clarifications = new[] { new SchemaClarification("What weight categories are used?", "Light, medium, and heavy.") };
 
         var turn = await new SchemaTranslationService(model).TranslateAsync(new SchemaTranslationRequest(CreateWorkingRuleSet(), Clarifications: clarifications));
@@ -113,9 +113,9 @@ public class SchemaTranslationServiceTests
         Assert.Equal(SchemaTranslationAction.PresentProposal, turn.Action);
         Assert.Equal(2, model.Requests.Count);
         Assert.Contains("prior response could not be parsed", model.Requests[1].Messages[^1].Content);
-        Assert.Equal(LlmMessageRole.Assistant, model.Requests[1].Messages[^2].Role);
-        Assert.Equal(model.Requests[0].Messages.Count + 2, model.Requests[1].Messages.Count);
-        Assert.Equal("{\"action\":\"presentProposal\",\"proposal\":", model.Requests[1].Messages[^2].Content);
+        Assert.DoesNotContain(model.Requests[1].Messages, message => message.Role == LlmMessageRole.Assistant);
+        Assert.Equal(model.Requests[0].Messages[1].Content, model.Requests[1].Messages[1].Content);
+        Assert.DoesNotContain(model.Requests[1].Messages, message => message.Content == "{\"action\":\"presentProposal\",\"proposal\":");
     }
 
     [Fact]
@@ -129,7 +129,7 @@ public class SchemaTranslationServiceTests
 
         Assert.Contains("exactly one content type", error.Message);
         Assert.Equal(3, model.Requests.Count);
-        var entities = model.Requests[0].ResponseSchema!["properties"]!["proposal"]!["properties"]!["schema"]!["properties"]!["entityTypes"]!;
+        var entities = ProposalBranch(model.Requests[0].ResponseSchema!)["properties"]!["proposal"]!["properties"]!["schema"]!["properties"]!["entityTypes"]!;
         Assert.Equal(1, entities["minItems"]!.GetValue<int>());
         Assert.Equal(1, entities["maxItems"]!.GetValue<int>());
     }
@@ -139,7 +139,7 @@ public class SchemaTranslationServiceTests
     {
         var schema = SchemaTranslationResponseSchema.Create(new HashSet<string> { "rule" });
 
-        var entities = schema["properties"]!["proposal"]!["properties"]!["schema"]!["properties"]!["entityTypes"]!;
+        var entities = ProposalBranch(schema)["properties"]!["proposal"]!["properties"]!["schema"]!["properties"]!["entityTypes"]!;
         Assert.Null(entities["minItems"]);
         Assert.Equal(3, entities["maxItems"]!.GetValue<int>());
     }
@@ -367,6 +367,77 @@ public class SchemaTranslationServiceTests
         Assert.Equal("definedValueType", quality["valueType"]!["kind"]!.GetValue<string>());
         Assert.Equal("nourishmentQuality", quality["valueType"]!["valueTypeId"]!.GetValue<string>());
         Assert.Equal(new[] { "nourishment", "nourishmentQuality" }, turn.Proposal.DefinitionSources.Select(source => source.DefinitionId).Order());
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("What's the purpose of this schema?")]
+    [InlineData("What would you like me to do with this text?")]
+    public async Task Generic_schema_purpose_question_is_corrected_once_before_a_grounded_question_is_shown(string? question)
+    {
+        var response = question is null ? TaskQuestionResponse : new JsonObject { ["action"] = "askClarifyingQuestion", ["clarifyingQuestion"] = question }.ToJsonString();
+        var model = new FakeModel(response, GroundedQuestionResponse);
+        var turn = await new SchemaTranslationService(model).TranslateAsync(new(CreateWorkingRuleSet()));
+        Assert.Equal(2, model.Requests.Count);
+        Assert.Contains("casting-adds-mark", turn.ClarifyingQuestion);
+        Assert.Contains("Why An Answer Is Needed", turn.ClarifyingQuestion);
+        Assert.DoesNotContain("purpose of this schema", turn.ClarifyingQuestion);
+        Assert.Contains(model.Requests[1].Messages, message => message.Content.Contains("WorldSeed already assigned schema translation"));
+    }
+
+    [Fact]
+    public async Task Repeated_generic_question_fails_after_one_correction_without_forwarding_it()
+    {
+        var model = new FakeModel(TaskQuestionResponse);
+        var error = await Assert.ThrowsAsync<SchemaTranslationFormatException>(() => new SchemaTranslationService(model).TranslateAsync(new(CreateWorkingRuleSet())));
+        Assert.Equal(2, model.Requests.Count);
+        Assert.Contains("Generic Question Was Not Forwarded", error.Message);
+    }
+
+    [Fact]
+    public async Task Clarification_cannot_claim_an_unselected_rule()
+    {
+        var model = new FakeModel(GroundedQuestionResponse.Replace("casting-adds-mark", "invented-rule"), GroundedQuestionResponse);
+        var turn = await new SchemaTranslationService(model).TranslateAsync(new(CreateWorkingRuleSet()));
+        Assert.Equal(2, model.Requests.Count);
+        Assert.DoesNotContain("invented-rule", turn.ClarifyingQuestion);
+    }
+
+    [Fact]
+    public async Task Large_schema_prompt_keeps_relevant_dependencies_and_index_while_validation_uses_full_schema()
+    {
+        var baseline = JsonNode.Parse("""{"id":"dangerous-magic","name":"Dangerous Magic","version":"0.1.0","entityTypes":[{"metadata":{"id":"caster","name":"Caster"},"fragmentIds":["markTraits"],"properties":[{"metadata":{"id":"markAmount","name":"Mark Amount"},"valueType":{"kind":"definedValueType","valueTypeId":"markValue"},"required":false,"nullable":false}]}],"valueTypes":[{"metadata":{"id":"markValue","name":"Mark Value"},"kind":"alias","targetType":{"kind":"primitive","name":"integer"}}],"schemaFragments":[{"metadata":{"id":"markTraits","name":"Mark Traits"},"properties":[]}]}""")!.AsObject();
+        for (var index = 0; index < 40; index++) baseline["entityTypes"]!.AsArray().Add(new JsonObject
+        {
+            ["metadata"] = new JsonObject { ["id"] = "unrelated" + index, ["name"] = "Unrelated " + index, ["description"] = new string('x', 1500) }, ["properties"] = new JsonArray()
+        });
+        var original = baseline.ToJsonString();
+        var output = """{"action":"presentProposal","proposal":{"summary":"Adds a linked mark.","schema":{"id":"dangerous-magic","name":"Dangerous Magic","version":"0.1.0","entityTypes":[{"metadata":{"id":"linkedMark","name":"Linked Mark"},"properties":[{"metadata":{"id":"target","name":"Target"},"valueType":{"kind":"reference","allowedEntityTypeIds":["unrelated39"]},"required":false,"nullable":true}]}]},"definitionSources":[{"definitionId":"linkedMark","workingRuleIds":["casting-adds-mark"]}]}}""";
+        var model = new FakeModel(output);
+        var turn = await new SchemaTranslationService(model).TranslateAsync(new(CreateWorkingRuleSet(), baseline));
+        Assert.NotNull(turn.Proposal);
+        var input = JsonNode.Parse(model.Request!.Messages[1].Content)!;
+        Assert.True(input["baseSchema"]!.ToJsonString().Length + input["baseSchemaReferenceIndex"]!.ToJsonString().Length < 6500);
+        Assert.Contains(input["baseSchema"]!["valueTypes"]!.AsArray().OfType<JsonObject>(), definition => definition["metadata"]!["id"]!.GetValue<string>() == "markValue");
+        Assert.Contains(input["baseSchema"]!["schemaFragments"]!.AsArray().OfType<JsonObject>(), definition => definition["metadata"]!["id"]!.GetValue<string>() == "markTraits");
+        Assert.DoesNotContain(input["baseSchema"]!["entityTypes"]!.AsArray().OfType<JsonObject>(), definition => definition["metadata"]!["id"]!.GetValue<string>() == "unrelated39");
+        Assert.Contains("unrelated39", input["baseSchemaReferenceIndex"]!.ToJsonString());
+        Assert.Equal(original, baseline.ToJsonString());
+    }
+
+    private const string TaskQuestionResponse = """{"action":"askClarifyingQuestion","clarifyingQuestion":"This is a very complex schema! What is the purpose of this schema? What did you want me to do with it? Are you looking for me to validate data against it, generate data based on it, or something else?"}""";
+    private const string GroundedQuestionResponse = """{"action":"askClarifyingQuestion","clarifyingQuestion":"Should lasting marks have independently created entries?","clarificationContext":{"workingRuleIds":["casting-adds-mark"],"detail":"Whether a mark is an individual entry or a character attribute.","reason":"This determines entity versus property representation."}}""";
+
+    private static JsonObject ProposalBranch(JsonNode schema) => schema["oneOf"]!.AsArray().OfType<JsonObject>()
+        .Single(branch => branch["properties"]!["action"]!["enum"]![0]!.GetValue<string>() == "presentProposal");
+
+    [Fact]
+    public void Native_clarification_branch_requires_question_and_grounding_together()
+    {
+        var schema = SchemaTranslationResponseSchema.Create(new HashSet<string> { "rule" });
+        var branch = schema["oneOf"]!.AsArray().OfType<JsonObject>().Single(item => item != ProposalBranch(schema));
+        Assert.Contains("clarifyingQuestion", branch["required"]!.AsArray().Select(value => value!.GetValue<string>()));
+        Assert.Contains("clarificationContext", branch["required"]!.AsArray().Select(value => value!.GetValue<string>()));
     }
 
     private static WorkingRuleSet CreateWorkingRuleSet()

@@ -77,7 +77,7 @@ public sealed class OllamaChatClient : ILanguageModelClient
             throw new LlmClientException("Ollama returned an empty assistant response. The source note or conversation may exceed the model context window." + suffix, (int)response.StatusCode);
         }
         return new LlmChatResponse(content, StringValue(root?["model"]) ?? _profile.Model,
-            new LlmUsage(IntValue(root?["prompt_eval_count"]), IntValue(root?["eval_count"])));
+            new LlmUsage(IntValue(root?["prompt_eval_count"]), IntValue(root?["eval_count"])), StringValue(root?["done_reason"]));
         }
     }
 

@@ -29,7 +29,7 @@ public sealed record LlmChatRequest(
     bool RequireJsonObject = false,
     System.Text.Json.Nodes.JsonNode? ResponseSchema = null);
 public sealed record LlmUsage(int? InputTokens, int? OutputTokens);
-public sealed record LlmChatResponse(string Content, string Model, LlmUsage? Usage);
+public sealed record LlmChatResponse(string Content, string Model, LlmUsage? Usage, string? FinishReason = null);
 
 public interface ILanguageModelClient
 {

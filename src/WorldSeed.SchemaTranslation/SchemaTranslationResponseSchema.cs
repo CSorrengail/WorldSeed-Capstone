@@ -129,12 +129,27 @@ public static class SchemaTranslationResponseSchema
         var allowed = allowedWorkingRuleIds.OrderBy(id => id, StringComparer.Ordinal)
             .Select(id => (JsonNode)JsonValue.Create(id)!).ToArray();
         schema["properties"]!["proposal"]!["properties"]!["definitionSources"]!["items"]!["properties"]!["workingRuleIds"]!["items"]!["enum"] = new JsonArray(allowed);
+        schema["properties"]!["clarificationContext"] = JsonNode.Parse("""{"type":"object","additionalProperties":false,"required":["workingRuleIds","detail","reason"],"properties":{"workingRuleIds":{"type":"array","minItems":1,"maxItems":3,"uniqueItems":true,"items":{"type":"string"}},"detail":{"type":"string","minLength":1,"maxLength":500},"reason":{"type":"string","minLength":1,"maxLength":500}}}""");
+        schema["properties"]!["clarificationContext"]!["properties"]!["workingRuleIds"]!["items"]!["enum"] = new JsonArray(allowedWorkingRuleIds.Select(id => (JsonNode?)JsonValue.Create(id)).ToArray());
+        schema["allOf"]![0]!["then"]!["required"]!.AsArray().Add("clarificationContext");
         if (singleContentType)
         {
             var entityTypes = schema["properties"]!["proposal"]!["properties"]!["schema"]!["properties"]!["entityTypes"]!;
             entityTypes["minItems"] = 1;
             entityTypes["maxItems"] = 1;
         }
+        // Use explicit alternatives rather than conditional required fields:
+        // providers may not enforce if/then when compiling a generation grammar.
+        JsonObject Branch(string action, params string[] fields)
+        {
+            var properties = new JsonObject { ["action"] = new JsonObject { ["type"] = "string", ["enum"] = new JsonArray(action) } };
+            foreach (var field in fields) properties[field] = schema["properties"]![field]!.DeepClone();
+            return new JsonObject { ["type"] = "object", ["additionalProperties"] = false,
+                ["required"] = new JsonArray(new[] { "action" }.Concat(fields).Select(field => (JsonNode?)JsonValue.Create(field)).ToArray()), ["properties"] = properties };
+        }
+        schema["oneOf"] = new JsonArray(Branch("askClarifyingQuestion", "clarifyingQuestion", "clarificationContext"), Branch("presentProposal", "proposal"));
+        schema.Remove("allOf");
+        schema.Remove("properties"); schema.Remove("required"); schema.Remove("additionalProperties");
         return schema;
     }
 }

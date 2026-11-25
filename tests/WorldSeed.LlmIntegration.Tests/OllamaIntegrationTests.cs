@@ -10,7 +10,7 @@ public class OllamaIntegrationTests
     [Fact]
     public async Task Sends_a_native_local_ollama_chat_request_and_reads_response()
     {
-        var handler = new RecordingHandler("""{"model":"qwen3:8b","message":{"role":"assistant","content":"A structured answer."},"prompt_eval_count":9,"eval_count":5}""");
+        var handler = new RecordingHandler("""{"model":"qwen3:8b","message":{"role":"assistant","content":"A structured answer."},"prompt_eval_count":9,"eval_count":5,"done_reason":"stop"}""");
         using var httpClient = new HttpClient(handler);
         var client = new OllamaChatClient(httpClient, OllamaDefaults.CreateProfile("local", "My local model", "qwen3:8b"));
 
@@ -20,6 +20,7 @@ public class OllamaIntegrationTests
         Assert.Equal("qwen3:8b", response.Model);
         Assert.Equal(9, response.Usage!.InputTokens);
         Assert.Equal(5, response.Usage.OutputTokens);
+        Assert.Equal("stop", response.FinishReason);
         Assert.Equal("http://127.0.0.1:11434/api/chat", handler.Request!.RequestUri!.ToString());
         Assert.Null(handler.Request.Headers.Authorization);
         var body = JsonNode.Parse(handler.Body!)!.AsObject();
