@@ -24,6 +24,145 @@ preserved at `backup/main-before-test-doc-squash-20261107`.
 
 ## Current Development Task
 
+**Explicit Schema Rule Outcomes (2026-11-25), cumulative iteration 31,
+`dc1f60a`.** Owner approved the correction after actual rules for an educational
+disclaimer, combat design intent, and condition interpretation produced unrelated
+redefinitions. Five-hour allowance reset; owner suspended weekly checks until
+further notice. One implementation iteration and one consolidated QA pass in this
+bounded cycle; no live model calls or changes to user projects.
+
+Rules can create/extend structures, reuse saved definitions, remain text, retain
+document information without structural work, or require clarification. No-change
+outcomes are valid. Ordinary extensions use the shared merger after additive-only
+safety checks. Revision/rule/schema/dependency fingerprints and append-only outcome
+history persist beside the proposal. Old schema/citations are preserved; legacy
+citations/name matches are visibly unassessed rather than automatically completed.
+Discovery remains selective; this does not certify all 827 rules or repair old data.
+
+Developer checks: 17 accounting and 12 focused headless tests passed. Independent
+QA verified exact `dc1f60a`: 58 schema tests and 16 focused headless tests passed;
+one opt-in local-model test skipped. API Release build passed with zero warnings
+or errors. No live model or MongoDB roundtrip was exercised. Evidence:
+`artifacts/qa/20261125-schema-rule-outcomes`. Advisor reviewed the committed guards:
+GREEN, no material blocker; both earlier YELLOW concerns (no-op parsing and safe
+extensions) addressed. Semantic model fidelity still needs real-data verification.
+
+Latest verified functional revision: `dc1f60a`. This bounded cycle is complete;
+no owner decision or alert is needed. Next action: manual schema retry with the
+rebuilt desktop/API, especially nonstructural rules and existing-definition reuse.
+Real corpus semantic behavior and existing suspect structures remain unverified;
+no claim of automatic repair or complete corpus coverage. Testing/status updates
+are consolidated with prior accumulated notes in one documentation commit.
+
+**Schema task grounding and bounded context (2026-11-24), cumulative iteration
+30, `a8d76c6`.** Owner supplied 64% five-hour / 30% weekly. Read-only metadata
+inspection found the saved schema is 61,721 formatted characters (56 entity
+types, 7 value types). Prompt context now uses a relevant definition/dependency
+projection plus a complete ID index, bounded to 6,000 serialized characters;
+validation/merging still use the untouched full schema. Selected source rules
+and saved clarification history remain retained. Task instructions are repeated
+after context. Generic application-purpose questions get one automatic correction
+and then fail safely; genuine new clarifications require selected rule IDs,
+an unclear detail, and a reason, displayed with the question. Native response
+alternatives require the question and grounding together. Corrective prompts
+no longer echo rejected JSON. Numeric request/response/token/time/finish metadata
+is logged without source text, prompts or response payloads.
+Independent QA passed 30 schema-service, 6 Ollama contract and 9 headless cases
+on `a8d76c6`: ignored `artifacts/qa/20261124-schema-clarification-guard/report.md`.
+Live evidence is LIMITED: 3 initially authorized gemma3:12b calls plus 2 explicitly
+approved extra calls were used with synthetic input only. A clear Location
+proposal passed. The Omen unknown-enumeration case repeatedly proposed an empty
+enum; validation rejected it. Both bounded runs stopped before the usual final
+retry, so successful live clarification is not verified and a guaranteed
+production failure is not established. Input counts were 2,158–2,452 tokens,
+well below configured context size. Final corrective wording was not retested
+live. Synthetic responses are ignored evidence under
+`artifacts/qa/20261124-schema-clarification-native/`. No more model calls are
+authorized in this cycle. Follow-up: investigate missing-information branch
+selection in a separately authorized bounded model check; keep this limitation
+visible. No user project/database writes or model downloads occurred. Owner can
+rebuild and manually test the guard/context update; no full-corpus pass claimed.
+Notes await the next consolidated documentation commit.
+
+**Schema filtering and incremental discovery (2026-11-24), cumulative iteration
+29, `fc6f9c8`.** Owner supplied 81% five-hour / 32% weekly. With 827 corpus rules,
+Schema now has Hide Completed Rules above the categories (default off). It uses
+the existing processed status, affects only the list, preserves queued items and
+build scope, and remembers expansion state when groups disappear/reappear.
+The latest UTC-named log contains duplicate JSON `name` ArgumentExceptions and
+an empty assistant response during discovery. Recursive JsonNode materialization
+now converts ambiguous duplicate keys to reported format failures; empty model
+responses are skipped with a failure record. Discovery processes 12 source rules
+at a time and saves translated content types before the next discovery batch.
+Relationships wait until all content-type batches finish. Existing saved schema
+is supplied to later batches. Clarifications retain the pending offset/plans for
+continuation. Fatal errors now explicitly preserve earlier saves; this is not a
+new persistent schema-job checkpoint system. Active Schema work suppresses idle
+closure. Developer and independent QA passed 6 discovery and 9 focused headless
+cases on `fc6f9c8`; report: ignored
+`artifacts/qa/20261124-schema-filter-streaming/report.md`. No live model/corpus or user-data writes, API
+server, Docker or computer control were used. Notes await the next batched commit.
+
+**Schema partial success and category state (2026-11-24), cumulative iteration
+28, `33838ed` / `92901c7`.** Owner supplied 97% five-hour / 35% weekly. Invalid
+discovery batches now report failures while retaining valid plans. Automatic
+whole-project and queued structure passes skip failed translations/saves and
+continue later plans. Each saved addition is retained and its successful rules
+leave the manual queue immediately; failed/shared rules remain available for
+retry. A candidate becomes the in-memory saved proposal only after its API save
+succeeds. Final status reports saved/failed counts and preserves failure details.
+Clarification still pauses for an answer. Rule-category expanders retain their
+individual expansion state across queue refreshes using stable kind tags.
+Developer checks: 3 discovery tests and 6 headless scoped/global cases passed,
+including simulated model and persistence failure. Independent QA passed initial
+3+5 cases and final 6/6 headless cases at `92901c7`; report is in ignored
+`artifacts/qa/20261124-schema-partial-progress/report.md`. No live model, user
+data, Docker, normal launcher or computer control used. Owner app left running;
+close and rebuild before testing. Notes await the next batched documentation commit.
+
+**Resumable Rules checkpoints (2026-11-24), cumulative iterations 26–27,
+`60d2fe3` backend, `b7e9694` desktop, `35a45a8` promotion integrity.** Owner supplied 71% five-hour / 39%
+weekly after losing a 24-minute run to idle closure and model failure. Each
+validated batch/sub-batch is now awaited into a separate MongoDB preparation
+document before another model call. Resume skips its prepared source references;
+errors, app closure and final-save failure retain work. A fingerprint binds
+selected source drafts/evidence, existing project rules, operation mode and
+contract version. API promotion rechecks the live binding and full coverage;
+unfinished/stale work cannot replace saved project rules. One checkpoint per
+project; Resume and Discard controls load with the Rules workspace. Discard
+does not remove current rules or sources. Active Rules work suppresses idle
+shutdown and restarts the idle grace period on completion/failure.
+Developer checks passed 20 formalization tests, 3 targeted headless cases, and
+an isolated real Mongo/API interruption/resume/promotion test. API Release build
+passed without warnings. Independent QA passed 27 WorkingRules cases, 3 headless
+cases and 1 real Mongo/API case at `b7e9694`. Advisor assessment was YELLOW:
+no material persistence/stale-resume defect, but promotion needed exact payload
+binding. `35a45a8` shares deterministic checkpoint composition between client/API
+and rejects altered final payloads even if citations match. Final independent QA
+passed the API Release build, 1 real Mongo/API case (including altered-payload
+refusal), and 5 checkpoint service cases. Unchanged UI coverage remains 3/3 at
+`b7e9694`. Evidence: ignored `artifacts/qa/20261124-rule-checkpoints/report.md`. Concurrent
+multi-editor synchronization is deferred hardening for this single-designer MVP,
+not an owner decision blocking current work.
+No real documents, user databases, models or normal launcher were used. The owner
+must rebuild both desktop and Docker API before using this feature. Old runs
+from before checkpointing cannot be recovered. Testing/status notes are pending
+the next batched documentation checkpoint.
+
+**Live project-rule preparation progress (2026-11-24), cumulative iteration 25,
+`25baac8`.** Owner terminated a long Rules operation because static text looked
+stuck. Both add/rebuild now show prepared/total input rules, original batch count,
+model request count/size, recovery stages, validation and saving. While a model
+request is pending, an elapsed/wait clock updates every second and a busy bar
+stays visible. Prepared rules are explicitly Not Yet Saved; no fake ETA or claim
+that the model is emitting tokens. UI timers/busy state and late callbacks are
+cleaned up on success, failure and no-op. Developer checks: 15 formalization
+tests plus 2 focused headless cases passed. Independent QA passed the 1 progress
+service case and 2 headless progress/no-op cases on `25baac8`; evidence is in
+ignored `artifacts/qa/20261124-working-rule-progress/report.md`.
+Latest supplied usage was 87% five-hour / 42% weekly; no live model/corpus test.
+Notes are pending the next consolidated documentation checkpoint.
+
 **Project-rule omission recovery and contextual help (2026-11-24), cumulative
 iteration 24, `f65bbf0`.** Owner reports all Sources now process, but Add Missing
 Draft Rules failed when a valid four-rule response covered only one input.

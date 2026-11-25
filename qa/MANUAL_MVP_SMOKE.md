@@ -1,5 +1,25 @@
 # Normal Launcher MVP Smoke Check
 
+## Explicit Schema Outcomes — 2026-11-25 (`dc1f60a`)
+
+Close WorldSeed and run `RunWorldSeed.bat --rebuild` once for the new desktop/API.
+
+- **Nonstructural rules:** In Schema, queue a document disclaimer or design goal.
+  Expect Document Information or Retained As Text with a reason, no invented
+  content type, and the original rule retained. Reopen the project: the outcome
+  persists and Hide Completed Rules hides it.
+- **Reuse:** Queue a rule already represented by a saved structure. Expect an
+  explicit Already Represented link instead of redefining or renaming the concept.
+- **Extensions:** Process a rule adding an optional field to an existing type.
+  Expect Extended Structure with the old fields retained. Incompatible changes
+  must not silently overwrite existing types/requirements.
+- **Coverage:** Old citations show Coverage Not Yet Assessed; a name match alone
+  does not hide a rule. Clarification stays incomplete and answerable. Changed
+  rules or referenced structures cause previous outcomes to need rechecking.
+
+These are expected live-model outcomes, not guarantees from deterministic tests.
+Existing suspect structures are preserved for separate review; no automatic cleanup.
+
 For the latest manual bug-hunting pass, close WorldSeed normally and run
 `RunWorldSeed.bat --rebuild` once to update both the desktop and Docker API. Later
 launches can use the normal command. Use an existing project or a disposable
@@ -7,11 +27,67 @@ project you create in the app; ignored QA state JSON is not a GUI import format.
 Manual checks are bug-hunting evidence, not a claim that the complete MVP or
 presentation has already been accepted.
 
+## Schema Partial Success And Categories — 2026-11-24
+
+Close WorldSeed and run `RunWorldSeed.bat --rebuild` once.
+
+- **Task-question guard (`a8d76c6`):** Continue schema work. A generic question
+  about what WorldSeed should do or what the schema is for should be retried
+  internally once, then reported as a failed item rather than shown for you to
+  answer. Previously saved work must remain available.
+- **Grounded questions:** A genuine schema question should identify its Working
+  Rules, unclear detail and why an answer is needed. Answer and continue normally.
+  The live missing-enum test did not complete successfully within its call cap;
+  this update does not guarantee the model always chooses clarification correctly.
+- **Context and diagnostics:** Existing schema contents remain intact. The model
+  receives bounded relevant definitions plus a full reference index. Diagnostic
+  logs now include request characters, token counts when available, elapsed time
+  and completion reason, without prompt/source/response text.
+- **Hide completed (`fc6f9c8`):** In Schema, check **Hide Completed Rules** above
+  the categories. Completed rows and empty categories should disappear. Uncheck
+  it to restore them, preserving collapsed states. Queue contents and build scope
+  must stay unchanged; this is a display filter.
+- **Incremental discovery:** Build structures from a large ruleset. Discovery
+  should alternate with building/saving content types before scanning the next
+  batch. If duplicate JSON names or an empty model reply occur later, expect a
+  failed-batch report and continued processing, retaining prior saves. Existing
+  structures should still be there after reopening the project. Relationships
+  run after content-type discovery; normal clarification questions still pause.
+- **Partial success:** In Schema, run **Build Game Structures** or **Build
+  Structures From Queue**. If an item fails, later items should still run, saved
+  additions should remain, and successful queue items should disappear. Failed
+  items remain for retry, with names/reasons in the final summary. Reopening the
+  project should retain successful additions. Clarification still pauses normally.
+- **Categories:** Collapse all but one rule category, add several rules to the
+  queue, and remove one. Expect other categories to stay collapsed throughout.
+
 ## Project Rules And Hover Help — 2026-11-24
 
 Close WorldSeed and run `RunWorldSeed.bat --rebuild` once. Keep existing Sources;
 they do not need to be processed again for this change.
 
+- **Checkpoint / resume (`b7e9694`):** Start adding or rebuilding rules. After
+  progress says **Checkpoint Saved**, close and relaunch the app. In Rules, expect
+  a saved-checkpoint panel; choose **Resume Checkpoint**. Its prepared count
+  should start from saved progress and only unfinished rules should run. A later
+  model error must leave this panel available rather than lose earlier batches.
+  Completed work replaces project rules only after final validation/save.
+- **Discard / stale inputs:** **Discard Checkpoint** removes unfinished work,
+  preserving source files and saved project rules. Changing source drafts or
+  project rules should make an old checkpoint non-resumable with an explanation;
+  discard it before starting another run. A checkpoint belongs to its original
+  Add New Source Rules or Rebuild Project Rules operation.
+- **Idle shutdown:** While Rules processing is active, it should continue beyond
+  the configured inactivity timeout. The normal idle grace period starts again
+  after processing finishes or fails. Completed checkpoints survive a later idle
+  shutdown. The request in flight at interruption may need to be repeated.
+- **Live progress (`25baac8`):** During the next **Add New Source Rules**, expect
+  prepared/total rule counts, batch/request numbers, retry stages and a moving
+  activity bar. The elapsed/wait time should update every second while the model
+  is pending; rule counts advance when results validate. Saving is a separate
+  stage. On completion or failure, the bar stops and both buttons re-enable.
+  With no new rules, expect an immediate No Changes result. **Rebuild Project
+  Rules** uses the same display when you intentionally rebuild.
 - **Missing-rule recovery:** In Rules, use **Add New Source Rules** (formerly
   Add Missing Draft Rules). Expect omitted model citations to be retried
   automatically. Saved project rules must account for every new source rule;
