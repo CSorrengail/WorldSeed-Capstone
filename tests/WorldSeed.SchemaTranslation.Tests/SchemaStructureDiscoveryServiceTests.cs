@@ -41,6 +41,23 @@ public sealed class SchemaStructureDiscoveryServiceTests
     }
 
     private static WorkingRuleSet RuleSet(IReadOnlyList<WorkingRule> rules) => new("working-rules", "project", "0.1", "Test", null, 1, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, rules, [], [], [], []);
+
+    [Fact]
+    public async Task Invalid_later_discovery_batch_keeps_earlier_plans_and_reports_failed_rules()
+    {
+        var failures = new List<string>();
+        var plans = await new SchemaStructureDiscoveryService(new PartialModel()).DiscoverAsync(
+            RuleSet(Enumerable.Range(1, 13).Select(index => Rule("r" + index, "Rule", "A game rule.")).ToArray()), null, failures: failures);
+        Assert.Single(plans);
+        Assert.Contains("r13", Assert.Single(failures));
+    }
+
+    private sealed class PartialModel : ILanguageModelClient
+    {
+        private int _calls;
+        public Task<LlmChatResponse> CompleteAsync(LlmChatRequest request, CancellationToken cancellationToken = default)
+            => Task.FromResult(new LlmChatResponse(++_calls == 1 ? """{"plans":[{"id":"habitat","name":"Habitat","kind":"contentType","workingRuleIds":["r1"],"rationale":"A habitat."}]}""" : "{", "fake", null));
+    }
     private static WorkingRule Rule(string id, string name, string text) => new(id, name, WorkingRuleKind.Definition, text, [], [], [], [], null, [], []);
 
     private sealed class FakeModel(string content) : ILanguageModelClient

@@ -28,7 +28,7 @@ public sealed class SchemaStructureDiscoveryService
 
     public SchemaStructureDiscoveryService(ILanguageModelClient client) => _client = client ?? throw new ArgumentNullException(nameof(client));
 
-    public async Task<IReadOnlyList<SchemaStructurePlan>> DiscoverAsync(WorkingRuleSet workingRuleSet, JsonObject? existingSchema, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<SchemaStructurePlan>> DiscoverAsync(WorkingRuleSet workingRuleSet, JsonObject? existingSchema, CancellationToken cancellationToken = default, ICollection<string>? failures = null)
     {
         ArgumentNullException.ThrowIfNull(workingRuleSet);
         if (workingRuleSet.Rules.Count == 0) return [];
@@ -54,7 +54,9 @@ public sealed class SchemaStructureDiscoveryService
                 new LlmMessage(LlmMessageRole.User, JsonSerializer.Serialize(input))
             };
             var response = await _client.CompleteAsync(new LlmChatRequest(messages, Temperature: 0, MaxOutputTokens: MaxOutputTokens, RequireJsonObject: true), cancellationToken);
-            plans.AddRange(Parse(response.Content, batch.Select(rule => rule.Id).ToHashSet(StringComparer.Ordinal)));
+            try { plans.AddRange(Parse(response.Content, batch.Select(rule => rule.Id).ToHashSet(StringComparer.Ordinal))); }
+            catch (SchemaTranslationFormatException ex) when (failures is not null)
+            { failures.Add($"Discovery For [{string.Join(", ", batch.Select(rule => rule.Id))}]: {ex.Message}"); }
         }
         return MergePlans(plans);
     }

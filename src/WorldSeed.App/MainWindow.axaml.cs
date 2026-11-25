@@ -98,6 +98,9 @@ public partial class MainWindow : Window
     private int _pendingStructurePlanIndex;
     private bool _pendingStructureUsesQueue;
     private readonly HashSet<string> _completedStructureRuleIds = new(StringComparer.Ordinal);
+    private readonly HashSet<int> _completedStructurePlans = [];
+    private readonly List<string> _structureFailures = [];
+    private readonly HashSet<string> _failedStructureRuleIds = new(StringComparer.Ordinal);
     private bool _applyingSchemaChange;
     private string? _lastSchemaTranslationFailureDetail;
     private string? _lastSchemaChangeClarificationQuestion;
@@ -1138,6 +1141,7 @@ public partial class MainWindow : Window
         _pendingStructurePlanIndex = 0;
         _pendingStructureUsesQueue = usesQueue;
         _completedStructureRuleIds.Clear();
+        _completedStructurePlans.Clear(); _structureFailures.Clear(); _failedStructureRuleIds.Clear();
         RefreshSchemaQueueControls();
         var capture = new CapturingClient(new OllamaChatClient(_http, OllamaDefaults.CreateProfile("local", "Local", model)));
         try
@@ -1150,12 +1154,12 @@ public partial class MainWindow : Window
                 Rules = scope,
                 Concepts = _workingRuleSet.Concepts.Where(concept => scope.SelectMany(rule => rule.ConceptIds).Contains(concept.Id, StringComparer.Ordinal)).ToArray()
             };
-            var plans = await new SchemaStructureDiscoveryService(capture).DiscoverAsync(scopedRuleSet, SavedSchemaForExtension());
+            var plans = await new SchemaStructureDiscoveryService(capture).DiscoverAsync(scopedRuleSet, SavedSchemaForExtension(), failures: _structureFailures);
             var pendingPlans = plans.Where(plan => !SchemaAlreadyContains(plan)).ToArray();
             if (pendingPlans.Length == 0)
             {
-                SchemaStatusText.Text = $"No New Content Types Or Direct Relationships Were Found In {scopeName}.";
-                SchemaText.Text = "Structure Discovery Did Not Find A New Structure That Is Not Already In The Saved Proposal. The Queue Was Kept For Review.";
+                SchemaStatusText.Text = _structureFailures.Count > 0 ? "No New Structures Were Saved. Failed Discovery Batches Remain Unprocessed." : $"No New Content Types Or Direct Relationships Were Found In {scopeName}.";
+                SchemaText.Text = _structureFailures.Count > 0 ? string.Join("\n\n", _structureFailures) : "Structure Discovery Did Not Find A New Structure That Is Not Already In The Saved Proposal. The Queue Was Kept For Review.";
                 ClearPendingStructureWork();
                 return;
             }
@@ -1219,6 +1223,7 @@ public partial class MainWindow : Window
                 var toId = ResolveContentTypeId(plan.ToContentTypeId);
                 if (fromId is null || toId is null)
                 {
+                    RecordStructureFailure(plan, "A Required Content Type Was Not Saved; Relationship Skipped.");
                     AppLog.Info($"Skipped relationship plan '{plan.Id}' because one or both content types are not yet in the saved proposal.");
                     _pendingStructurePlanIndex++;
                     continue;
@@ -1232,18 +1237,27 @@ public partial class MainWindow : Window
             SchemaStatusText.Text = $"Building {plan.Name} ({_pendingStructurePlanIndex + 1} Of {_pendingStructurePlans.Count}) From {rules.Length} Related Rule(s)...";
             SchemaText.Text = $"Automatic Structure Plan\n{plan.Name} ({plan.Kind})\n{plan.Rationale}\n\nSupporting Working Rules\n{string.Join("\n", rules.Select(rule => "- " + rule.Id + ": " + SchemaRulePicker.DisplayName(rule)))}";
             var result = await ProcessSchemaRulesAsync(rules, model, translationPlan.TranslationGoal);
-            if (result != SchemaQueueItemResult.Saved) return;
+            if (result == SchemaQueueItemResult.NeedsClarification) return;
+            if (result == SchemaQueueItemResult.Failed)
+            {
+                RecordStructureFailure(plan, _lastSchemaTranslationFailureDetail ?? "Translation Failed.");
+                _pendingStructurePlanIndex++;
+                continue;
+            }
             foreach (var ruleId in plan.WorkingRuleIds) _completedStructureRuleIds.Add(ruleId);
+            _completedStructurePlans.Add(_pendingStructurePlanIndex);
+            if (_pendingStructureUsesQueue)
+                _schemaQueueRuleIds.RemoveAll(id => plan.WorkingRuleIds.Contains(id) && !_failedStructureRuleIds.Contains(id));
             _pendingStructurePlanIndex++;
             RefreshSchemaView();
         }
-        var built = _pendingStructurePlans.Count(plan => plan.WorkingRuleIds.Any(_completedStructureRuleIds.Contains));
-        if (_pendingStructureUsesQueue)
-            _schemaQueueRuleIds.RemoveAll(_completedStructureRuleIds.Contains);
+        var built = _completedStructurePlans.Count;
+        var failed = _structureFailures.ToArray();
         ClearPendingStructureWork();
-        SchemaStatusText.Text = built == 0
+        SchemaStatusText.Text = failed.Length > 0 ? $"Saved {built} Game Structure(s); Skipped {failed.Length} Failed Item(s). Successful Work Was Kept. Failed Rules Remain Available For Retry." : built == 0
             ? "No Queued Structure Could Be Built. The Queue Was Kept For Review."
             : $"Built {built} Game Structure(s) From The Requested Working Rules. The Saved Proposal Is Still Editable And Non-Canonical.";
+        if (failed.Length > 0) SchemaText.Text = "Failed Or Skipped Items\n\n" + string.Join("\n\n", failed);
     }
 
     private void ClearPendingStructureWork()
@@ -1252,6 +1266,16 @@ public partial class MainWindow : Window
         _pendingStructurePlanIndex = 0;
         _pendingStructureUsesQueue = false;
         _completedStructureRuleIds.Clear();
+        _completedStructurePlans.Clear(); _structureFailures.Clear(); _failedStructureRuleIds.Clear();
+    }
+
+    private void RecordStructureFailure(SchemaStructurePlan plan, string detail)
+    {
+        _structureFailures.Add($"{plan.Name}: {detail}");
+        _failedStructureRuleIds.UnionWith(plan.WorkingRuleIds);
+        if (_pendingStructureUsesQueue)
+            foreach (var id in plan.WorkingRuleIds)
+                if (!_schemaQueueRuleIds.Contains(id)) _schemaQueueRuleIds.Add(id);
     }
 
     private async Task ProcessSchemaQueueAsync()
@@ -1342,7 +1366,7 @@ public partial class MainWindow : Window
             var mergedSources = SchemaProposalMerger.MergeDefinitionSources(_schemaProposal?.DefinitionSources ?? Array.Empty<DefinitionSource>(), proposal.DefinitionSources);
             var mergedRuleIds = SchemaProposalMerger.MergeWorkingRuleIds(_schemaProposal?.SelectedWorkingRuleIds ?? Array.Empty<string>(), rules.Select(rule => rule.Id));
             var now = DateTimeOffset.UtcNow;
-            _schemaProposal = new ProjectSchemaProposal(
+            var savedProposal = new ProjectSchemaProposal(
                 "schema-proposal-" + _project!.Id,
                 _project.Id,
                 "0.1",
@@ -1356,7 +1380,8 @@ public partial class MainWindow : Window
                 now,
                 _schemaClarifications.ToArray());
             _schemaTransitionReview = null;
-            await SchemaProposalStore().SaveAsync(_schemaProposal);
+            await SchemaProposalStore().SaveAsync(savedProposal);
+            _schemaProposal = savedProposal;
             await LoadDevelopmentPlansAsync(_project.Id);
             _pendingSchemaQuestion = null;
             SchemaQuestionPanel.IsVisible = false;
@@ -1386,6 +1411,8 @@ public partial class MainWindow : Window
         var availableIds = _workingRules.Select(rule => rule.Id).ToHashSet(StringComparer.Ordinal);
         _schemaQueueRuleIds.RemoveAll(id => !availableIds.Contains(id));
         RefreshSchemaQueueControls();
+        var expansion = SchemaRuleGroupsPanel.Children.OfType<Expander>()
+            .Where(item => item.Tag is string).ToDictionary(item => (string)item.Tag!, item => item.IsExpanded, StringComparer.Ordinal);
         SchemaRuleGroupsPanel.Children.Clear();
         foreach (var group in SchemaRulePicker.Group(_workingRules))
         {
@@ -1426,7 +1453,8 @@ public partial class MainWindow : Window
             SchemaRuleGroupsPanel.Children.Add(new Expander
             {
                 Header = $"{group.Kind} ({group.Rules.Count})",
-                IsExpanded = true,
+                Tag = group.Kind.ToString(),
+                IsExpanded = expansion.GetValueOrDefault(group.Kind.ToString(), true),
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 HorizontalContentAlignment = HorizontalAlignment.Stretch,
                 Content = groupPanel
@@ -1436,7 +1464,7 @@ public partial class MainWindow : Window
         {
             RefreshSchemaActivationControls();
             if (!preserveStatus) SchemaStatusText.Text = _workingRuleSet is null ? "Load A Working Rule Set, Then Build Game Structures." : "Build Game Structures To Automatically Find Related Rules, Or Use The Manual Queue For A Specific Rule.";
-            SchemaText.Text = "No schema proposal is loaded.";
+            if (!preserveStatus) SchemaText.Text = "No schema proposal is loaded.";
             return;
         }
         RefreshSchemaActivationControls();
@@ -1445,6 +1473,7 @@ public partial class MainWindow : Window
             (_schemaProposal.WorkingRuleSetId != _workingRuleSet.Id || _schemaProposal.WorkingRuleSetRevision != _workingRuleSet.Revision)
             ? $"Saved Schema Work Is Retained At Working Rules Revision {_schemaProposal.WorkingRuleSetRevision}. Review The New Rules And Prepare An Updated Proposal Before Activation."
             : $"Saved proposal: {CountSchemaDefinitions(_schemaProposal.SchemaJson)} structure(s) linked to {citedRuleCount} Working Rule(s).";
+        if (preserveStatus) return;
         SchemaText.Text = $"Summary\n{_schemaProposal.Summary}\n\nGame Data Readiness\n{DescribeSchemaContent(_schemaProposal.SchemaJson)}\n\nSchema Clarifications\n{FormatSchemaClarifications(_schemaProposal.Clarifications)}\n\nWorking Rule Inputs ({_schemaProposal.SelectedWorkingRuleIds.Count})\n{string.Join("\n", _schemaProposal.SelectedWorkingRuleIds.Select(id => "- " + id))}\n\nDefinition Sources ({_schemaProposal.DefinitionSources.Count})\n{string.Join("\n", _schemaProposal.DefinitionSources.Select(source => $"- {source.DefinitionId}: {string.Join(", ", source.WorkingRuleIds)}"))}\n\nSchema JSON\n{PrettyJson(_schemaProposal.SchemaJson)}";
     }
 
