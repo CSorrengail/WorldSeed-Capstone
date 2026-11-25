@@ -53,9 +53,14 @@ public sealed class SchemaStructureDiscoveryService
                 new LlmMessage(LlmMessageRole.System, SystemPrompt),
                 new LlmMessage(LlmMessageRole.User, JsonSerializer.Serialize(input))
             };
-            var response = await _client.CompleteAsync(new LlmChatRequest(messages, Temperature: 0, MaxOutputTokens: MaxOutputTokens, RequireJsonObject: true), cancellationToken);
-            try { plans.AddRange(Parse(response.Content, batch.Select(rule => rule.Id).ToHashSet(StringComparer.Ordinal))); }
+            try
+            {
+                var response = await _client.CompleteAsync(new LlmChatRequest(messages, Temperature: 0, MaxOutputTokens: MaxOutputTokens, RequireJsonObject: true), cancellationToken);
+                plans.AddRange(Parse(response.Content, batch.Select(rule => rule.Id).ToHashSet(StringComparer.Ordinal)));
+            }
             catch (SchemaTranslationFormatException ex) when (failures is not null)
+            { failures.Add($"Discovery For [{string.Join(", ", batch.Select(rule => rule.Id))}]: {ex.Message}"); }
+            catch (LlmClientException ex) when (failures is not null && ex.Message.Contains("empty assistant response", StringComparison.OrdinalIgnoreCase))
             { failures.Add($"Discovery For [{string.Join(", ", batch.Select(rule => rule.Id))}]: {ex.Message}"); }
         }
         return MergePlans(plans);
@@ -64,9 +69,15 @@ public sealed class SchemaStructureDiscoveryService
     internal static IReadOnlyList<SchemaStructurePlan> Parse(string content, IReadOnlySet<string> allowedRuleIds)
     {
         JsonObject root;
-        try { root = JsonNode.Parse(content)?.AsObject() ?? throw new SchemaTranslationFormatException("Structure discovery did not return a JSON object."); }
+        try
+        {
+            root = JsonNode.Parse(content)?.AsObject() ?? throw new SchemaTranslationFormatException("Structure discovery did not return a JSON object.");
+            Materialize(root);
+        }
         catch (JsonException) { throw new SchemaTranslationFormatException("Structure discovery did not return complete valid JSON."); }
         catch (InvalidOperationException) { throw new SchemaTranslationFormatException("Structure discovery did not return a JSON object."); }
+        catch (ArgumentException ex) when (ex.ParamName == "propertyName")
+        { throw new SchemaTranslationFormatException("Structure discovery returned duplicate JSON property names. The ambiguous batch was skipped rather than choosing a value."); }
 
         if (root["plans"] is not JsonArray planNodes) throw new SchemaTranslationFormatException("Structure discovery requires a plans array.");
         if (planNodes.Count > MaxPlansPerBatch) throw new SchemaTranslationFormatException($"Structure discovery returned more than {MaxPlansPerBatch} plans for one batch.");
@@ -93,6 +104,14 @@ public sealed class SchemaStructureDiscoveryService
             plans.Add(new SchemaStructurePlan(id, name, kind.Value, ruleIds, Optional(node, "rationale") ?? string.Empty, from, to));
         }
         return plans;
+    }
+
+    private static void Materialize(JsonNode? node)
+    {
+        // JsonObject materializes dictionaries lazily. Visit nested plans inside
+        // the format-error boundary so duplicate names cannot abort the pass.
+        if (node is JsonObject obj) foreach (var property in obj) Materialize(property.Value);
+        else if (node is JsonArray array) foreach (var item in array) Materialize(item);
     }
 
     private static IReadOnlyList<SchemaStructurePlan> MergePlans(IEnumerable<SchemaStructurePlan> plans)

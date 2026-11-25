@@ -58,6 +58,32 @@ public sealed class SchemaStructureDiscoveryServiceTests
         public Task<LlmChatResponse> CompleteAsync(LlmChatRequest request, CancellationToken cancellationToken = default)
             => Task.FromResult(new LlmChatResponse(++_calls == 1 ? """{"plans":[{"id":"habitat","name":"Habitat","kind":"contentType","workingRuleIds":["r1"],"rationale":"A habitat."}]}""" : "{", "fake", null));
     }
+
+    [Theory]
+    [InlineData("{\"plans\":[{\"id\":\"bad\",\"name\":\"First\",\"name\":\"Second\",\"kind\":\"contentType\",\"workingRuleIds\":[\"r1\"]}]}")]
+    [InlineData("{\"plans\":[],\"plans\":[]}")]
+    [InlineData(null)]
+    public async Task Duplicate_json_or_empty_reply_is_reported_and_later_batch_still_runs(string? invalid)
+    {
+        var failures = new List<string>();
+        var client = new Replies(invalid, """{"plans":[{"id":"habitat","name":"Habitat","kind":"contentType","workingRuleIds":["r13"],"rationale":"A habitat."}]}""");
+        var result = await new SchemaStructureDiscoveryService(client).DiscoverAsync(
+            RuleSet(Enumerable.Range(1, 13).Select(index => Rule("r" + index, "Rule", "A game rule.")).ToArray()), null, failures: failures);
+        Assert.Single(result);
+        Assert.Single(failures);
+        Assert.Equal(2, client.Calls);
+    }
+
+    private sealed class Replies(params string?[] replies) : ILanguageModelClient
+    {
+        public int Calls { get; private set; }
+        public Task<LlmChatResponse> CompleteAsync(LlmChatRequest request, CancellationToken cancellationToken = default)
+        {
+            var content = replies[Calls++];
+            if (content is null) throw new LlmClientException("Ollama returned an empty assistant response.");
+            return Task.FromResult(new LlmChatResponse(content, "fake", null));
+        }
+    }
     private static WorkingRule Rule(string id, string name, string text) => new(id, name, WorkingRuleKind.Definition, text, [], [], [], [], null, [], []);
 
     private sealed class FakeModel(string content) : ILanguageModelClient

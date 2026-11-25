@@ -140,6 +140,93 @@ public sealed class ScopedSchemaDiscoveryTests
         }
     });
 
+    [AvaloniaFact]
+    public void Hide_completed_rules_filters_only_the_list_and_preserves_hidden_category_state()
+    {
+        using var model = new HttpClient(); using var api = new HttpClient();
+        var window = CreateWindow(model, api);
+        try
+        {
+            var now = DateTimeOffset.UtcNow;
+            SetField(window, "_schemaProposal", new ProjectSchemaProposal("schema", "scoped-schema-project", "0.1", "Schema", "{}",
+                [new("habitat", ["habitat-definition"])], "working-rules-scoped", 1, ["habitat-definition"], now, now));
+            Queue(window, "habitat-definition");
+            var panel = window.FindControl<StackPanel>("SchemaRuleGroupsPanel")!;
+            var definition = panel.Children.OfType<Expander>().Single(group => Equals(group.Tag, "Definition"));
+            definition.IsExpanded = false;
+            var filter = window.FindControl<CheckBox>("HideCompletedSchemaRulesCheck")!;
+            Assert.False(filter.IsChecked);
+            void Toggle(bool value)
+            {
+                filter.IsChecked = value;
+                typeof(MainWindow).GetMethod("HideCompletedSchemaRules_Click", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, [null, new Avalonia.Interactivity.RoutedEventArgs()]);
+            }
+            Toggle(true);
+            Assert.DoesNotContain(panel.Children.OfType<Expander>(), group => Equals(group.Tag, "Definition"));
+            Assert.Equal(new[] { "habitat-definition" }, QueueIds(window));
+            Toggle(false);
+            Assert.False(panel.Children.OfType<Expander>().Single(group => Equals(group.Tag, "Definition")).IsExpanded);
+        }
+        finally { window.Close(); }
+    }
+
+    [AvaloniaFact]
+    public async Task First_batch_is_saved_before_later_discovery_with_duplicate_names_fails()
+    {
+        var store = new SchemaProposalCaptureHandler();
+        var handler = new SequencedOllamaHandler(DiscoveryResponse, ProposalResponse,
+            """{"plans":[{"id":"late","name":"First","name":"Second","kind":"contentType","workingRuleIds":["late-rule"],"rationale":"Ambiguous."}]}""");
+        using var model = new HttpClient(handler);
+        using var api = new HttpClient(store) { BaseAddress = new Uri("http://qa.invalid/") };
+        var window = CreateWindow(model, api);
+        try
+        {
+            var rules = (WorkingRuleSet)typeof(MainWindow).GetField("_workingRuleSet", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window)!;
+            SetField(window, "_workingRuleSet", rules with { Rules = rules.Rules.Concat(Enumerable.Range(1, 9).Select(index => Rule("filler-" + index, "Filler", WorkingRuleKind.Rule, "A rule."))).Append(Rule("late-rule", "Late", WorkingRuleKind.Rule, "Another rule.")).ToArray() });
+            Invoke(window, "RefreshWorkingRulesView");
+            handler.OnRequest = number =>
+            {
+                if (number != 3) return;
+                Assert.Single(store.SavedProposals);
+                SetField(window, "_lastInteractionAt", DateTimeOffset.UtcNow.AddDays(-1));
+                typeof(MainWindow).GetMethod("InactivityTimer_Tick", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, [null, EventArgs.Empty]);
+                Assert.True((DateTimeOffset)typeof(MainWindow).GetField("_lastInteractionAt", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window)! > DateTimeOffset.UtcNow.AddMinutes(-1));
+            };
+            await (Task)typeof(MainWindow).GetMethod("BuildGameStructuresAsync", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, null)!;
+            Assert.Single(store.SavedProposals);
+            Assert.Equal(3, handler.RequestBodies.Count);
+            Assert.Contains("habitat", handler.RequestBodies[2]);
+            Assert.Contains("Saved 1", window.FindControl<TextBlock>("SchemaStatusText")!.Text);
+            Assert.Contains("duplicate JSON", window.FindControl<TextBox>("SchemaText")!.Text);
+        }
+        finally { window.Close(); }
+    }
+
+    [AvaloniaFact]
+    public async Task Streaming_discovery_waits_for_later_content_types_before_building_relationships()
+    {
+        var first = """{"plans":[{"id":"habitat","name":"Habitat","kind":"contentType","workingRuleIds":["habitat-definition"],"rationale":"A habitat."},{"id":"belongsTo","name":"Belongs To","kind":"relationship","workingRuleIds":["habitat-rule"],"rationale":"Habitats belong to regions.","fromContentTypeId":"habitat","toContentTypeId":"region"}]}""";
+        var second = """{"plans":[{"id":"region","name":"Region","kind":"contentType","workingRuleIds":["late-rule"],"rationale":"A region."}]}""";
+        var relationship = """{"action":"presentProposal","proposal":{"summary":"Links habitats and regions.","schema":{"id":"scoped-schema","name":"Scoped Schema","version":"0.1","relationships":[{"metadata":{"id":"belongsTo","name":"Belongs To"},"from":{"entityTypeId":"habitat","minimumPerOppositeInstance":0},"to":{"entityTypeId":"region","minimumPerOppositeInstance":0},"attributes":[]}]},"definitionSources":[{"definitionId":"belongsTo","workingRuleIds":["habitat-rule"]}]}}""";
+        var store = new SchemaProposalCaptureHandler();
+        var handler = new SequencedOllamaHandler(first, ProposalFor("habitat", "habitat-definition"), second, ProposalFor("region", "late-rule"), relationship);
+        using var model = new HttpClient(handler);
+        using var api = new HttpClient(store) { BaseAddress = new Uri("http://qa.invalid/") };
+        var window = CreateWindow(model, api);
+        try
+        {
+            var rules = (WorkingRuleSet)typeof(MainWindow).GetField("_workingRuleSet", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window)!;
+            SetField(window, "_workingRuleSet", rules with { Rules = rules.Rules.Select(rule => rule.Id == "habitat-rule" ? rule with { AuthoritativeText = "Habitats belong to regions." } : rule)
+                .Concat(Enumerable.Range(1, 9).Select(index => Rule("filler-" + index, "Filler", WorkingRuleKind.Rule, "A rule."))).Append(Rule("late-rule", "Region", WorkingRuleKind.Definition, "A region is a reusable place.")).ToArray() });
+            Invoke(window, "RefreshWorkingRulesView");
+            handler.OnRequest = number => { if (number == 5) Assert.Equal(2, store.SavedProposals.Count); };
+            await (Task)typeof(MainWindow).GetMethod("BuildGameStructuresAsync", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, null)!;
+            Assert.Equal(3, store.SavedProposals.Count);
+            Assert.Contains(store.SavedProposals[^1].DefinitionSources, source => source.DefinitionId == "belongsTo");
+        }
+        finally { window.Close(); }
+    }
+
     private static MainWindow CreateWindow(HttpClient model, HttpClient api)
     {
         var window = new MainWindow(model, api);
@@ -194,11 +281,13 @@ public sealed class ScopedSchemaDiscoveryTests
     {
         private int _next;
         public List<string> RequestBodies { get; } = [];
+        public Action<int>? OnRequest { get; set; }
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var body = await request.Content!.ReadAsStringAsync(cancellationToken);
             RequestBodies.Add(body);
+            OnRequest?.Invoke(RequestBodies.Count);
             var content = contents[Math.Min(_next++, contents.Length - 1)];
             var response = new JsonObject
             {

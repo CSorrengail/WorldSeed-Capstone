@@ -102,6 +102,10 @@ public partial class MainWindow : Window
     private readonly List<string> _structureFailures = [];
     private readonly HashSet<string> _failedStructureRuleIds = new(StringComparer.Ordinal);
     private readonly HashSet<string> _originalStructureQueueIds = new(StringComparer.Ordinal);
+    private WorkingRuleSet? _pendingStructureDiscoveryRules;
+    private readonly List<SchemaStructurePlan> _pendingStructureRelationships = [];
+    private int _pendingStructureDiscoveryOffset;
+    private readonly Dictionary<string, bool> _schemaCategoryExpansion = new(StringComparer.Ordinal);
     private bool _applyingSchemaChange;
     private string? _lastSchemaTranslationFailureDetail;
     private string? _lastSchemaChangeClarificationQuestion;
@@ -187,7 +191,7 @@ public partial class MainWindow : Window
 
     private void InactivityTimer_Tick(object? sender, EventArgs e)
     {
-        if (_isPreparingWorkingRules) { RegisterInteraction(); return; }
+        if (_isPreparingWorkingRules || _buildingGameStructures || _processingSchemaQueue) { RegisterInteraction(); return; }
         if (_settingsDialogOpen || _settings.IdleTimeoutMinutes == 0) return;
         var timeout = TimeSpan.FromMinutes(_settings.IdleTimeoutMinutes);
         if (DateTimeOffset.UtcNow - _lastInteractionAt < timeout) return;
@@ -1139,50 +1143,41 @@ public partial class MainWindow : Window
 
         _buildingGameStructures = true;
         _pendingStructurePlans.Clear();
+        _pendingStructureRelationships.Clear();
         _pendingStructurePlanIndex = 0;
         _pendingStructureUsesQueue = usesQueue;
         _completedStructureRuleIds.Clear();
         _completedStructurePlans.Clear(); _structureFailures.Clear(); _failedStructureRuleIds.Clear();
         _originalStructureQueueIds.Clear(); _originalStructureQueueIds.UnionWith(_schemaQueueRuleIds);
         RefreshSchemaQueueControls();
-        var capture = new CapturingClient(new OllamaChatClient(_http, OllamaDefaults.CreateProfile("local", "Local", model)));
         try
         {
-            var scopeName = usesQueue ? "The Queued Working Rules" : "The Whole Working Rule Set";
             SchemaStatusText.Text = $"Finding Game Structures Across {scope.Count} Working Rules With {model}...";
             SchemaText.Text = "WorldSeed Is Finding Related Rules, Content Types, And Directly Supported Relationships.";
-            var scopedRuleSet = _workingRuleSet with
+            _pendingStructureDiscoveryRules = _workingRuleSet with
             {
                 Rules = scope,
                 Concepts = _workingRuleSet.Concepts.Where(concept => scope.SelectMany(rule => rule.ConceptIds).Contains(concept.Id, StringComparer.Ordinal)).ToArray()
             };
-            var plans = await new SchemaStructureDiscoveryService(capture).DiscoverAsync(scopedRuleSet, SavedSchemaForExtension(), failures: _structureFailures);
-            var pendingPlans = plans.Where(plan => !SchemaAlreadyContains(plan)).ToArray();
-            if (pendingPlans.Length == 0)
-            {
-                SchemaStatusText.Text = _structureFailures.Count > 0 ? "No New Structures Were Saved. Failed Discovery Batches Remain Unprocessed." : $"No New Content Types Or Direct Relationships Were Found In {scopeName}.";
-                SchemaText.Text = _structureFailures.Count > 0 ? string.Join("\n\n", _structureFailures) : "Structure Discovery Did Not Find A New Structure That Is Not Already In The Saved Proposal. The Queue Was Kept For Review.";
-                ClearPendingStructureWork();
-                return;
-            }
-            _pendingStructurePlans.AddRange(pendingPlans.OrderBy(plan => plan.Kind));
+            _pendingStructureDiscoveryOffset = 0;
             await ContinueDiscoveredStructuresCoreAsync(model);
         }
         catch (SchemaTranslationFormatException ex)
         {
             AppLog.Error("Discover game structures", ex);
-            SchemaStatusText.Text = "Automatic Structure Discovery Could Not Safely Save A Proposal.";
-            SchemaText.Text = $"Format Detail: {ex.Message}\n\nRaw Model Output (For Diagnosis):\n{Preview(capture.Last?.Content)}";
+            SchemaStatusText.Text = "Structure Discovery Stopped. Previously Saved Structures Were Kept.";
+            SchemaText.Text = $"Format Detail: {ex.Message}";
         }
         catch (Exception ex)
         {
             AppLog.Error("Build game structures", ex);
-            SchemaStatusText.Text = "Automatic Structure Discovery Failed Before A Usable Proposal Was Produced.";
+            SchemaStatusText.Text = "Structure Discovery Stopped. Previously Saved Structures Were Kept.";
             SchemaText.Text = $"{ex.GetType().Name}: {ex.Message}\n\nDiagnostic Log: {AppLog.CurrentPath}";
         }
         finally
         {
             _buildingGameStructures = false;
+            RegisterInteraction();
             RefreshSchemaView(preserveStatus: true);
             RefreshGameDataView();
         }
@@ -1196,18 +1191,19 @@ public partial class MainWindow : Window
         catch (SchemaTranslationFormatException ex)
         {
             AppLog.Error("Continue discovered structures", ex);
-            SchemaStatusText.Text = "Scoped Structure Discovery Could Not Safely Save A Proposal.";
+            SchemaStatusText.Text = "Structure Discovery Stopped. Previously Saved Structures Were Kept.";
             SchemaText.Text = $"Format Detail: {ex.Message}";
         }
         catch (Exception ex)
         {
             AppLog.Error("Continue discovered structures", ex);
-            SchemaStatusText.Text = "Scoped Structure Discovery Failed Before A Usable Proposal Was Produced.";
+            SchemaStatusText.Text = "Structure Discovery Stopped. Previously Saved Structures Were Kept.";
             SchemaText.Text = $"{ex.GetType().Name}: {ex.Message}\n\nDiagnostic Log: {AppLog.CurrentPath}";
         }
         finally
         {
             _buildingGameStructures = false;
+            RegisterInteraction();
             RefreshSchemaView(preserveStatus: true);
             RefreshGameDataView();
         }
@@ -1215,8 +1211,30 @@ public partial class MainWindow : Window
 
     private async Task ContinueDiscoveredStructuresCoreAsync(string model)
     {
-        while (_pendingStructurePlanIndex < _pendingStructurePlans.Count)
+        while (_pendingStructurePlanIndex < _pendingStructurePlans.Count || _pendingStructureRelationships.Count > 0 ||
+            _pendingStructureDiscoveryRules is { } pending && _pendingStructureDiscoveryOffset < pending.Rules.Count)
         {
+            if (_pendingStructurePlanIndex >= _pendingStructurePlans.Count && _pendingStructureDiscoveryRules is { } discoveryRules && _pendingStructureDiscoveryOffset < discoveryRules.Rules.Count)
+            {
+                var batch = discoveryRules.Rules.Skip(_pendingStructureDiscoveryOffset).Take(SchemaStructureDiscoveryService.MaxRulesPerDiscoveryBatch).ToArray();
+                SchemaStatusText.Text = $"Discovering Structures: Rules {_pendingStructureDiscoveryOffset + 1}–{_pendingStructureDiscoveryOffset + batch.Length} Of {discoveryRules.Rules.Count}. {_completedStructurePlans.Count} Structure(s) Already Saved.";
+                var capture = new CapturingClient(new OllamaChatClient(_http, OllamaDefaults.CreateProfile("local", "Local", model)));
+                var plans = await new SchemaStructureDiscoveryService(capture).DiscoverAsync(discoveryRules with { Rules = batch }, SavedSchemaForExtension(), failures: _structureFailures);
+                if (_project?.Id != discoveryRules.ProjectId || _workingRuleSet?.Revision != discoveryRules.Revision)
+                    throw new SchemaTranslationFormatException("The Project Or Working Rules Changed During Discovery. Previously Saved Structures Were Kept.");
+                _pendingStructureDiscoveryOffset += batch.Length;
+                var fresh = plans.Where(plan => !SchemaAlreadyContains(plan)).ToArray();
+                _pendingStructurePlans.AddRange(fresh.Where(plan => plan.Kind == SchemaStructurePlanKind.ContentType));
+                _pendingStructureRelationships.AddRange(fresh.Where(plan => plan.Kind == SchemaStructurePlanKind.Relationship));
+                continue;
+            }
+            if (_pendingStructurePlanIndex >= _pendingStructurePlans.Count && _pendingStructureRelationships.Count > 0)
+            {
+                _pendingStructurePlans.AddRange(_pendingStructureRelationships.GroupBy(plan => ComparableSchemaName(plan.Name))
+                    .Select(group => group.First() with { WorkingRuleIds = group.SelectMany(plan => plan.WorkingRuleIds).Distinct(StringComparer.Ordinal).Take(SchemaStructureDiscoveryService.MaxRulesPerPlan).ToArray() }));
+                _pendingStructureRelationships.Clear();
+                continue;
+            }
             var plan = _pendingStructurePlans[_pendingStructurePlanIndex];
             var translationPlan = plan;
             if (plan.Kind == SchemaStructurePlanKind.Relationship)
@@ -1256,7 +1274,7 @@ public partial class MainWindow : Window
         var failed = _structureFailures.ToArray();
         ClearPendingStructureWork();
         SchemaStatusText.Text = failed.Length > 0 ? $"Saved {built} Game Structure(s); Skipped {failed.Length} Failed Item(s). Successful Work Was Kept. Failed Rules Remain Available For Retry." : built == 0
-            ? "No Queued Structure Could Be Built. The Queue Was Kept For Review."
+            ? "No New Game Structures Were Saved. Existing Work Was Kept."
             : $"Built {built} Game Structure(s) From The Requested Working Rules. The Saved Proposal Is Still Editable And Non-Canonical.";
         if (failed.Length > 0) SchemaText.Text = "Failed Or Skipped Items\n\n" + string.Join("\n\n", failed);
     }
@@ -1269,6 +1287,8 @@ public partial class MainWindow : Window
         _completedStructureRuleIds.Clear();
         _completedStructurePlans.Clear(); _structureFailures.Clear(); _failedStructureRuleIds.Clear();
         _originalStructureQueueIds.Clear();
+        _pendingStructureDiscoveryRules = null; _pendingStructureDiscoveryOffset = 0;
+        _pendingStructureRelationships.Clear();
     }
 
     private void RecordStructureFailure(SchemaStructurePlan plan, string detail)
@@ -1407,19 +1427,23 @@ public partial class MainWindow : Window
         }
     }
 
+    private void HideCompletedSchemaRules_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => RefreshSchemaView(preserveStatus: true);
+
     private void RefreshSchemaView(bool preserveStatus = false)
     {
         var availableIds = _workingRules.Select(rule => rule.Id).ToHashSet(StringComparer.Ordinal);
         _schemaQueueRuleIds.RemoveAll(id => !availableIds.Contains(id));
         RefreshSchemaQueueControls();
-        var expansion = SchemaRuleGroupsPanel.Children.OfType<Expander>()
-            .Where(item => item.Tag is string).ToDictionary(item => (string)item.Tag!, item => item.IsExpanded, StringComparer.Ordinal);
+        foreach (var category in SchemaRuleGroupsPanel.Children.OfType<Expander>())
+            if (category.Tag is string kind) _schemaCategoryExpansion[kind] = category.IsExpanded;
         SchemaRuleGroupsPanel.Children.Clear();
         foreach (var group in SchemaRulePicker.Group(_workingRules))
         {
+            var visibleRules = group.Rules.Where(rule => HideCompletedSchemaRulesCheck.IsChecked is not true || !IsSchemaProcessed(rule)).ToArray();
+            if (visibleRules.Length == 0) continue;
             var groupPanel = new StackPanel { Spacing = 4, Margin = new Thickness(8, 4, 0, 4), HorizontalAlignment = HorizontalAlignment.Stretch };
             // Keep unfinished candidates first. Retained, mapped rules move to the bottom without being hidden.
-            foreach (var rule in group.Rules.OrderBy(IsSchemaProcessed))
+            foreach (var rule in visibleRules.OrderBy(IsSchemaProcessed))
             {
                 var addButton = new Button
                 {
@@ -1453,9 +1477,9 @@ public partial class MainWindow : Window
             }
             SchemaRuleGroupsPanel.Children.Add(new Expander
             {
-                Header = $"{group.Kind} ({group.Rules.Count})",
+                Header = HideCompletedSchemaRulesCheck.IsChecked is true ? $"{group.Kind} ({visibleRules.Length} Remaining)" : $"{group.Kind} ({group.Rules.Count})",
                 Tag = group.Kind.ToString(),
-                IsExpanded = expansion.GetValueOrDefault(group.Kind.ToString(), true),
+                IsExpanded = _schemaCategoryExpansion.GetValueOrDefault(group.Kind.ToString(), true),
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 HorizontalContentAlignment = HorizontalAlignment.Stretch,
                 Content = groupPanel
