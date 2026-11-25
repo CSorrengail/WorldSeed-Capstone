@@ -3,13 +3,13 @@ using WorldSeed.WorkingRules;
 
 namespace WorldSeed.SchemaTranslation;
 
-public enum SchemaTranslationAction { AskClarifyingQuestion, PresentProposal }
+public enum SchemaTranslationAction { AskClarifyingQuestion, PresentProposal, RecordOutcomes }
 public sealed record DefinitionSource(string DefinitionId, IReadOnlyList<string> WorkingRuleIds);
 /// <summary>A designer answer used only to resolve a bounded schema proposal; it is retained with the resulting proposal.</summary>
 public sealed record SchemaClarification(string Question, string Answer);
 /// <summary>A non-canonical candidate schema accompanied by links back to the precise Working Rule Set revision that informed it.</summary>
-public sealed record SchemaTranslationProposal(string Summary, JsonObject Schema, IReadOnlyList<DefinitionSource> DefinitionSources, string WorkingRuleSetId, int WorkingRuleSetRevision);
-public sealed record SchemaTranslationTurn(SchemaTranslationAction Action, string? ClarifyingQuestion, SchemaTranslationProposal? Proposal);
+public sealed record SchemaTranslationProposal(string Summary, JsonObject Schema, IReadOnlyList<DefinitionSource> DefinitionSources, string WorkingRuleSetId, int WorkingRuleSetRevision, IReadOnlyList<SchemaRuleOutcome>? Outcomes = null);
+public sealed record SchemaTranslationTurn(SchemaTranslationAction Action, string? ClarifyingQuestion, SchemaTranslationProposal? Proposal, IReadOnlyList<SchemaRuleOutcome>? Outcomes = null);
 /// <summary>Optional StructureGoal is system-generated planning context; it narrows one bounded translation without changing any Working Rule.</summary>
 public sealed record SchemaTranslationRequest(WorkingRuleSet WorkingRuleSet, JsonObject? BaseSchema = null, IReadOnlyList<SchemaClarification>? Clarifications = null, string? StructureGoal = null, SchemaChangeRequest? ChangeRequest = null);
 public sealed class SchemaTranslationFormatException(string message) : Exception(message);
@@ -27,7 +27,8 @@ public sealed record ProjectSchemaProposal(
     IReadOnlyList<string> SelectedWorkingRuleIds,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
-    IReadOnlyList<SchemaClarification>? Clarifications = null);
+    IReadOnlyList<SchemaClarification>? Clarifications = null,
+    IReadOnlyList<SchemaRuleAssessment>? RuleAssessments = null);
 
 public interface IProjectSchemaProposalStore
 {

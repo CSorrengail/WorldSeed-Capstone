@@ -435,7 +435,7 @@ public class SchemaTranslationServiceTests
     public void Native_clarification_branch_requires_question_and_grounding_together()
     {
         var schema = SchemaTranslationResponseSchema.Create(new HashSet<string> { "rule" });
-        var branch = schema["oneOf"]!.AsArray().OfType<JsonObject>().Single(item => item != ProposalBranch(schema));
+        var branch = schema["oneOf"]!.AsArray().OfType<JsonObject>().Single(item => item["properties"]!["action"]!["enum"]![0]!.GetValue<string>() == "askClarifyingQuestion");
         Assert.Contains("clarifyingQuestion", branch["required"]!.AsArray().Select(value => value!.GetValue<string>()));
         Assert.Contains("clarificationContext", branch["required"]!.AsArray().Select(value => value!.GetValue<string>()));
     }

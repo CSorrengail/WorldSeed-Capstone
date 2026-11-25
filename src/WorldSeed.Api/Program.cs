@@ -593,6 +593,9 @@ projects.MapPut("/{projectId}/schema-proposal", async (string projectId, Project
     var existingProposal = await schemaProposals.LoadAsync(projectId, cancellationToken);
     if (existingProposal is not null && !string.Equals(existingProposal.Id, proposal.Id, StringComparison.Ordinal))
         return Results.Conflict("The current schema proposal id must be preserved when updating it. Reload the project's saved proposal before saving changes.");
+    try { SchemaRuleAccounting.ValidateHistory(proposal, ruleSet, existingProposal); }
+    catch (Exception ex) when (ex is SchemaTranslationFormatException or System.Text.Json.JsonException or InvalidOperationException or KeyNotFoundException or ArgumentException)
+    { return Results.BadRequest("Invalid Rule Accounting: " + ex.Message); }
     await schemaProposals.SaveAsync(proposal, cancellationToken);
     return Results.NoContent();
 });

@@ -51,7 +51,7 @@ internal static class SchemaPromptContext
     private static string Id(JsonObject definition) => (definition["metadata"]?["id"] ?? definition["id"])?.GetValue<string>() ?? "";
     private static HashSet<string> Tokens(string text) => Regex.Matches(Regex.Replace(text, "(?<=[a-z0-9])(?=[A-Z])", " "), "[A-Za-z0-9]+")
         .Select(match => match.Value).Where(token => token.Length >= 2 && !StopWords.Contains(token)).ToHashSet(StringComparer.OrdinalIgnoreCase);
-    private static IEnumerable<string> References(JsonNode? node)
+    internal static IEnumerable<string> References(JsonNode? node)
     {
         if (node is JsonObject obj)
             foreach (var pair in obj)

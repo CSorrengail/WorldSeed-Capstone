@@ -21,7 +21,7 @@ public sealed class SchemaStructureDiscoveryService
         A content type is a kind of game content with individual entries, such as a weapon, skill, location, faction, or any game-specific equivalent. A category/value type is not a content type by itself.
         Return exactly {"plans":[...]}. Each plan has id, name, kind, workingRuleIds, and rationale. kind is either "contentType" or "relationship".
         A contentType plan must use one to three supplied workingRuleIds that collectively describe a reusable kind of content. A relationship plan must use one to three supplied workingRuleIds and include fromContentTypeId and toContentTypeId. Only propose a relationship when the supplied rules directly support it; do not infer vague associations.
-        Return at most four plans. Do not create plans for categories alone, do not repeat content types already present in existingSchema, and do not invent rule ids. Keep rationales under twenty words.
+        Return at most four plans. Do not create plans for categories alone or document disclaimers, attribution, interpretation guidance, or design goals that need no fields. Do not repeat existing content types unless a supplied rule supports adding a genuinely new member; then reuse the existing type ID and name. Do not invent rule ids. Keep rationales under twenty words.
         """;
 
     private readonly ILanguageModelClient _client;

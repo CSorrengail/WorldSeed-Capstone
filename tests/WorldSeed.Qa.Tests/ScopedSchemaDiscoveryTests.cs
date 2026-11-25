@@ -66,7 +66,9 @@ public sealed class ScopedSchemaDiscoveryTests
             Queue(window, "habitat-definition", "habitat-rule");
             await window.BuildQueuedGameStructuresAsync();
 
-            Assert.Empty(apiHandler.SavedProposals);
+            var pending = Assert.Single(apiHandler.SavedProposals);
+            Assert.All(pending.RuleAssessments!, item => Assert.Equal("needsClarification", item.Outcome.Disposition));
+            Assert.Empty(JsonNode.Parse(pending.SchemaJson)!["entityTypes"]!.AsArray());
             Assert.True(window.FindControl<Border>("SchemaQuestionPanel")!.IsVisible);
             Assert.Contains("reusable entries", window.FindControl<TextBlock>("SchemaQuestionText")!.Text);
             Assert.Equal(2, QueueIds(window).Count);
@@ -74,7 +76,8 @@ public sealed class ScopedSchemaDiscoveryTests
             window.FindControl<TextBox>("SchemaAnswerText")!.Text = "Yes, each habitat is a reusable entry.";
             await window.SubmitSchemaAnswerAsync();
 
-            var saved = Assert.Single(apiHandler.SavedProposals);
+            Assert.Equal(2, apiHandler.SavedProposals.Count);
+            var saved = apiHandler.SavedProposals.Last();
             Assert.Contains("Should habitats be reusable entries?", Assert.Single(saved.Clarifications!).Question);
             Assert.Contains("habitat-definition", saved.Clarifications![0].Question);
             Assert.Contains("reusable entry", Assert.Single(saved.Clarifications!).Answer);
@@ -153,8 +156,14 @@ public sealed class ScopedSchemaDiscoveryTests
         try
         {
             var now = DateTimeOffset.UtcNow;
+            var rules = (WorkingRuleSet)typeof(MainWindow).GetField("_workingRuleSet", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window)!;
+            var schema = JsonNode.Parse("""{"id":"schema","name":"Game","version":"0.1","entityTypes":[{"metadata":{"id":"habitat","name":"Habitat"},"properties":[]}]}""")!.AsObject();
             SetField(window, "_schemaProposal", new ProjectSchemaProposal("schema", "scoped-schema-project", "0.1", "Schema", "{}",
-                [new("habitat", ["habitat-definition"])], "working-rules-scoped", 1, ["habitat-definition"], now, now));
+                [new("habitat", ["habitat-definition"])], "working-rules-scoped", 1, ["habitat-definition"], now, now) with
+            {
+                SchemaJson = schema.ToJsonString(),
+                RuleAssessments = [SchemaRuleAccounting.Bind(new("habitat-definition", "alreadyRepresented", "Explicit Habitat Coverage.", ["habitat"]), rules, schema, now)]
+            });
             Queue(window, "habitat-definition");
             var panel = window.FindControl<StackPanel>("SchemaRuleGroupsPanel")!;
             var definition = panel.Children.OfType<Expander>().Single(group => Equals(group.Tag, "Definition"));
@@ -174,6 +183,81 @@ public sealed class ScopedSchemaDiscoveryTests
         }
         finally { window.Close(); }
     }
+
+    [AvaloniaFact]
+    public async Task No_change_rule_is_saved_hidden_and_still_accounted_for_after_reload()
+    {
+        var response = """{"action":"recordOutcomes","outcomes":[{"workingRuleId":"unrelated-combat","disposition":"retainAsText","reason":"The narrative rule is retained without inventing fields.","definitionIds":[]}]}""";
+        var store = new SchemaProposalCaptureHandler();
+        using var model = new HttpClient(new SequencedOllamaHandler(response));
+        using var api = new HttpClient(store) { BaseAddress = new Uri("http://qa.invalid/") };
+        var window = CreateWindow(model, api);
+        ProjectSchemaProposal saved;
+        try
+        {
+            Queue(window, "unrelated-combat");
+            await (Task)typeof(MainWindow).GetMethod("ProcessSchemaQueueAsync", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, null)!;
+            saved = Assert.Single(store.SavedProposals);
+            Assert.Equal("retainAsText", Assert.Single(saved.RuleAssessments!).Outcome.Disposition);
+            Assert.Empty(JsonNode.Parse(saved.SchemaJson)!["entityTypes"]!.AsArray());
+            Assert.Empty(QueueIds(window));
+            Assert.Contains("Retained As Text", string.Join(" ", SchemaLabels(window)));
+        }
+        finally { window.Close(); }
+        var reopened = CreateWindow(model, api);
+        try
+        {
+            SetField(reopened, "_schemaProposal", JsonSerializer.Deserialize<ProjectSchemaProposal>(JsonSerializer.Serialize(saved))!);
+            reopened.FindControl<CheckBox>("HideCompletedSchemaRulesCheck")!.IsChecked = true;
+            Invoke(reopened, "RefreshSchemaView");
+            var labels = SchemaLabels(reopened);
+            Assert.DoesNotContain("Unrelated Combat", labels);
+            Assert.DoesNotContain(store.Requests, request => request.Contains("active-schema", StringComparison.Ordinal));
+        }
+        finally { reopened.Close(); }
+    }
+
+    [AvaloniaFact]
+    public async Task Failed_accounting_save_does_not_mark_rule_complete_or_remove_queue_item()
+    {
+        var response = """{"action":"recordOutcomes","outcomes":[{"workingRuleId":"unrelated-combat","disposition":"retainAsText","reason":"Narrative rule.","definitionIds":[]}]}""";
+        var store = new SchemaProposalCaptureHandler { FailAllSaves = true };
+        using var model = new HttpClient(new SequencedOllamaHandler(response));
+        using var api = new HttpClient(store) { BaseAddress = new Uri("http://qa.invalid/") };
+        var window = CreateWindow(model, api);
+        try
+        {
+            Queue(window, "unrelated-combat");
+            await (Task)typeof(MainWindow).GetMethod("ProcessSchemaQueueAsync", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, null)!;
+            Assert.Empty(store.SavedProposals);
+            Assert.Equal(new[] { "unrelated-combat" }, QueueIds(window));
+            Assert.Null(typeof(MainWindow).GetField("_schemaProposal", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window));
+        }
+        finally { window.Close(); }
+    }
+
+    [AvaloniaFact]
+    public void Legacy_citation_or_name_match_does_not_hide_an_unassessed_rule()
+    {
+        using var model = new HttpClient(); using var api = new HttpClient();
+        var window = CreateWindow(model, api);
+        try
+        {
+            var now = DateTimeOffset.UtcNow;
+            SetField(window, "_schemaProposal", new ProjectSchemaProposal("schema", "scoped-schema-project", "0.1", "Legacy", "{}",
+                [new("habitat", ["habitat-definition"])], "working-rules-scoped", 1, ["habitat-definition"], now, now));
+            window.FindControl<CheckBox>("HideCompletedSchemaRulesCheck")!.IsChecked = true;
+            Invoke(window, "RefreshSchemaView");
+            Assert.Contains("Habitat Definition", SchemaLabels(window));
+            Assert.Contains("Previously Cited — Coverage Not Yet Assessed", SchemaLabels(window));
+        }
+        finally { window.Close(); }
+    }
+
+    private static string?[] SchemaLabels(MainWindow window) => window.FindControl<StackPanel>("SchemaRuleGroupsPanel")!.Children.OfType<Expander>()
+        .SelectMany(group => ((StackPanel)group.Content!).Children)
+        .SelectMany(control => control is StackPanel row ? row.Children.OfType<TextBlock>() : control is TextBlock text ? new[] { text } : Enumerable.Empty<TextBlock>())
+        .Select(text => text.Text).ToArray();
 
     [AvaloniaFact]
     public async Task First_batch_is_saved_before_later_discovery_with_duplicate_names_fails()
@@ -309,6 +393,7 @@ public sealed class ScopedSchemaDiscoveryTests
     private sealed class SchemaProposalCaptureHandler : HttpMessageHandler
     {
         public string? FailDefinitionId { get; init; }
+        public bool FailAllSaves { get; init; }
         public List<ProjectSchemaProposal> SavedProposals { get; } = [];
         public List<string> Requests { get; } = [];
 
@@ -320,7 +405,7 @@ public sealed class ScopedSchemaDiscoveryTests
             Assert.Equal(HttpMethod.Put, request.Method);
             Assert.Equal("http://qa.invalid/api/projects/scoped-schema-project/schema-proposal", request.RequestUri?.ToString());
             var proposal = (await request.Content!.ReadFromJsonAsync<ProjectSchemaProposal>(cancellationToken: cancellationToken))!;
-            if (FailDefinitionId is not null && proposal.DefinitionSources.Any(mapping => mapping.DefinitionId == FailDefinitionId))
+            if (FailAllSaves || FailDefinitionId is not null && proposal.DefinitionSources.Any(mapping => mapping.DefinitionId == FailDefinitionId))
                 throw new HttpRequestException("Simulated save failure.");
             SavedProposals.Add(proposal);
             return new HttpResponseMessage(HttpStatusCode.NoContent);

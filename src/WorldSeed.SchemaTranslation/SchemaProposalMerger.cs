@@ -43,7 +43,7 @@ public static class SchemaProposalMerger
                     // field-level merge.
                     if (JsonNode.DeepEquals(existing, definitionObject)) continue;
                     if (!allowExistingDefinitionUpdates)
-                        throw new SchemaTranslationFormatException($"Proposed definition '{id}' conflicts with the saved schema. Return a new id, or reference the saved definition instead of redefining it.");
+                        throw new SchemaTranslationFormatException($"Proposed definition '{id}' conflicts with the saved schema. Reference the saved definition with alreadyRepresented, or explicitly extend it without changing existing semantics. Never rename the same concept to bypass a conflict.");
 
                     MergeChangedDefinition(existing, definitionObject);
                     continue;

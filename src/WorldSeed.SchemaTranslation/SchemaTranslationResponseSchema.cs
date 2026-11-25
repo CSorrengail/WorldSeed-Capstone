@@ -128,6 +128,14 @@ public static class SchemaTranslationResponseSchema
         """)!.AsObject();
         var allowed = allowedWorkingRuleIds.OrderBy(id => id, StringComparer.Ordinal)
             .Select(id => (JsonNode)JsonValue.Create(id)!).ToArray();
+        var outcomes = JsonNode.Parse("""{"type":"array","items":{"type":"object","additionalProperties":false,"required":["workingRuleId","disposition","reason","definitionIds"],"properties":{"workingRuleId":{"type":"string"},"disposition":{"type":"string"},"reason":{"type":"string","minLength":1,"maxLength":500},"definitionIds":{"type":"array","uniqueItems":true,"maxItems":3,"items":{"type":"string","minLength":1}}}}}""")!.AsObject();
+        outcomes["minItems"] = allowedWorkingRuleIds.Count;
+        outcomes["maxItems"] = allowedWorkingRuleIds.Count;
+        outcomes["items"]!["properties"]!["workingRuleId"]!["enum"] = new JsonArray(allowedWorkingRuleIds.Select(id => (JsonNode?)JsonValue.Create(id)).ToArray());
+        outcomes["items"]!["properties"]!["disposition"]!["enum"] = new JsonArray(SchemaRuleAccounting.Dispositions.Select(value => (JsonNode?)JsonValue.Create(value)).ToArray());
+        schema["properties"]!["outcomes"] = outcomes.DeepClone();
+        schema["properties"]!["proposal"]!["properties"]!["outcomes"] = outcomes.DeepClone();
+        schema["properties"]!["proposal"]!["required"]!.AsArray().Add("outcomes");
         schema["properties"]!["proposal"]!["properties"]!["definitionSources"]!["items"]!["properties"]!["workingRuleIds"]!["items"]!["enum"] = new JsonArray(allowed);
         schema["properties"]!["clarificationContext"] = JsonNode.Parse("""{"type":"object","additionalProperties":false,"required":["workingRuleIds","detail","reason"],"properties":{"workingRuleIds":{"type":"array","minItems":1,"maxItems":3,"uniqueItems":true,"items":{"type":"string"}},"detail":{"type":"string","minLength":1,"maxLength":500},"reason":{"type":"string","minLength":1,"maxLength":500}}}""");
         schema["properties"]!["clarificationContext"]!["properties"]!["workingRuleIds"]!["items"]!["enum"] = new JsonArray(allowedWorkingRuleIds.Select(id => (JsonNode?)JsonValue.Create(id)).ToArray());
@@ -147,7 +155,7 @@ public static class SchemaTranslationResponseSchema
             return new JsonObject { ["type"] = "object", ["additionalProperties"] = false,
                 ["required"] = new JsonArray(new[] { "action" }.Concat(fields).Select(field => (JsonNode?)JsonValue.Create(field)).ToArray()), ["properties"] = properties };
         }
-        schema["oneOf"] = new JsonArray(Branch("askClarifyingQuestion", "clarifyingQuestion", "clarificationContext"), Branch("presentProposal", "proposal"));
+        schema["oneOf"] = new JsonArray(Branch("askClarifyingQuestion", "clarifyingQuestion", "clarificationContext"), Branch("presentProposal", "proposal"), Branch("recordOutcomes", "outcomes"));
         schema.Remove("allOf");
         schema.Remove("properties"); schema.Remove("required"); schema.Remove("additionalProperties");
         return schema;

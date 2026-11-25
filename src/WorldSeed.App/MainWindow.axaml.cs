@@ -84,6 +84,9 @@ public partial class MainWindow : Window
     private DesignProject? _project;
     private WorkingRuleSet? _workingRuleSet;
     private ProjectSchemaProposal? _schemaProposal;
+    private ProjectSchemaProposal? _accountedProposal;
+    private WorkingRuleSet? _accountedRules;
+    private IReadOnlyDictionary<string, SchemaRuleAssessment> _schemaAssessments = new Dictionary<string, SchemaRuleAssessment>();
     private SchemaTransitionReview? _schemaTransitionReview;
     private ActiveGameSchema? _activeGameSchema;
     private ProjectGameData? _projectGameData;
@@ -1368,6 +1371,8 @@ public partial class MainWindow : Window
             var turn = await new SchemaTranslationService(capture).TranslateAsync(new SchemaTranslationRequest(selectedRuleSet, baseSchema, clarifications, structureGoal, changeRequest));
             if (turn.Action == SchemaTranslationAction.AskClarifyingQuestion)
             {
+                if (changeRequest is null)
+                    await SaveSchemaAccountingAsync(rules.Select(rule => new SchemaRuleOutcome(rule.Id, "needsClarification", turn.ClarifyingQuestion!, Array.Empty<string>())).ToArray(), baseSchema);
                 if (changeRequest is not null)
                 {
                     _lastSchemaChangeClarificationQuestion = turn.ClarifyingQuestion ?? "WorldSeed needs more detail before continuing.";
@@ -1383,8 +1388,17 @@ public partial class MainWindow : Window
                 SchemaText.Text = "Queue paused. Answer the question below to continue the current rule, then the remaining queue.";
                 return SchemaQueueItemResult.NeedsClarification;
             }
+            if (turn.Action == SchemaTranslationAction.RecordOutcomes)
+            {
+                if (changeRequest is not null) throw new SchemaTranslationFormatException("A designer schema-change request requires a structural proposal or a clarification, not a no-change outcome.");
+                await SaveSchemaAccountingAsync(turn.Outcomes!, baseSchema);
+                _pendingSchemaQuestion = null;
+                SchemaQuestionPanel.IsVisible = false;
+                SchemaText.Text = string.Join("\n\n", turn.Outcomes!.Select(outcome => $"{rules.Single(rule => rule.Id == outcome.WorkingRuleId).Name}\n{SchemaOutcomeLabel(outcome.Disposition)}: {outcome.Reason}"));
+                return SchemaQueueItemResult.Saved;
+            }
             var proposal = turn.Proposal ?? throw new SchemaTranslationFormatException("The model did not return a schema proposal.");
-            var mergedSchema = SchemaProposalMerger.MergeSchemas(baseSchema, proposal.Schema, changeRequest is not null);
+            var mergedSchema = SchemaProposalMerger.MergeSchemas(baseSchema, proposal.Schema, changeRequest is not null || proposal.Outcomes?.Any(outcome => outcome.Disposition == "extend") == true);
             var mergedSources = SchemaProposalMerger.MergeDefinitionSources(_schemaProposal?.DefinitionSources ?? Array.Empty<DefinitionSource>(), proposal.DefinitionSources);
             var mergedRuleIds = SchemaProposalMerger.MergeWorkingRuleIds(_schemaProposal?.SelectedWorkingRuleIds ?? Array.Empty<string>(), rules.Select(rule => rule.Id));
             var now = DateTimeOffset.UtcNow;
@@ -1400,7 +1414,8 @@ public partial class MainWindow : Window
                 mergedRuleIds,
                 _schemaProposal?.CreatedAt ?? now,
                 now,
-                _schemaClarifications.ToArray());
+                _schemaClarifications.ToArray(),
+                (_schemaProposal?.RuleAssessments ?? Array.Empty<SchemaRuleAssessment>()).Concat((proposal.Outcomes ?? Array.Empty<SchemaRuleOutcome>()).Select(outcome => SchemaRuleAccounting.Bind(outcome, _workingRuleSet!, mergedSchema, now))).ToArray());
             _schemaTransitionReview = null;
             await SchemaProposalStore().SaveAsync(savedProposal);
             _schemaProposal = savedProposal;
@@ -1427,6 +1442,26 @@ public partial class MainWindow : Window
             return SchemaQueueItemResult.Failed;
         }
     }
+
+    private async Task SaveSchemaAccountingAsync(IReadOnlyList<SchemaRuleOutcome> outcomes, JsonObject? baseline)
+    {
+        var schema = baseline ?? new JsonObject { ["id"] = "schema-" + _project!.Id, ["name"] = "Project Schema", ["version"] = "0.1", ["entityTypes"] = new JsonArray() };
+        var now = DateTimeOffset.UtcNow;
+        var saved = new ProjectSchemaProposal(_schemaProposal?.Id ?? "schema-proposal-" + _project!.Id, _project!.Id, "0.1",
+            "Rules Accounted For; Existing Structures Preserved.", schema.ToJsonString(new JsonSerializerOptions { WriteIndented = true }),
+            _schemaProposal?.DefinitionSources ?? Array.Empty<DefinitionSource>(), _workingRuleSet!.Id, _workingRuleSet.Revision,
+            SchemaProposalMerger.MergeWorkingRuleIds(_schemaProposal?.SelectedWorkingRuleIds ?? Array.Empty<string>(), outcomes.Select(outcome => outcome.WorkingRuleId)),
+            _schemaProposal?.CreatedAt ?? now, now, _schemaClarifications.ToArray(),
+            (_schemaProposal?.RuleAssessments ?? Array.Empty<SchemaRuleAssessment>()).Concat(outcomes.Select(outcome => SchemaRuleAccounting.Bind(outcome, _workingRuleSet, schema, now))).ToArray());
+        await SchemaProposalStore().SaveAsync(saved);
+        _schemaProposal = saved;
+    }
+
+    private static string SchemaOutcomeLabel(string disposition) => disposition switch
+    {
+        "create" => "New Structure", "extend" => "Extended Structure", "alreadyRepresented" => "Already Represented",
+        "retainAsText" => "Retained As Text", "excludeFromMechanics" => "Document Information", "needsClarification" => "Needs Clarification", _ => disposition
+    };
 
     private void HideCompletedSchemaRules_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => RefreshSchemaView(preserveStatus: true);
 
@@ -1498,7 +1533,7 @@ public partial class MainWindow : Window
         if (!preserveStatus) SchemaStatusText.Text = _workingRuleSet is not null &&
             (_schemaProposal.WorkingRuleSetId != _workingRuleSet.Id || _schemaProposal.WorkingRuleSetRevision != _workingRuleSet.Revision)
             ? $"Saved Schema Work Is Retained At Working Rules Revision {_schemaProposal.WorkingRuleSetRevision}. Review The New Rules And Prepare An Updated Proposal Before Activation."
-            : $"Saved proposal: {CountSchemaDefinitions(_schemaProposal.SchemaJson)} structure(s) linked to {citedRuleCount} Working Rule(s).";
+            : $"Saved Proposal: {CountSchemaDefinitions(_schemaProposal.SchemaJson)} Structure(s); {_workingRules.Count(IsSchemaProcessed)} Rule(s) Accounted For; {citedRuleCount} Historically Cited.";
         if (preserveStatus) return;
         SchemaText.Text = $"Summary\n{_schemaProposal.Summary}\n\nGame Data Readiness\n{DescribeSchemaContent(_schemaProposal.SchemaJson)}\n\nSchema Clarifications\n{FormatSchemaClarifications(_schemaProposal.Clarifications)}\n\nWorking Rule Inputs ({_schemaProposal.SelectedWorkingRuleIds.Count})\n{string.Join("\n", _schemaProposal.SelectedWorkingRuleIds.Select(id => "- " + id))}\n\nDefinition Sources ({_schemaProposal.DefinitionSources.Count})\n{string.Join("\n", _schemaProposal.DefinitionSources.Select(source => $"- {source.DefinitionId}: {string.Join(", ", source.WorkingRuleIds)}"))}\n\nSchema JSON\n{PrettyJson(_schemaProposal.SchemaJson)}";
     }
@@ -1689,36 +1724,32 @@ public partial class MainWindow : Window
     private string SchemaProposalStatus(WorkingRule rule)
     {
         if (_schemaProposal is null) return "No saved proposal";
-        if (IsCitedBySavedProposal(rule)) return "Cited by saved proposal";
-        if (SchemaDefinesLike(rule)) return "Appears in saved schema (name match; source link missing)";
+        var assessment = SchemaAssessmentFor(rule);
+        if (assessment is not null) return $"{SchemaOutcomeLabel(assessment.Outcome.Disposition)} — {assessment.Outcome.Reason}";
+        if (_schemaProposal.RuleAssessments?.Any(item => item.Outcome.WorkingRuleId == rule.Id) == true) return "Previous Outcome Needs Rechecking — Rules Or Referenced Structures Changed";
+        if (IsCitedBySavedProposal(rule)) return "Previously Cited — Coverage Not Yet Assessed";
+        if (SchemaDefinesLike(rule)) return "Similar Structure Name — Coverage Not Yet Assessed";
         if (_schemaProposal.SelectedWorkingRuleIds.Contains(rule.Id, StringComparer.Ordinal)) return "Used as proposal input (not cited)";
         return "Not in saved proposal";
     }
 
-    private bool IsSchemaProcessed(WorkingRule rule) => IsCitedBySavedProposal(rule) || SchemaDefinesLike(rule);
+    private SchemaRuleAssessment? SchemaAssessmentFor(WorkingRule rule)
+    {
+        if (!ReferenceEquals(_accountedProposal, _schemaProposal) || !ReferenceEquals(_accountedRules, _workingRuleSet))
+        {
+            _schemaAssessments = SchemaRuleAccounting.CurrentAssessments(_schemaProposal, _workingRuleSet);
+            _accountedProposal = _schemaProposal; _accountedRules = _workingRuleSet;
+        }
+        return _schemaAssessments.GetValueOrDefault(rule.Id);
+    }
+
+    private bool IsSchemaProcessed(WorkingRule rule) => SchemaRuleAccounting.IsComplete(SchemaAssessmentFor(rule));
 
     private bool IsCitedBySavedProposal(WorkingRule rule) => _schemaProposal?.DefinitionSources.Any(source => source.WorkingRuleIds.Contains(rule.Id, StringComparer.Ordinal)) == true;
 
     private bool SchemaAlreadyContains(SchemaStructurePlan plan)
     {
-        if (_schemaProposal is null) return false;
-        var collection = plan.Kind == SchemaStructurePlanKind.ContentType ? "entityTypes" : "relationships";
-        try
-        {
-            var schema = JsonNode.Parse(_schemaProposal.SchemaJson) as JsonObject;
-            return (schema?[collection] as JsonArray)?.OfType<JsonObject>().Any(definition =>
-            {
-                var metadata = definition["metadata"] as JsonObject;
-                var id = metadata?["id"]?.GetValue<string>();
-                var name = metadata?["name"]?.GetValue<string>();
-                return string.Equals(id, plan.Id, StringComparison.Ordinal)
-                    || (!string.IsNullOrWhiteSpace(name) && ComparableSchemaName(name) == ComparableSchemaName(plan.Name));
-            }) == true;
-        }
-        catch (JsonException)
-        {
-            return false;
-        }
+        return plan.WorkingRuleIds.Count > 0 && plan.WorkingRuleIds.All(id => _workingRules.FirstOrDefault(rule => rule.Id == id) is { } rule && IsSchemaProcessed(rule));
     }
 
     private string? ResolveContentTypeId(string? plannedId)

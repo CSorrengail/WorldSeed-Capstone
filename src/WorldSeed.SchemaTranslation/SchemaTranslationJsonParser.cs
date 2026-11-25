@@ -44,10 +44,17 @@ public sealed class SchemaTranslationJsonParser
             root = (JsonObject)alternateQuestion.DeepClone();
             root["action"] = "askClarifyingQuestion";
         }
-        var action = String(root["action"]) switch { "askClarifyingQuestion" => SchemaTranslationAction.AskClarifyingQuestion, "presentProposal" => SchemaTranslationAction.PresentProposal, _ => throw new SchemaTranslationFormatException("The model response has an unknown action.") };
+        var action = String(root["action"]) switch { "askClarifyingQuestion" => SchemaTranslationAction.AskClarifyingQuestion, "presentProposal" => SchemaTranslationAction.PresentProposal, "recordOutcomes" => SchemaTranslationAction.RecordOutcomes, _ => throw new SchemaTranslationFormatException("The model response has an unknown action.") };
         var question = String(root["clarifyingQuestion"]);
         if (action == SchemaTranslationAction.AskClarifyingQuestion && question is null) throw new SchemaTranslationFormatException("A clarification response requires a question.");
         if (action == SchemaTranslationAction.AskClarifyingQuestion) return new SchemaTranslationTurn(action, question, null);
+        if (action == SchemaTranslationAction.RecordOutcomes)
+        {
+            if (root["proposal"] is not null) throw new SchemaTranslationFormatException("A recordOutcomes response cannot contain schema changes.");
+            var outcomes = SchemaRuleAccounting.Parse(root["outcomes"], workingRuleSet);
+            SchemaRuleAccounting.Validate(outcomes, baseSchema, null, []);
+            return new(action, null, null, outcomes);
+        }
         var proposal = root["proposal"] as JsonObject ?? throw new SchemaTranslationFormatException("A proposal response requires a proposal object.");
         var schema = NormalizeAlternateSchemaContainer(proposal, baseSchema) ?? throw new SchemaTranslationFormatException("A schema proposal requires a schema object.");
         // Some local models correctly construct a definition array, but place it beside schema. Moving a
@@ -70,12 +77,15 @@ public sealed class SchemaTranslationJsonParser
             RemoveDefinitions(schema, echoedSavedIds);
             sources.RemoveAll(source => echoedSavedIds.Contains(source.DefinitionId));
         }
-        if (!Definitions(schema).Any()) throw new SchemaTranslationFormatException("The model returned only definitions that are already saved. Reuse saved definitions by reference and return at least one new definition.");
-        var validationSchema = SchemaProposalMerger.MergeSchemas(baseSchema, schema, allowExistingDefinitionUpdates);
-        var issues = _schemaValidator.Validate(validationSchema).Issues.Select(issue => issue.Message).ToList();
+        if (!Definitions(schema).Any()) throw new SchemaTranslationFormatException("The model returned only definitions that are already saved. Use recordOutcomes with alreadyRepresented links when no new structure is needed.");
         var allowedRules = workingRuleSet.Rules.Select(rule => rule.Id).ToHashSet(StringComparer.Ordinal);
         var definitionIds = Definitions(schema).ToHashSet(StringComparer.Ordinal);
         CompleteSingleRuleSourceMappings(sources, definitionIds, allowedRules);
+        var explicitOutcomes = proposal["outcomes"] is null ? null : SchemaRuleAccounting.Parse(proposal["outcomes"], workingRuleSet);
+        if (explicitOutcomes is not null && !allowExistingDefinitionUpdates)
+            SchemaRuleAccounting.Validate(explicitOutcomes, baseSchema, schema, sources);
+        var validationSchema = SchemaProposalMerger.MergeSchemas(baseSchema, schema, allowExistingDefinitionUpdates || explicitOutcomes?.Any(outcome => outcome.Disposition == "extend") == true);
+        var issues = _schemaValidator.Validate(validationSchema).Issues.Select(issue => issue.Message).ToList();
         foreach (var source in sources)
         {
             if (!definitionIds.Contains(source.DefinitionId)) issues.Add($"Definition source '{source.DefinitionId}' does not exist in the proposed schema.");
@@ -84,7 +94,12 @@ public sealed class SchemaTranslationJsonParser
         var mapped = sources.Select(source => source.DefinitionId).ToHashSet(StringComparer.Ordinal);
         foreach (var id in definitionIds.Where(id => !mapped.Contains(id))) issues.Add($"Proposed definition '{id}' has no source-rule mapping.");
         if (issues.Count > 0) throw new SchemaTranslationFormatException(string.Join(" ", issues));
-        return new SchemaTranslationTurn(action, null, new SchemaTranslationProposal(Required(proposal, "summary"), schema, sources, workingRuleSet.Id, workingRuleSet.Revision));
+        // Legacy structural responses remain readable. Only actual mappings supply inferred coverage.
+        var recordedOutcomes = explicitOutcomes ?? workingRuleSet.Rules.Select(rule => new SchemaRuleOutcome(rule.Id,
+            allowExistingDefinitionUpdates ? "extend" : "create", "Translated With Source-Rule Mapping.",
+            sources.Where(source => source.WorkingRuleIds.Contains(rule.Id, StringComparer.Ordinal)).Select(source => source.DefinitionId).ToArray()))
+            .Where(outcome => outcome.DefinitionIds.Count > 0).ToArray();
+        return new SchemaTranslationTurn(action, null, new SchemaTranslationProposal(Required(proposal, "summary"), schema, sources, workingRuleSet.Id, workingRuleSet.Revision, recordedOutcomes), recordedOutcomes);
     }
 
     /// <summary>
